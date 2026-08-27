@@ -1,0 +1,187 @@
+/**
+ * Types for the Sidechat/Yik Yak API.
+ *
+ * Ported from sidechat.js's JSDoc typedefs, then corrected against live payloads
+ * captured on 2026-08-26. Fields marked "(observed)" are present in real
+ * responses but missing from the library's own typedefs.
+ */
+
+export type VoteStatus = 'upvote' | 'downvote' | 'none';
+export type FeedCategory = 'hot' | 'recent' | 'top';
+export type FollowStatus = 'following' | 'not_following';
+export type ContentType = 'post' | 'comment';
+
+/** Opaque pagination cursor, e.g. "persisted~756c2fb0-...". */
+export type Cursor = string;
+
+/** Bearer token. Treat as a credential. */
+export type AuthToken = string;
+
+/**
+ * Some asset URLs are pre-signed (usable in a plain <img>), others require the
+ * bearer token in an Authorization header. See Q2 in PLAN.md.
+ */
+export type AssetURL = string;
+
+export interface ConversationIcon {
+  emoji: string;
+  color: string;
+  secondary_color: string;
+}
+
+export interface Identity {
+  name: string;
+  posted_with_username: boolean;
+  /** (observed) present when the author posts under a username. */
+  conversation_icon?: ConversationIcon;
+  /** (observed) */
+  is_following?: boolean;
+}
+
+export interface Asset {
+  id: string;
+  type: 'image';
+  content_type: 'jpeg' | 'png' | 'gif';
+  width: number;
+  height: number;
+  url?: AssetURL;
+  /** (observed) pre-signed variant returned by the public web API. */
+  signed_url?: AssetURL;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  analytics_name: string;
+  index_name?: string;
+  membership_type: 'non_member' | 'member';
+  /** Group accent color as hex, e.g. "#9796F0". */
+  color: string;
+  group_join_type: 'open' | 'closed' | 'email_domain' | 'open_to_all' | 'account';
+  group_visibility: 'private' | 'public_to_all' | 'public_to_schools';
+  asset_library_visibility: 'show' | 'hide';
+  description?: string;
+  icon_url?: AssetURL;
+  member_count?: number;
+  should_show_leaderboard?: boolean;
+  disable_ads?: boolean;
+  can_join?: boolean;
+  roles?: unknown[];
+}
+
+export interface PollChoice {
+  count: number;
+  text: string;
+  selected: boolean;
+}
+
+export interface Poll {
+  id: string;
+  post_id: string;
+  choices: PollChoice[];
+  allows_view_results: boolean;
+  view_results_count: number;
+  participated: boolean;
+}
+
+export interface PostOrComment {
+  type: ContentType;
+  id: string;
+  authored_by_user: boolean;
+  alias: string;
+  group_id: string;
+  group: Group;
+  text: string;
+  created_at: string;
+  vote_total: number;
+  vote_status: VoteStatus;
+  assets: Asset[];
+  attachments: unknown[];
+  dms_disabled: boolean;
+  tags: string[];
+  identity: Identity;
+  pinned: boolean;
+  is_saved: boolean;
+  follow_status: FollowStatus;
+  destination?: 'group';
+  /** (observed) short public share code used in web URLs, e.g. "0ESz5N3t". */
+  index_code?: string;
+  /** (observed) always present, contents undocumented. */
+  awards?: unknown[];
+
+  // post only
+  comment_count?: number;
+  comments_disabled?: boolean;
+  poll?: Poll;
+
+  // comment only
+  parent_post_id?: string;
+  reply_post_id?: string;
+  context?: string;
+  /** Added client-side by sidechat.js when it nests the comment tree. */
+  replies?: PostOrComment[];
+}
+
+export interface PostsAndCursor {
+  posts: PostOrComment[];
+  cursor: Cursor;
+}
+
+export interface Membership {
+  groupId: string;
+  type: string;
+}
+
+export interface CurrentUser {
+  id: string;
+  hashedVerifiedEmail: string;
+  isGlobalModerator: boolean;
+  isGlobalAdmin: boolean;
+  memberships: Membership[];
+  roles: unknown[];
+  emailDomain: string;
+  wildcardEmailDomain: string;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  conversation_icon: ConversationIcon;
+  description?: string;
+  index_name: string;
+  analytics_name: string;
+  color: string;
+  share_color_start: string;
+  share_color_end: string;
+  group_join_type: 'account';
+  group_visibility: 'public_to_all';
+}
+
+export interface DirectMessage {
+  id: string;
+  chat_id: string;
+  created_at: string;
+  client_id: string;
+  obfuscatedUserId: string;
+  text: string;
+  authored_by_user: boolean;
+  type: 'message';
+}
+
+export interface DirectThread {
+  id: string;
+  group_id: string;
+  updated_at: string;
+  post_id: string;
+  post_context: string;
+  accept_status: 'accepted' | string;
+  type: ContentType;
+  messages: DirectMessage[];
+}
+
+/** Response shape of POST /v1/verify_phone_number. */
+export interface VerifyResponse {
+  logged_in_user?: { token: AuthToken };
+  registration_id?: string;
+  [key: string]: unknown;
+}

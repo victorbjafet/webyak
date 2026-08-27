@@ -1,14 +1,6 @@
 /**
- * Learn more about light and dark modes:
- * https://docs.expo.dev/guides/color-schemes/
+ * Kept as the historical import path used by the themed primitives.
+ * The implementation lives with the provider that owns the preference state.
  */
-
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-
-export function useTheme() {
-  const scheme = useColorScheme();
-  const theme = scheme === 'unspecified' ? 'light' : scheme;
-
-  return Colors[theme];
-}
+export { useTheme, useColorScheme, useThemePreference } from '@/theme/theme-provider';
+export type { ThemePreference } from '@/theme/theme-provider';

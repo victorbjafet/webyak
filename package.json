@@ -4,7 +4,13 @@
   "version": "1.0.0",
   "dependencies": {
     "@expo/ui": "~57.0.13",
+    "@expo/vector-icons": "^15.0.2",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "@tanstack/query-async-storage-persister": "^5.102.6",
+    "@tanstack/react-query": "^5.102.6",
+    "@tanstack/react-query-persist-client": "^5.102.6",
     "expo": "~57.0.16",
+    "expo-clipboard": "~57.0.1",
     "expo-constants": "~57.0.14",
     "expo-device": "~57.0.1",
     "expo-font": "~57.0.1",
@@ -12,6 +18,7 @@
     "expo-image": "~57.0.3",
     "expo-linking": "~57.0.7",
     "expo-router": "~57.0.16",
+    "expo-secure-store": "~57.0.2",
     "expo-splash-screen": "~57.0.8",
     "expo-status-bar": "~57.0.1",
     "expo-symbols": "~57.0.2",
@@ -30,6 +37,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eslint": "^9.0.0",
+    "eslint-config-expo": "~57.0.2",
     "typescript": "~6.0.3"
   },
   "scripts": {
@@ -38,7 +47,8 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "build:web": "expo export --platform web && cp dist/index.html dist/404.html && touch dist/.nojekyll"
   },
   "private": true
 }

@@ -5,6 +5,12 @@ Goal: faithful parity with the official app, plus features the official web clie
 
 Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `⛔` blocked/gap
 
+**This file is the roadmap.** Decisions and findings live next to it:
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (URL shape, hosting),
+[docs/API.md](docs/API.md) (auth flow, ID blockers, library defects),
+[docs/DESIGN.md](docs/DESIGN.md) (tokens, layout rules).
+The rule for keeping them current is in [CLAUDE.md](CLAUDE.md).
+
 ---
 
 ## 1. Current state
@@ -21,9 +27,23 @@ Scaffolded and smoke-tested on 2026-08-26:
 | Web dev server | `npx expo start --web` → HTTP 200 ✅ |
 | Git | initialized, 1 commit (template) |
 
-Source lives in `src/` (`src/app` = routes). The template's demo screens
-(`src/app/index.tsx`, `src/app/explore.tsx`, `src/components/*`) are still in place and get
-replaced in Phase 1 — keep `src/hooks/use-color-scheme*` and `src/constants/theme.ts`.
+Source lives in `src/`:
+
+| Path | What |
+|---|---|
+| `src/app/` | expo-router routes; URLs mirror web.yikyak.com |
+| `src/api/` | client singleton, typed wrappers, session context, query provider |
+| `src/lib/storage.ts(.web.ts)` | platform-split key/value stores |
+| `src/theme/` | theme preference provider (light/dark/system, persisted) |
+| `src/components/` | shell, nav, themed primitives |
+| `src/constants/theme.ts` | design tokens |
+
+Added in Phase 1: `@tanstack/react-query` + persist client, `expo-secure-store`,
+`@react-native-async-storage/async-storage`, `@expo/vector-icons`, eslint (via `expo lint`).
+
+Web output is `single` (SPA), not `static` — build with **`npm run build:web`**,
+which also writes the `404.html` fallback and `.nojekyll` that GitHub Pages needs.
+Reasoning in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deployment-model--static-serverless-github-pages).
 
 > ⚠️ `AGENTS.md` (from the template): **read <https://docs.expo.dev/versions/v57.0.0/> before
 > writing code.** SDK 57 changed a lot; don't code from memory of older Expo.
@@ -158,23 +178,59 @@ Items 25–29 are the "sniff the official client and add via `sendRequest`" pile
 - [x] Recon API, CORS, pagination, payload shapes
 - [x] Write this plan
 
-### Phase 1 — foundation
-- [ ] Strip template demo screens/components; keep theme hooks + `constants/theme.ts`
-- [ ] Design tokens: colors, spacing, type scale; dark + light
-- [ ] `lib/storage.ts` platform-split token store (localStorage / SecureStore)
-- [ ] `api/client.ts` — `SidechatAPIClient` singleton + React context
-- [ ] TanStack Query provider + persisted cache
-- [ ] Port `SidechatTypes` JSDoc typedefs into real `.d.ts` types
-- [ ] App shell: sidebar (desktop) / tab bar (mobile), header, route skeletons
+### Phase 1 — foundation ✅
+- [x] Strip template demo screens/components; keep theme hooks + `constants/theme.ts`
+- [x] Design tokens: colors, spacing, radii, type scale, breakpoints; dark + light
+- [x] `lib/storage.ts` platform-split token store (localStorage / SecureStore)
+- [x] `api/client.ts` — `SidechatAPIClient` singleton, typed wrappers, defect workarounds
+- [x] `api/session.tsx` — session context, token restore, persisted device ID
+- [x] TanStack Query provider + persisted cache
+- [x] Port `SidechatTypes` typedefs into real TS, corrected against live payloads
+- [x] App shell: sidebar (>=900px) / bottom tab bar, `Screen` container, all 12 route skeletons
 
-### Phase 2 — auth
-- [ ] Phone entry → `loginViaSMS`
-- [ ] Code entry → `verifySMSCode`, persist token
-- [ ] New-user branch: `setAge` → `registerEmail` → `checkEmailVerification` polling
-- [ ] `setDeviceID` with a generated, persisted device/client ID (also needed by DMs)
-- [ ] Session restore on boot; 401 → sign-out; logout clears storage
+Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` renders all
+12 routes, `/nope/...` returns a real HTTP 404.
+
+### Phase 2 — auth ✅
+- [x] Phone entry → `/v1/login_register`
+- [x] Code entry → `/v1/verify_phone_number`, three-way branch, persist token
+- [x] New-user branch: age gate → school email → verification polling (skippable)
+- [x] Device token registered after the age gate
+- [x] Session restore on boot; global 401 → sign-out; sign-out clears storage
+- [x] Auth gate via `Stack.Protected` — every route except `/login` is gated
+- [x] Error surfacing verified against the live API (400 + `message`)
+- [x] `/diagnostics` screen that runs the blocker probes on one press
+- [x] Signed in with a real number; round-1 probes run
+- [x] Q2 **closed** — assets are pre-signed R2 URLs, plain `<img>` works
+- [x] Q6 **closed** — the URL slug is a group's `index_name`
+- [x] Q1 **closed** — `cy` is a hardcoded literal, not a region
+- [x] Blocker 1 **answered: no native endpoint exists.** Confirmed by a DynamoDB
+      key error, not inferred — [docs/API.md](docs/API.md#blocker-1--index_code--post_id)
+- [x] Blocker 2 layered resolver implemented (`src/api/groups.ts`)
+- [x] Feed defences ported from offsides (`src/api/feed.ts`)
+- [x] Round-2 probes run — every resolver layer missed; direct slug lookup
+      confirmed dead (`NOT_FOUND_ERROR`); search crashed on a library defect
+- [x] Search wrapper defect found and bypassed (`coerceGroupList`)
+- [x] Worker **deferred by decision**, fully specified in [docs/WORKER.md](docs/WORKER.md);
+      client hooks in place and inert
+- [x] Round-3 probes run — **Blocker 2 closed**. Search envelope is `{groups}`,
+      not `results`; layer 4 resolves groups outside explore
+- [x] Unicode slugs handled (`wsu-wordle-🧩` is a real `index_name`)
+- [x] `memberships[]` (4) vs `getUpdates` (3) discrepancy documented
 
 ### Phase 3 — read
+
+> Blocker 2 is **closed** — `/g/<slug>` resolves for any group. Blocker 1 has no
+> client-side fix and is parked on the deferred Worker; it only affects pasted
+> post links.
+> Read [docs/API.md](docs/API.md#two-id-resolution-blockers) before starting.
+> The feed helpers in `src/api/feed.ts` are **not optional** — see
+> [docs/OFFSIDES.md](docs/OFFSIDES.md#the-feed-needs-two-defensive-filters-not-one).
+
+- [x] Slug → `group_id` resolver working end to end (`src/api/groups.ts`)
+- [ ] ⛔ `/p/<code>` from a **pasted link** needs [the Worker](docs/WORKER.md),
+      which is deferred. In-app navigation carries the UUID, so build the post
+      screen against that and the gap closes later. `/g/<slug>` is unaffected.
 - [ ] Group feed with hot/recent/top tabs, cursor infinite scroll
 - [ ] Post card: text, vote count, comment count, alias/identity chip, relative time
 - [ ] Identity avatar (emoji + primary/secondary color)
@@ -195,6 +251,8 @@ Items 25–29 are the "sniff the official client and add via `sendRequest`" pile
 
 ### Phase 5 — groups & profile
 - [ ] Explore page: group grid, member counts, icons
+- [ ] ⛔ Explore links to `/g/<slug>`, so it depends on the slug assumption from
+      Blocker 2 being confirmed
 - [ ] Group search
 - [ ] Join / leave; membership reflected in nav
 - [ ] Group header: icon, description, member count, rules
@@ -204,6 +262,8 @@ Items 25–29 are the "sniff the official client and add via `sendRequest`" pile
 
 ### Phase 6 — messaging
 - [ ] DM list + unread state
+- [ ] ⛔ Verify a random-UUID device ID is accepted where offsides uses a hashed
+      hardware ID — [docs/API.md](docs/API.md#what-we-copy-and-one-thing-we-deliberately-dont)
 - [ ] DM thread view + send
 - [ ] Start DM from a post or comment
 - [ ] Group chat explore + join (patch the broken URL first)
@@ -216,6 +276,7 @@ Items 25–29 are the "sniff the official client and add via `sendRequest`" pile
 - [ ] Light/system theme toggle
 - [ ] Draft autosave, offline cache, JSON export
 - [ ] PWA manifest + service worker
+- [ ] Redirect real Yik Yak URLs (`/cy/<group>/comments/<code>/<slug>`) to `/p/<code>`
 
 ### Phase 8 — gap-filling
 - [ ] Capture official-client traffic to find endpoints for save, follow, notifications, report, awards
@@ -227,21 +288,38 @@ Items 25–29 are the "sniff the official client and add via `sendRequest`" pile
 - [ ] Rate-limit handling + friendly error surfaces
 - [ ] Responsive QA: 360px → 2560px
 - [ ] iOS/Android smoke test (universal comes nearly free)
-- [ ] `expo export --platform web` → static host; verify deep links
+- [ ] `npm run build:web` → GitHub Pages; verify deep links and that `_expo/`
+      assets load (needs `.nojekyll`) — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-two-github-pages-gotchas)
 
 ---
 
 ## 7. Open questions
 
-- **Q1** — What is the `cy` path segment in `/cy/wordle`? Region? "community"? Mirror it verbatim
-  until known.
-- **Q2** — Do posts from `api.sidechat.lol` return pre-signed asset URLs (like the public web API
-  does) or bearer-only private URLs? Decides whether images need a fetch-to-blob shim on web.
-  Answerable in one request once a token exists.
-- **Q3** — Rate limits: unknown. Add backoff before hammering feeds.
-- **Q4** — Does the API accept the `App-Version: 6.0.0` default forever, or force upgrades?
-- **Q5** — Logged-out mode: worth standing up a tiny proxy for `web.yikyak.com/api`, or keep
-  webyak login-only and stay fully static?
+Resolved ones are kept with their answer so they don't get re-asked.
+
+- **Q1 — the `cy` path segment.** ✅ Resolved by no longer caring: webyak does not
+  mirror Yik Yak's URLs. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#url-shape).
+- **Q2 — asset URLs.** ✅ Resolved: pre-signed R2, `<img src>` works, no shim and
+  no proxy. Caveat: asset-*library* URLs are not pre-signed.
+- **Q3 — rate limits.** Unknown. Add backoff before hammering feeds.
+- **Q4 — `App-Version: 6.0.0`.** Does the API accept it indefinitely, or force
+  upgrades? Unknown.
+- **Q5 — logged-out mode.** ✅ Resolved: no. webyak is auth-only, matching the
+  real app. This is what removes the need for a proxy —
+  [docs/API.md](docs/API.md#auth-is-mandatory).
+- **Q6 — is a group's URL slug its `index_name`?** ✅ Resolved: yes, confirmed two
+  ways. Note `index_name` isn't always derivable from the display name
+  (`Who Would Win?` → `who-would-win-meun`), which is fine since we only go
+  slug → group.
+- **Q7 — the Cloudflare Worker.** ✅ Decided: yes eventually, **deferred for now**.
+  Two routes, no state, fully specified in [docs/WORKER.md](docs/WORKER.md).
+- **Q8 — does group search work?** ✅ Resolved: yes. The envelope is `{groups}`;
+  sidechat.js reads `results`, which is why it appeared broken. This closed
+  Blocker 2.
+- **Q9 — why does `getUpdates` return fewer groups than `memberships`?** New,
+  minor. One id (`3e27b02b-…`) is in `/v1/users/me` but not `getUpdates`. Not
+  blocking; matters for Phase 5's "your groups" list, which should seed from
+  `memberships[]` rather than assume `getUpdates` is complete.
 
 ---
 

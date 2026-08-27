@@ -1,0 +1,146 @@
+# Architecture
+
+## Deployment model — static, serverless, GitHub Pages
+
+webyak ships as a **pure static bundle with no server of its own**. Verified
+2026-08-26: `api.sidechat.lol` returns `access-control-allow-origin: *`,
+`access-control-allow-methods: *` and `access-control-allow-headers: *` on both
+simple requests and `OPTIONS` preflight, so the browser talks to the Sidechat API
+directly. **No CORS proxy is required for the app's own data path.**
+
+### Web output is `single`, not `static`
+
+`app.json` sets `expo.web.output: "single"` — one `index.html`, client-side
+routing for everything.
+
+We started on `"static"` (per-route prerendered HTML). That was the wrong choice
+once the product decision landed that webyak is **auth-only** (see
+[docs/API.md](API.md#auth-is-mandatory)): prerendered HTML exists to be crawled
+and to paint before JS, and neither matters for a screen that immediately
+redirects to a login gate. `"single"` also removes a whole class of
+hydration-mismatch bugs — nothing is rendered in Node, so client output can't
+disagree with it.
+
+Consequence: `useHydrated()` in [src/hooks/use-hydrated.ts](../src/hooks/use-hydrated.ts)
+is now effectively always `true` on first paint, so the desktop-shows-mobile-bar
+flash is gone. The hook is kept because it stays correct if `output` ever changes
+back.
+
+### The two GitHub Pages gotchas
+
+`npm run build:web` handles both. Do not hand-run `expo export` and upload it.
+
+1. **Deep links 404.** GitHub Pages serves files, and `/g/wordle` is not a file.
+   Pages falls back to `404.html` for unmatched paths, so the build copies
+   `index.html` → `404.html` and the client router takes over from there. The HTTP
+   status on a cold deep link is a real `404` — harmless for an auth-gated app,
+   but it means Pages can never be used for anything crawlable.
+2. **Jekyll eats `_expo/`.** Pages runs Jekyll by default, and Jekyll skips
+   directories starting with `_` — which is where every JS and CSS bundle lives.
+   The build touches `.nojekyll` to disable it. Without this the site loads a
+   blank page with 404s on all assets.
+
+If deployed to `<user>.github.io/<repo>/` rather than a custom domain or the
+account root, set `expo.experiments.baseUrl` to `/<repo>` in `app.json` or every
+asset path breaks.
+
+### Where serverless stops working
+
+Currently: nowhere. Tracked so we notice the moment it changes.
+
+| Need | Static-only? | Notes |
+|---|---|---|
+| Read/write the Sidechat API | ✅ | CORS-open, bearer token in header |
+| Store the user's token | ✅ | localStorage; it is the user's own credential |
+| Deep links / routing | ✅ | via the `404.html` fallback above |
+| Images in posts | ✅ **verified** | Post assets come back as pre-signed R2 URLs (`X-Amz-Signature`) and load in a plain `<img>`. No proxy, no blob shim. Q2 closed. Caveat: asset-*library* URLs (`/v1/assets/library/<id>`) are **not** pre-signed — see [OFFSIDES.md](OFFSIDES.md#the-image-difference-is-worth-understanding) |
+| Cold-load group links (`/g/<slug>`) | ✅ **verified** | Resolved natively via `/v1/groups/explore/search` — [Blocker 2 closed](API.md#blocker-2--group-slug--group_id) |
+| **Cold-load share links** (`/p/<code>`) | ❌ | The authenticated API cannot resolve a share code — [confirmed, not suspected](API.md#blocker-1--index_code--post_id). The public web client can, but has no CORS. **The one remaining case for a Worker.** |
+| Logged-out browsing | ❌ | Out of scope — webyak is auth-only |
+| Push notifications | ❌ | Needs a server to hold subscriptions. Out of scope; polling only |
+| Hiding a secret | ❌ | We have none. If that ever changes, it needs a worker |
+
+### The Worker question — deferred
+
+Everything except one thing is static-only. That one thing is resolving a
+**share code** on a cold load: the authenticated API has no endpoint for it at
+all.
+
+Group slugs were originally in the same bucket and are **no longer** — live
+search resolves them natively, so the worker shrank to a single required route.
+
+The public web client resolves share codes unauthenticated, blocked only by CORS
+and an encoding. A worker of one route and no state closes it.
+
+**Deferred by decision — we build it later.** Nothing depends on it, and the
+client-side hooks (`EXPO_PUBLIC_WORKER_URL`, layer 5 of the slug resolver) are
+already in place and inert, so enabling it is config plus one call.
+
+Full spec, verified request/response shapes, and the wiring steps:
+**[docs/WORKER.md](WORKER.md)**.
+
+## URL shape
+
+**Decision: we do not mirror Yik Yak's URLs.** Their shape is built for SEO on a
+public marketing surface; ours is an auth-gated app where nothing is crawled.
+
+Yik Yak: `/cy/advice/comments/0ESz5N3t/how-do-i-raise-my-testosterone`
+
+Three of those five segments are dead weight for us:
+- `cy` — a region/scope segment whose meaning we never established, and which
+  carries no routing information we act on
+- `comments` — pure filler
+- the trailing slug — SEO only, and it duplicates the post title
+
+Worse, a `/[region]/[group]` shape is a **greedy two-segment catch-all** that
+shadows any future two-segment static route. It nearly collided with `/chats/[id]`
+already.
+
+### Sitemap
+
+| URL | Screen | Route file |
+|---|---|---|
+| `/` | Home feed | `src/app/index.tsx` |
+| `/explore` | Group discovery | `src/app/explore.tsx` |
+| `/g/<slug>` | Group feed | `src/app/g/[slug].tsx` |
+| `/g/<slug>?sort=hot\|new\|top` | Group feed, sorted | ” |
+| `/p/<code>` | Post + comments | `src/app/p/[code].tsx` |
+| `/u/<username>` | Public profile | `src/app/u/[username].tsx` |
+| `/me` | Your profile and content | `src/app/me/index.tsx` |
+| `/chats` | DM list | `src/app/chats/index.tsx` |
+| `/chats/<id>` | DM thread | `src/app/chats/[id].tsx` |
+| `/notifications` | Activity | `src/app/notifications.tsx` |
+| `/login` | Auth flow | `src/app/login/index.tsx` |
+| anything else | Not found | `src/app/+not-found.tsx` |
+
+Rules behind it:
+
+- **Single-letter namespaces** (`/g/`, `/p/`, `/u/`) keep every dynamic route to a
+  fixed depth and make collisions with static routes structurally impossible.
+- **A post is addressable by its share code alone.** `/p/0ESz5N3t` needs no group
+  and no slug, so a shared link stays valid even when we don't know the group yet.
+- **Sort is a query param, not a path segment**, because it is view state, not a
+  resource.
+- **No region segment.** If `cy` ever turns out to mean something we need, it
+  becomes a query param, not a path segment.
+
+Yik Yak → webyak redirect compatibility (so real Yik Yak links opened in webyak
+resolve to `/p/<code>`) is a Phase 7 nicety, not a requirement.
+
+## App structure
+
+```
+src/
+  app/          expo-router routes; the sitemap above, one file per row
+  api/          client singleton, typed wrappers, session context, query provider
+  components/   shell (sidebar/bottom bar), Screen container, themed primitives
+  constants/    design tokens
+  hooks/        useTheme, useHydrated
+  lib/          platform-split key/value storage
+  theme/        theme preference provider
+```
+
+Data flow: **screen → TanStack Query → `src/api/client.ts` → sidechat.js →
+api.sidechat.lol**. The client is a singleton because sidechat.js keeps the bearer
+token on the instance; `SessionProvider` owns loading that token out of storage
+and pushing it into the client.
