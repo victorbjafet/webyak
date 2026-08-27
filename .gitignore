@@ -43,3 +43,16 @@ example
 # generated native folders
 /ios
 /android
+
+# Credential-bearing debug output.
+# This project is debugged by running authenticated probes against a real
+# account, so these carry live bearer tokens, user ids and other people's data.
+# See docs/OPEN-SOURCE.md.
+*.har
+probe-*.json
+probe-*.txt
+*-probe.json
+*.probe
+diagnostics-*.json
+**/probe-output/
+.claude/settings.local.json

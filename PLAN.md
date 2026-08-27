@@ -9,7 +9,7 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `⛔` blocked/ga
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (URL shape, hosting),
 [docs/API.md](docs/API.md) (auth flow, ID blockers, library defects),
 [docs/DESIGN.md](docs/DESIGN.md) (tokens, layout rules),
-[docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) (**release audit — gate before Phase 4**).
+[docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) (secret hygiene, release audit).
 The rule for keeping them current is in [CLAUDE.md](CLAUDE.md).
 
 ---
@@ -220,7 +220,7 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 - [x] Unicode slugs handled (`wsu-wordle-🧩` is a real `index_name`)
 - [x] `memberships[]` (4) vs `getUpdates` (3) discrepancy documented
 
-### Phase 3 — read — built, needs visual QA
+### Phase 3 — read ✅ (one deferred bug, see below)
 
 > Blocker 2 is **closed** — `/g/<slug>` resolves for any group. Blocker 1 has no
 > client-side fix and is parked on the deferred Worker; it only affects pasted
@@ -271,30 +271,35 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
         failed lookup can no longer silently fall back
       - selecting a community navigates to it; the redundant "Open X" button is gone
       - share links point at `webyak.vbjfr.xyz`, not yikyak.com
-- [ ] ⛔ **Profile and community photos** — deferred. Reference case
-      `/u/snoopyvt`; see [docs/API.md](docs/API.md#-profile-and-community-photos-do-not-render--unresolved)
+- [ ] ⛔ **Images that don't render** — deferred, re-verified broken 2026-08-27:
+      profile photos, community icons **and video thumbnails**. Likely *one*
+      rendering bug, not three API bugs — a public URL fails the same way an
+      authed one does. Reference case `/u/snoopyvt`; see
+      [docs/API.md](docs/API.md#-images-that-dont-render--unresolved)
 - [ ] ⛔ Membership count discrepancy — deferred, switcher source is correct in
       practice
-- [ ] Visual QA round 5, then Phase 3 closes
+- [x] Visual QA round 5 — Phase 3 closes with the image bug carried forward
 
-### Phase 3.5 — ⛔ open-source audit (GATE, do this first)
+### Phase 3.5 — open-source audit (GATE) ✅
 
-**Blocks Phase 4.** The repo has never been pushed and has never been audited.
+**Audit passed 2026-08-27.** No credentials or personal data found in `HEAD` or
+in any of the 294 objects in history. The repo is safe to publish; pushing it is
+the one remaining step and needs no further scanning.
 Full checklist and pre-scan findings:
 [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md). The standing pre-commit rule is in
 [CLAUDE.md](CLAUDE.md).
 
-- [ ] Replace `LICENSE` — still says `Copyright (c) 2015-present 650 Industries, Inc.`
-- [ ] Un-hardcode `SAMPLE_PROFILE = 'snoopyvt'` — a real person's handle in a
-      file that becomes public ([src/api/diagnostics.ts:21](src/api/diagnostics.ts))
+- [x] Replace `LICENSE` — was Expo's `Copyright (c) 2015-present 650 Industries, Inc.`
+- [x] `SAMPLE_PROFILE = 'snoopyvt'` — **decided: keep.** Owner's call, 2026-08-27
 - [x] Widen `.gitignore` to cover plain `.env` (Expo reads it for `EXPO_PUBLIC_*`)
-- [ ] Decide: keep or scrub the hardcoded Virginia Tech group UUID
-- [ ] Delete unused Expo template assets (`react-logo*`, `expo-badge*`, `tutorial-web.png`)
-- [ ] README states plainly that the web build keeps the bearer token in `localStorage`
-- [ ] Re-run the secret scan over **full history**, not just `HEAD`
-- [ ] Read every `docs/` file as a stranger — grep cannot catch a campus, a
-      schedule, or a real username inside a quoted payload
-- [ ] Only then: create the GitHub repo and push
+- [x] `.gitignore` now also covers `*.har` and probe dumps — the realistic leak vector
+- [x] Hardcoded Virginia Tech group UUID — **decided: keep.** A public community
+      id, not personal data
+- [x] Delete unused Expo template assets and `scripts/reset-project.js`
+- [x] Real README, including the `localStorage` token disclosure
+- [x] Secret scan over **full history** — every blob, not just `HEAD`. Clean
+- [x] Read every `docs/` file as a stranger — payloads were already redacted to `…`
+- [ ] Create the GitHub repo and push ← **the only step left**
 
 ### Phase 4 — write
 - [ ] Optimistic voting on posts and comments
@@ -387,9 +392,9 @@ Resolved ones are kept with their answer so they don't get re-asked.
 
 - **Private API.** sidechat.js is reverse-engineered and unofficial. Endpoints can change or break
   without notice, and this likely runs against Yik Yak's ToS.
-- **⛔ Publishing this repo.** Decided: it goes open source. Nothing has been audited for secrets
-  or personal data yet, and probe output — our main documentation input — carries live tokens and
-  user ids. This is a gate before Phase 4: [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md).
+- **Publishing this repo.** It goes open source; the release audit passed 2026-08-27 and found
+  nothing. The *ongoing* risk remains: probe output is our main documentation input and it carries
+  live tokens and user ids, so every commit gets checked. [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md).
 - **Auth is a phone number.** The token is a real account credential. On web it lives in
   `localStorage`, readable by any XSS. Keep third-party script count at zero.
 - **Account risk.** Automated or high-volume requests from a non-official client could get the

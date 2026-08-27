@@ -2,13 +2,12 @@
 
 # ⛔ Check for sensitive data before every commit
 
-**This repo is going open source and has never been pushed anywhere. Nothing has
-been audited yet.** Auditing it is the **first task before Phase 4** — see
-[docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) for the checklist and the findings so
-far.
+**This repo is open source.** The release audit passed on 2026-08-27
+([docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md)) — but that cleared only what was
+already there. It does nothing about what the next commit adds, and the thing
+that made it necessary has not gone away.
 
-Until that gate passes and after it passes, **no commit is made without checking
-what is in it first**:
+**No commit is made without checking what is in it first:**
 
 ```sh
 git diff --cached | grep -nEi 'eyJ[A-Za-z0-9_-]{10,}|bearer [A-Za-z0-9_.-]{20,}|api[_-]?key|secret|password|access[_-]token|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|"(user_id|device_id|phone_number)"'

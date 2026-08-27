@@ -1,56 +1,88 @@
-# Welcome to your Expo app 👋
+# webyak
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A web-first Yik Yak client, built on [Expo Router](https://docs.expo.dev/router/introduction/)
+and [sidechat.js](https://github.com/micahlt/sidechat.js). Aims at parity with
+the official app, plus a few things it never had.
 
-## Get started
+Runs at **[webyak.vbjfr.xyz](https://webyak.vbjfr.xyz)** — a static single-page
+app on GitHub Pages, with no backend of our own.
 
-1. Install dependencies
+## Status
 
-   ```bash
-   npm install
-   ```
+Early. Reading works — feeds, sorting, posts, comments, polls, images and video.
+Writing (voting, composing, replies) is next. See [PLAN.md](PLAN.md) for the
+roadmap and the current list of gaps.
 
-2. Start the app
+## Read this before you trust it
 
-   ```bash
-   npx expo start
-   ```
+**This is an unofficial client for a private, undocumented API.** Yik Yak
+publishes no API and has not sanctioned this. Endpoints can change or vanish
+without notice, and using a non-official client may well be against their terms
+of service. Run it against your own account, at human request rates, and
+understand that the account is yours to lose.
 
-In the output, you'll find options to open the app in a
+**On the web, your session token lives in `localStorage`.** Browsers have no
+keychain, and `expo-secure-store` has no web implementation, so there is nowhere
+better to put it — which means any script running on the origin can read it. The
+mitigation is that we ship *zero* third-party scripts: no analytics, no tags, no
+CDN embeds. If you fork this and add one, you have made your users' tokens
+readable by whoever wrote it. Native builds use the platform keychain instead.
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Logging in requires a phone number, because that is how Yik Yak's auth works. The
+token it returns is a real account credential — treat it like a password.
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+## Running it
 
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```sh
+npm install
+npx expo start          # dev, all platforms
+npm run build:web       # static export to dist/
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+`npm run build:web` also writes the `.nojekyll`, `404.html` and `CNAME` files
+that GitHub Pages needs — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
+why each one is load-bearing.
 
-### Other setup steps
+### Configuration
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+| Variable | Purpose |
+|---|---|
+| `EXPO_PUBLIC_BASE_URL` | Public origin used to build share links. Defaults to `https://webyak.vbjfr.xyz`. |
+| `EXPO_PUBLIC_WORKER_URL` | Optional Cloudflare Worker for share-code resolution. Inert if unset — see [docs/WORKER.md](docs/WORKER.md). |
 
-## Learn more
+Put them in a `.env`, which is gitignored.
 
-To learn more about developing your project with Expo, look at the following resources:
+## Documentation
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Everything non-obvious is written down as it is discovered — that rule is in
+[CLAUDE.md](CLAUDE.md).
 
-## Join the community
+| File | Holds |
+|---|---|
+| [PLAN.md](PLAN.md) | Roadmap, phase checklists, parity matrix, live blockers |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | URL shape, hosting model, app structure, data flow |
+| [docs/API.md](docs/API.md) | What the Sidechat API actually does: auth flow, ID resolution, probe results, library defects |
+| [docs/DESIGN.md](docs/DESIGN.md) | Color tokens, type scale, layout rules |
+| [docs/OFFSIDES.md](docs/OFFSIDES.md) | What the reference Android client solved first, and where we diverge |
+| [docs/WORKER.md](docs/WORKER.md) | The deferred Cloudflare Worker |
+| [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | Secret-hygiene rules for contributing |
 
-Join our community of developers creating universal apps.
+## Contributing
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+One rule beyond the usual: **never paste raw probe output into a file.** Debug
+sessions here run authenticated requests against a live account, and the
+responses carry bearer tokens, user ids, device ids and other people's posts.
+Write down what a probe *proved*, not what it *returned*.
+[docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) has the details and the pre-commit
+check.
+
+## Credits
+
+[sidechat.js](https://github.com/micahlt/sidechat.js) and
+[offsides](https://github.com/micahlt/offsides), both by
+[@micahlt](https://github.com/micahlt), did the hard reverse-engineering work
+this is built on.
+
+## License
+
+[MIT](LICENSE). Not affiliated with, endorsed by, or connected to Yik Yak.

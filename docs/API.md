@@ -310,6 +310,13 @@ posters rendered blank. `AuthedImage` fetches those with the token and hands the
 element a blob URL instead; native passes headers to the image loader directly,
 which is what offsides does.
 
+> ⛔ **This did not actually fix video thumbnails.** Verified still broken
+> 2026-08-27. The auth theory above is sound and the blob path is implemented,
+> but the poster is still blank in practice. Grouped with the other unrendered
+> images below — see
+> [Images that don't render](#-images-that-dont-render--unresolved), because
+> they now look like one bug, not three.
+
 ## Video
 
 Confirmed against a live asset, not just offsides:
@@ -331,6 +338,7 @@ Confirmed against a live asset, not just offsides:
 Two things to note: `content_type` is `"mov"`, a container name rather than a
 MIME type, so don't feed it to anything expecting `video/…`. And the stream URL
 is query-signed while **the thumbnail is not** — the poster needs the bearer.
+The stream plays; the thumbnail does not (see above).
 
 **The stream is HLS**, which is why video "didn't work at all" on web: Safari
 plays `.m3u8` natively, Chrome and Firefox do not. Our `<Image>` was also being
@@ -363,27 +371,51 @@ user's public profile as a group object, which is why the profile typedef carrie
 Consequence: anything that renders a group renders a profile. Worth reusing
 rather than building a parallel component.
 
-### ⛔ Profile and community photos do not render — unresolved
+### ⛔ Images that don't render — unresolved
 
-**Deferred deliberately.** Both are parked; the emoji/initials fallbacks are what
-ships today.
+**Deferred deliberately.** Re-verified still broken 2026-08-27. Three classes of
+image do not appear; the emoji / initials / black-box fallbacks are what ships.
 
-What is known:
+| What | URL host | Needs bearer? | Renders? |
+|---|---|---|---|
+| Profile photos | unknown — field not identified | unknown | ❌ |
+| Community icons | `icon.yik-yak.com` | **no** — public, verified 200 | ❌ |
+| Video thumbnails | `api.sidechat.lol/v1/assets?post_id=…` | **yes** — 401 without it | ❌ |
 
-- Some profiles have **no `icon_url` at all**. `rat.brat` returns only
-  `conversation_icon: {emoji: "🐀", color: "#9BD46A", secondary_color: …}` — for
-  that account the emoji *is* the avatar, and it renders correctly.
-- Other accounts do have a real photo. **`@snoopyvt` is the reference case** —
-  <http://localhost:8081/u/snoopyvt> locally, or `/u/snoopyvt` on the deploy.
-  Use it to verify any fix.
-- Group objects carry `icon_url` on `icon.yik-yak.com`, which is **public**
-  (verified 200 unauthenticated), so the host is not the obstacle.
-- What is *not* known: which field carries a profile photo when one exists, and
-  why community `icon_url` doesn't render despite being a public URL.
+**These were three separate investigations and should be one.** The table is the
+finding: one of them needs auth, one provably does not, and they fail the same
+way. That makes a shared rendering fault more likely than three independent
+causes, and it means *the auth work was probably never the blocker*. Start there
+next time rather than re-probing endpoints.
 
-The diagnostics probe now targets `@snoopyvt` and reports **every URL-valued
-field** on the payload rather than guessing at a name, which should settle the
-first question on the next run.
+Two concrete things to check first, both in the render path rather than the API:
+
+1. **`AuthedImage` returns `null` on any failure**
+   ([authed-image.web.tsx:49](../src/components/authed-image.web.tsx)). So a
+   failed image renders *nothing* — and the caller has already branched into the
+   image path, so its fallback is unreachable. `GroupAvatar` only draws initials
+   when `iconUrl` is absent, never when it is present-but-broken
+   ([group-avatar.tsx:32](../src/components/group-avatar.tsx)). This guarantees a
+   blank box and, worse, no error surface: there is currently **no way to tell a
+   404 from a decode failure from a fetch that never fired**. Make it fail loudly
+   before theorising further.
+2. **Community icons never touch the token path at all.** `assetNeedsAuth()` is
+   false for `icon.yik-yak.com`, so the URL goes straight to `<Image>` — the
+   blob shim is not involved, and neither is auth. If a public URL in a plain
+   `<Image>` does not render, the fault is in expo-image on web or in the style
+   (a zero-height box renders as nothing), not in the API.
+
+What is known about profiles specifically:
+
+- Some profiles have **no photo at all**. `rat.brat` returns only
+  `conversation_icon: {emoji: "🐀", color: "#9BD46A", …}` — for that account the
+  emoji *is* the avatar, and it renders correctly. So an absent photo is not
+  evidence of a bug.
+- **`@snoopyvt` is the reference case** — that account definitely has one.
+  `/u/snoopyvt` locally or on the deploy. Verify any fix against it.
+- Which field carries the photo is still unidentified. The diagnostics probe
+  targets `@snoopyvt` and dumps **every URL-valued field** on the payload rather
+  than guessing a name, which should answer it on the next run.
 
 Paths that do **not** exist, swept: `/v1/users/<name>`, `/v1/users/profile`,
 `/v1/users/aliases/<name>`, `/v1/aliases/<name>`, `/v1/users/<name>/profile`,

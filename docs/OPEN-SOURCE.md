@@ -1,9 +1,14 @@
 # Open-sourcing webyak — release audit
 
-> **Status: NOT DONE. This is a gate, not a task.**
-> Nothing in this repo has ever been pushed anywhere — `git remote -v` is empty
-> as of 2026-08-27. That is the only reason nothing has leaked yet. **The audit
-> below must pass before the first `git push`, and before Phase 4 starts.**
+> **Status: PASSED 2026-08-27. Safe to publish.**
+> No credentials or personal data were found in `HEAD` or in any of the 294
+> objects in history. Nothing had ever been pushed, so nothing could have leaked.
+> Creating the GitHub repo and pushing is the only step left, and it needs no
+> further scanning.
+>
+> **The [standing rule](#the-standing-rule) survives this.** The audit cleared
+> what was already here; it does nothing about what the next commit adds, and
+> the risk that made this necessary is ongoing.
 
 This project is a client for a **private, reverse-engineered API** that we log
 into with a **real personal account**. Every debugging session runs authenticated
@@ -32,11 +37,12 @@ Three things make the usual "eh, it's just a frontend" reasoning wrong here:
 
 ---
 
-## Pre-scan findings (2026-08-27)
+## Audit results (2026-08-27)
 
-A first pass over `HEAD` and all 294 objects in history. **This is a starting
-point for the audit, not the audit itself** — it is pattern-matching, and
-pattern-matching does not find a secret that does not look like one.
+Two passes: a pattern scan over `HEAD` and every blob in history, then a manual
+read of all of `docs/` as a stranger — because pattern-matching does not find a
+secret that does not look like one, and does not recognise a campus or a
+schedule as identifying.
 
 ### Clean so far
 
@@ -48,21 +54,23 @@ pattern-matching does not find a secret that does not look like one.
 | Emails or phone numbers in tracked source | none (one `you@school.edu` placeholder) |
 | `*.pem`, `*.key`, `*.p12`, `*.jks` | ignored by `.gitignore`, none tracked |
 
-### Must fix before publishing
+### Resolved
 
-| # | Finding | Where | Why it matters |
-|---|---|---|---|
-| 1 | **`LICENSE` is still Expo's boilerplate** — `Copyright (c) 2015-present 650 Industries, Inc.` | `LICENSE` | We would be publishing under someone else's copyright line. Must be replaced with the real one before the repo is public. |
-| 2 | **A third party's real handle is hardcoded** — `SAMPLE_PROFILE = 'snoopyvt'` | `src/api/diagnostics.ts:21` | A real person's username, baked into a file that becomes public. They did not consent to being this project's test fixture. Move it to an env var or a gitignored local config. |
-| 3 | **`.gitignore` did not cover plain `.env`** | `.gitignore` | It listed `.env*.local` only, which misses `.env` and `.env.production` — and Expo reads `.env` for `EXPO_PUBLIC_*`. Since `EXPO_PUBLIC_BASE_URL` and `EXPO_PUBLIC_WORKER_URL` both exist, that file was likely to appear. **Fixed 2026-08-27**, but re-verify nothing was already committed. |
+| # | Finding | Resolution |
+|---|---|---|
+| 1 | `LICENSE` was Expo's boilerplate — `Copyright (c) 2015-present 650 Industries, Inc.` | Replaced with MIT under the real copyright holder. |
+| 2 | A third party's handle hardcoded as a fixture — `SAMPLE_PROFILE = 'snoopyvt'` | **Kept**, by the owner's decision. It is a public username on a public profile, and it is the only account known to have a profile photo, which makes it the one usable regression case for [the image bug](API.md#-images-that-dont-render--unresolved). |
+| 3 | `.gitignore` did not cover plain `.env` | Widened to `.env` / `.env.*` with a `!.env.example` escape. Confirmed nothing was already tracked. |
+| 4 | Virginia Tech group UUID hardcoded | **Kept.** A public community identifier, not personal data. |
+| 5 | Expo template assets and `scripts/reset-project.js` still tracked | Deleted — all verified unreferenced by `src/` and `app.json` first. |
+| 6 | Web stores the bearer token in `localStorage` | Not a repo-secret issue, and unchanged: there is no better option in a browser. Now **disclosed in the README** rather than left to be discovered, along with the zero-third-party-scripts mitigation that makes it defensible. |
 
-### Decide before publishing
+### Hardened while here
 
-| # | Finding | Where | The call to make |
-|---|---|---|---|
-| 4 | Virginia Tech's group UUID hardcoded | `src/api/diagnostics.ts:19`, `docs/API.md`, `docs/WORKER.md` | It is a public community id, not personal data — but it ties the repo to one specific school and one specific user's campus. Probably fine; decide deliberately rather than by omission. |
-| 5 | Expo template assets still tracked | `assets/images/react-logo*`, `expo-badge*`, `expo-logo.png`, `tutorial-web.png`, `assets/expo.icon/` | Unused Expo branding shipping in our repo. Delete — this is cleanliness, and avoids implying an Expo affiliation. |
-| 6 | Web stores the bearer token in `localStorage` | `src/lib/storage.web.ts` | Not a repo-secret problem, but publishing the client makes the storage model public knowledge. The README should state it plainly rather than let someone discover it. The mitigation is already real: zero third-party scripts on the origin. |
+`.gitignore` now also covers `*.har`, `probe-*.json`, `diagnostics-*.json` and
+friends. A HAR exported from DevTools is the single most likely way a live
+bearer token gets committed in a project debugged like this one, and it would
+sail past a reviewer as "just a log file".
 
 ---
 
