@@ -4,6 +4,8 @@ import { useCallback } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { GroupAvatar } from './group-avatar';
+
+import { groupDisplayName } from '@/api/groups';
 import { ThemedText } from './themed-text';
 
 import { useCurrentGroup } from '@/api/current-group';
@@ -58,7 +60,7 @@ export function CommunitySwitcher({ variant }: { variant: 'sidebar' | 'bar' }) {
                 ]}>
                 <GroupAvatar
                   group={group}
-                  name={group.name}
+                  name={groupDisplayName(group)}
                   iconUrl={group.icon_url}
                   color={group.color}
                   size={20}
@@ -67,7 +69,7 @@ export function CommunitySwitcher({ variant }: { variant: 'sidebar' | 'bar' }) {
                   type="caption"
                   numberOfLines={1}
                   style={{ color: active ? theme.brand : theme.controlText }}>
-                  {group.name}
+                  {groupDisplayName(group)}
                 </ThemedText>
               </Pressable>
             );
@@ -97,7 +99,7 @@ export function CommunitySwitcher({ variant }: { variant: 'sidebar' | 'bar' }) {
             ]}>
             <GroupAvatar
               group={group}
-              name={group.name}
+              name={groupDisplayName(group)}
               iconUrl={group.icon_url}
               color={group.color}
               size={24}
@@ -106,7 +108,7 @@ export function CommunitySwitcher({ variant }: { variant: 'sidebar' | 'bar' }) {
               type={active ? 'smallBold' : 'small'}
               numberOfLines={1}
               style={[styles.rowLabel, { color: active ? theme.text : theme.textSecondary }]}>
-              {group.name}
+              {groupDisplayName(group)}
             </ThemedText>
             {active ? <Ionicons name="checkmark" size={15} color={theme.brand} /> : null}
           </Pressable>

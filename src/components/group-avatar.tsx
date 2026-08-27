@@ -5,6 +5,7 @@ import { AuthedImage } from './authed-image';
 import { ThemedText } from './themed-text';
 
 import { useGroupIcon, type GroupIconSubject } from '@/api/group-icons';
+import { FOR_YOU_LABEL, isForYouFeed } from '@/api/groups';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -45,11 +46,11 @@ export function GroupAvatar({
   const looked = useGroupIcon(group);
   const resolvedUrl = iconUrl || group?.icon_url || looked.data || undefined;
 
-  // "Home" is the synthetic all-communities feed. It has no icon anywhere in the
-  // API, so initials would render a lone "H" forever — offsides special-cases it
-  // to a home glyph for the same reason (docs/OFFSIDES.md).
+  // The For You feed is not a community and has no icon anywhere in the API, so
+  // initials would render a lone letter forever — offsides special-cases it to a
+  // glyph for the same reason (docs/OFFSIDES.md).
   const label = name ?? group?.name;
-  if (label === 'Home') {
+  if (label === FOR_YOU_LABEL || label === 'Home' || isForYouFeed(group)) {
     return (
       <View style={[base, styles.fallback, { backgroundColor: color || theme.control }]}>
         <Ionicons name="home" size={size * 0.5} color="#FFFFFF" />

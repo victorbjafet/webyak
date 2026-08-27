@@ -2,8 +2,9 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { useMyContent, useMyIdentity } from '@/api/queries';
+import { useKarma, useMyContent, useMyIdentity, useSavedPosts } from '@/api/queries';
 import { useSession } from '@/api/session';
+import { KarmaPanel } from '@/components/me/karma-panel';
 import { CommentItem } from '@/components/post/comment-item';
 import { IdentityAvatar } from '@/components/post/identity-avatar';
 import { PostCard } from '@/components/post/post-card';
@@ -14,7 +15,14 @@ import { Button } from '@/components/ui/button';
 import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-type Tab = 'posts' | 'comments';
+type Tab = 'posts' | 'comments' | 'saved' | 'upvotes';
+
+const TABS: { value: Tab; label: string }[] = [
+  { value: 'posts', label: 'Posts' },
+  { value: 'comments', label: 'Comments' },
+  { value: 'saved', label: 'Saved' },
+  { value: 'upvotes', label: 'Upvotes' },
+];
 
 export default function MeScreen() {
   const theme = useTheme();
@@ -22,9 +30,16 @@ export default function MeScreen() {
   const { userId, primaryGroup, deviceId, signOut } = useSession();
   const [tab, setTab] = useState<Tab>('posts');
   const identity = useMyIdentity();
+  const karma = useKarma();
 
-  // Both tabs are cached separately, so switching back is instant.
-  const content = useMyContent(tab);
+  // Each tab is a separate cache entry, so switching back is instant. The
+  // queries for the tab that isn't showing stay disabled rather than running.
+  const isContentTab = tab === 'posts' || tab === 'comments';
+  const content = useMyContent(isContentTab ? (tab as 'posts' | 'comments') : 'posts');
+  const saved = useSavedPosts();
+
+  const active = tab === 'saved' ? saved : content;
+  const items = tab === 'saved' ? saved.data : isContentTab ? content.data : undefined;
 
   return (
     <Screen title="You" scroll={false}>
@@ -54,52 +69,99 @@ export default function MeScreen() {
           <Button label="Edit" variant="secondary" onPress={() => router.push('/me/edit')} />
         </View>
 
+        <View
+          style={[
+            styles.card,
+            { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+          ]}>
+          <ThemedText type="bodyBold">Yakarma</ThemedText>
+          {karma.isLoading ? (
+            <ThemedText type="small" themeColor="textTertiary">
+              Loading…
+            </ThemedText>
+          ) : (
+            <KarmaPanel karma={karma.data} />
+          )}
+        </View>
+
         <View style={styles.tabs}>
           <Tabs value={tab} onChange={setTab} />
         </View>
 
-        {content.isLoading ? <LoadingState label={`Loading your ${tab}…`} /> : null}
-
-        {content.isError ? (
-          <ErrorState
-            error={content.error}
-            onRetry={() => content.refetch()}
-            title={`Couldn't load your ${tab}`}
-          />
-        ) : null}
-
-        {content.data?.length === 0 ? (
+        {tab === 'upvotes' ? (
+          /*
+            ⛔ No endpoint found. Six candidates swept, all 404 — see
+            docs/API.md#-posts-you-upvoted. Shown rather than hidden because the
+            official app has this tab, so its absence is a gap worth naming
+            instead of a feature we appear to have forgotten.
+          */
           <EmptyState
-            icon={tab === 'posts' ? 'document-outline' : 'chatbubble-outline'}
-            title={tab === 'posts' ? 'No posts yet' : 'No comments yet'}
-            body={
-              tab === 'posts'
-                ? 'Anything you post shows up here, anonymous or not.'
-                : 'Your replies show up here.'
-            }
+            icon="arrow-up-circle-outline"
+            title="Upvotes aren't available"
+            body="The official app lists posts you've upvoted, but no endpoint for it has been found — six candidate routes all return 404. Documented in docs/API.md."
           />
-        ) : null}
+        ) : (
+          <>
+            {active.isLoading ? <LoadingState label={`Loading your ${tab}…`} /> : null}
 
-        {/*
-          Anonymous posts appear here too — this list is keyed to the account,
-          not the identity shown on the post. That is how the official app
-          behaves, and it is worth knowing before assuming the list is filtered.
-        */}
-        {content.data?.map((item) =>
-          tab === 'posts' ? (
-            <PostCard
-              key={item.id}
-              post={item}
-              showGroup
-              onPress={
-                item.index_code
-                  ? () => router.push({ pathname: '/p/[code]', params: { code: item.index_code! } })
-                  : undefined
-              }
-            />
-          ) : (
-            <CommentItem key={item.id} comment={item} />
-          ),
+            {active.isError ? (
+              <ErrorState
+                error={active.error}
+                onRetry={() => active.refetch()}
+                title={`Couldn't load your ${tab}`}
+              />
+            ) : null}
+
+            {items?.length === 0 ? (
+              <EmptyState
+                icon={
+                  tab === 'comments'
+                    ? 'chatbubble-outline'
+                    : tab === 'saved'
+                      ? 'bookmark-outline'
+                      : 'document-outline'
+                }
+                title={
+                  tab === 'comments'
+                    ? 'No comments yet'
+                    : tab === 'saved'
+                      ? 'Nothing saved'
+                      : 'No posts yet'
+                }
+                body={
+                  tab === 'comments'
+                    ? 'Your replies show up here.'
+                    : tab === 'saved'
+                      ? "Posts you save in the official app appear here. Saving can't be done from webyak yet — the API has no write path for it."
+                      : 'Anything you post shows up here, anonymous or not.'
+                }
+              />
+            ) : null}
+
+            {/*
+              Anonymous posts appear here too — this list is keyed to the
+              account, not the identity shown on the post. That is how the
+              official app behaves, and it is worth knowing before assuming the
+              list is filtered.
+            */}
+            {items?.map((item) =>
+              tab === 'comments' ? (
+                <CommentItem key={item.id} comment={item} />
+              ) : (
+                <PostCard
+                  key={item.id}
+                  post={item}
+                  showGroup
+                  onPress={
+                    item.index_code
+                      ? () =>
+                          router.push({ pathname: '/p/[code]', params: { code: item.index_code! } })
+                      : undefined
+                  }
+                />
+              ),
+            )}
+          </>
         )}
 
         <View
@@ -137,23 +199,24 @@ export default function MeScreen() {
   function Tabs({ value, onChange }: { value: Tab; onChange: (next: Tab) => void }) {
     return (
       <View style={[styles.tabRow, { backgroundColor: theme.control }]}>
-        {(['posts', 'comments'] as Tab[]).map((key) => {
-          const active = key === value;
+        {TABS.map(({ value: key, label }) => {
+          const selected = key === value;
           return (
             <Pressable
               key={key}
               accessibilityRole="tab"
-              accessibilityState={{ selected: active }}
+              accessibilityState={{ selected }}
               onPress={() => onChange(key)}
               style={({ hovered }) => [
                 styles.tab,
-                active && { backgroundColor: theme.backgroundSelected },
-                !active && hovered ? { backgroundColor: theme.controlHover } : null,
+                selected && { backgroundColor: theme.backgroundSelected },
+                !selected && hovered ? { backgroundColor: theme.controlHover } : null,
               ]}>
               <ThemedText
                 type="smallBold"
-                style={{ color: active ? theme.brand : theme.controlText }}>
-                {key === 'posts' ? 'Your posts' : 'Your comments'}
+                numberOfLines={1}
+                style={{ color: selected ? theme.brand : theme.controlText }}>
+                {label}
               </ThemedText>
             </Pressable>
           );

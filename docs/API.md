@@ -751,3 +751,95 @@ Corrected in [src/api/types.ts](../src/api/types.ts) and marked `(observed)`:
 
 Feed responses are `{posts: [...], cursor: "persisted~<uuid>"}`, 24 posts per
 page. Cursor pagination confirmed working with zero overlap between pages.
+
+
+## "Home" is not a community — it is the For You feed
+
+The API calls it `Home` with `index_name: "all"`. It is the combined feed of
+everything you belong to, and it is **not a group you can treat like the others**:
+
+| | Behaviour |
+|---|---|
+| Icon | none anywhere in the API — renders a glyph, never initials |
+| `top` sort | **not supported.** offsides refuses it outright with "This feature isn't supported in your Home group" |
+| Posting | **you cannot post to it.** offsides substitutes the school group's id when composing from Home, and so do we — posting to the Home id would either fail or land somewhere unexpected |
+
+Displayed as **For You**, matching the official app. `isForYouFeed()` and
+`groupDisplayName()` in [src/api/groups.ts](../src/api/groups.ts) are the single
+place that decides; both the name and `index_name` are checked, because neither
+is documented and either could change.
+
+### Every post is labelled with its community
+
+Yik Yak shows the community name on every post — including inside that
+community's own feed, where it is strictly redundant. Copied deliberately: it is
+the parity behaviour, and it is what makes the For You feed legible when
+consecutive posts come from different places.
+
+### ⛔ Is there an `unread` filter?
+
+The official app's For You feed offers **unread / hot / new**, defaulting to
+unread. Neither sidechat.js nor offsides mentions it — offsides uses hot / top /
+recent — so it may postdate both.
+
+Not implemented, because it cannot be confirmed by status code: this endpoint
+**silently ignores** unrecognised parameter values (that is how the `period`
+values were pinned down), so `type=unread` returning 200 would prove nothing.
+The *For You — is there an unread filter?* probe settles it differentially, by
+comparing the returned ids against `hot` with a nonsense value as the control.
+
+Until it is confirmed, For You shows **hot / new** and defaults to hot.
+
+## Yakarma
+
+`getUpdates().karma`, confirmed from offsides:
+
+```jsonc
+{
+  "post": 0,          // total karma from posts
+  "comment": 0,       // total karma from comments
+  "groups": [ … ]     // per-community breakdown
+}
+```
+
+One request covers both the total and the per-community split, so the You tab
+does not need a call per community.
+
+Rendered in [karma-panel.tsx](../src/components/me/karma-panel.tsx): a total row
+plus one row per community, each expanding to the post/comment split. Collapsed
+by default because the split is the interesting part and a wall of numbers is
+not.
+
+## ⛔ Posts you upvoted
+
+The official app has this tab in the You section. **No endpoint has been found.**
+Swept: `/v1/posts?type=my_upvotes`, `?type=upvoted`, `?type=my_votes`,
+`/v1/posts/upvoted`, `/v1/posts/voted`, `/v1/users/upvotes`.
+
+Note that `type=my_posts` and `my_comments` *do* work on `/v1/posts`, so the
+pattern is right and the value is wrong — if it exists, it is a value nobody has
+guessed yet. The tab renders an explanation rather than being hidden, so the gap
+is visible instead of looking forgotten.
+
+## ⛔ Explore cannot sort by newest
+
+An explore entry carries: `id, name, index_name, analytics_name,
+membership_type, color, group_join_type, group_visibility, description,
+icon_url, asset_library_visibility, member_count, disable_ads, can_join`.
+
+**None of those is a timestamp**, so "newest" cannot be computed client-side and
+the endpoint offers no sort parameter. The control is shown disabled with a
+tooltip rather than omitted — a missing option looks like an oversight, a
+disabled one with a reason does not.
+
+Sorting by **member count** is the default, matching the official app: with
+4,237 communities, any other order buries everything anyone uses.
+
+## Saved posts are readable, not writable
+
+`GET /v1/posts/saved` → `{posts, cursor}`, the same envelope as a feed, so the
+results drop straight into the feed components. Wired into the You tab.
+
+The asymmetry stands: there is still **no write path** — thirteen candidate
+endpoints swept, all 404 — so posts can be listed here but only saved from the
+official app. The empty state says so rather than implying the list is broken.

@@ -12,6 +12,7 @@ import { QuotedPostInline } from './quoted-post-inline';
 import { TimeStamp } from './time-stamp';
 import { VoteControl } from './vote-control';
 
+import { groupDisplayName } from '@/api/groups';
 import { usePollVote, useVote } from '@/api/mutations';
 import type { PostOrComment } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
@@ -66,6 +67,16 @@ export function PostCard({
   return (
     <View
       style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+      {/* Above everything, the way Yik Yak does it — the community is context
+          for the post, not a footnote on it. */}
+      {showGroup && post.group?.name ? (
+        <View style={[styles.groupChip, { backgroundColor: theme.control }]}>
+          <ThemedText type="caption" style={{ color: post.group.color || theme.controlText }}>
+            {groupDisplayName(post.group)}
+          </ThemedText>
+        </View>
+      ) : null}
+
       <View style={styles.header}>
         {username ? (
           <Pressable
@@ -91,14 +102,6 @@ export function PostCard({
         {post.pinned ? <Ionicons name="pin" size={14} color={theme.brand} /> : null}
         <TimeStamp iso={post.created_at} />
       </View>
-
-      {showGroup && post.group?.name ? (
-        <View style={[styles.groupChip, { backgroundColor: theme.control }]}>
-          <ThemedText type="caption" style={{ color: post.group.color || theme.controlText }}>
-            {post.group.name}
-          </ThemedText>
-        </View>
-      ) : null}
 
       {post.text ? (
         onPress ? (

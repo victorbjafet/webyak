@@ -41,6 +41,35 @@ export interface GroupRef {
 const memo = new Map<string, GroupRef>();
 let persistedLoaded = false;
 
+/**
+ * "Home" is **not a community.** It is the combined feed of everything you're in
+ * — what the official app calls **For You** — and it behaves differently
+ * everywhere it matters:
+ *
+ *  - it has no icon anywhere in the API, so it renders a glyph
+ *  - it has no `top` sort; offsides refuses it outright with "This feature
+ *    isn't supported in your Home group"
+ *  - **you cannot post to it.** offsides substitutes the school group's id when
+ *    composing from Home, and so do we — posting to the Home id would either
+ *    fail or land somewhere unexpected
+ *
+ * The API calls it "Home" with `index_name: "all"`; we display "For You" to
+ * match the official app. Both identifiers are checked because neither is
+ * documented and either could change.
+ */
+export const FOR_YOU_LABEL = 'For You';
+
+export function isForYouFeed(group?: { name?: string; index_name?: string } | null): boolean {
+  if (!group) return false;
+  return group.name === 'Home' || group.index_name === 'all';
+}
+
+/** What to show the user. Differs from `group.name` only for the For You feed. */
+export function groupDisplayName(group?: { name?: string; index_name?: string } | null): string {
+  if (!group) return '';
+  return isForYouFeed(group) ? FOR_YOU_LABEL : (group.name ?? '');
+}
+
 export function groupSlug(group: Group): string | null {
   return group.index_name || group.analytics_name || null;
 }

@@ -119,6 +119,8 @@ export default function GroupFeedScreen() {
       back
       scroll={false}>
       <FeedList
+        // Parity: Yik Yak labels posts with their community even here.
+        showGroup
         posts={feed.posts}
         isLoading={feed.isLoading}
         isRefetching={feed.isRefetching}

@@ -150,6 +150,21 @@ export async function viewPollResults(pollId: string) {
   return request<unknown>('/v1/polls/view_results', 'POST', { poll_id: pollId });
 }
 
+/**
+ * Posts you've saved. sidechat.js has no method for this at all — the route was
+ * found by the 404-vs-401 sweep. Same `{posts, cursor}` envelope as a feed, so
+ * the results drop straight into the feed components.
+ *
+ * Note there is still no *write* path: saving a post cannot be done from here
+ * (docs/API.md), so this list is read-only and populated by the official app.
+ */
+export async function getSavedPosts(cursor?: Cursor) {
+  const params = new URLSearchParams();
+  if (cursor) params.set('cursor', cursor);
+  const query = params.toString();
+  return request<PostsAndCursor>(`/v1/posts/saved${query ? `?${query}` : ''}`);
+}
+
 /** The library builds `/v1/chats/explore&cacheBust=...` (missing `?`). */
 export async function getGroupChats() {
   const json = await request<{ chats: unknown[] }>('/v1/chats/explore');

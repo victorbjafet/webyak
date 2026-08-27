@@ -5,13 +5,14 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 
-import { api, getGroupPosts, getUpdates, getUserContent } from './client';
+import { api, getGroupPosts, getSavedPosts, getUpdates, getUserContent } from './client';
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
 import type {
   Cursor,
   FeedCategory,
   Group,
+  Karma,
   MyIdentity,
   PostOrComment,
   Profile,
@@ -30,6 +31,8 @@ export const queryKeys = {
   groupSearch: (term: string) => ['explore', 'search', term] as const,
   myContent: (kind: 'posts' | 'comments') => ['me', kind] as const,
   myIdentity: () => ['me', 'identity'] as const,
+  karma: () => ['me', 'karma'] as const,
+  saved: () => ['me', 'saved'] as const,
 };
 
 /** Resolve a URL slug to a group. Layered — see src/api/groups.ts. */
@@ -200,5 +203,31 @@ export function useMyIdentity() {
       const updates = await getUpdates();
       return (updates?.user ?? {}) as MyIdentity;
     },
+  });
+}
+
+
+/**
+ * Yakarma — the total, and the per-community breakdown.
+ *
+ * One request: `getUpdates()` carries `karma` with `{post, comment, groups}`, so
+ * the breakdown does not need a call per community.
+ */
+export function useKarma() {
+  return useQuery({
+    queryKey: queryKeys.karma(),
+    staleTime: 1000 * 60 * 2,
+    queryFn: async (): Promise<Karma> => {
+      const updates = await getUpdates();
+      return ((updates as { karma?: Karma })?.karma ?? {}) as Karma;
+    },
+  });
+}
+
+/** Saved posts. Read-only — no write path for saving exists (docs/API.md). */
+export function useSavedPosts() {
+  return useQuery({
+    queryKey: queryKeys.saved(),
+    queryFn: async () => sanitizePosts((await getSavedPosts())?.posts),
   });
 }

@@ -14,6 +14,14 @@ const TABS: { value: FeedCategory; label: string }[] = [
 ];
 
 /**
+ * The For You feed has no `top`. offsides refuses it outright — "This feature
+ * isn't supported in your Home group" — and the official app doesn't offer it
+ * there either. Passing `categories` trims the row rather than showing a tab
+ * that returns nothing useful.
+ */
+export const FOR_YOU_TABS: FeedCategory[] = ['hot', 'recent'];
+
+/**
  * Time window for the `top` feed. Verified 2026-08-27 against the live API:
  * these are the only three values it recognizes — anything else silently falls
  * back to `day`. See docs/API.md#top-time-ranges.
@@ -29,18 +37,22 @@ export function SortTabs({
   onChange,
   period = 'day',
   onPeriodChange,
+  categories,
 }: {
   value: FeedCategory;
   onChange: (next: FeedCategory) => void;
   period?: TopPeriod;
   onPeriodChange?: (next: TopPeriod) => void;
+  /** Restricts which tabs render. Defaults to all three. */
+  categories?: FeedCategory[];
 }) {
   const theme = useTheme();
+  const tabs = categories ? TABS.filter((t) => categories.includes(t.value)) : TABS;
 
   return (
     <View style={styles.stack}>
     <View style={styles.row} accessibilityRole="tablist">
-      {TABS.map((tab) => {
+      {tabs.map((tab) => {
         const active = tab.value === value;
         return (
           <Pressable

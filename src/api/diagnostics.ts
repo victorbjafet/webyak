@@ -824,6 +824,181 @@ async function probeRepostShape(): Promise<ProbeResult> {
   }
 }
 
+/* ------------------------------------------------------------------------ *
+ * Phase 5b — the You tab and the For You feed
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Where does yakarma live?
+ *
+ * offsides reads `getUpdates(groupId).karma` as `{post, comment, groups: [...]}`
+ * (docs/OFFSIDES.md). This confirms the exact keys against our own account, and
+ * whether the per-group breakdown arrives on the global call or only when a
+ * group id is passed — which decides whether the You tab needs one request or
+ * one per community.
+ */
+async function probeKarma(): Promise<ProbeResult> {
+  const base = {
+    id: 'karma',
+    label: 'You — yakarma shape',
+    question: 'Which field carries total and per-community karma?',
+  };
+  const steps: string[] = [];
+  try {
+    const global = (await api.getUpdates('')) as Record<string, unknown>;
+    steps.push(`getUpdates() top-level keys → ${Object.keys(global ?? {}).join(', ')}`);
+
+    const karma = global?.karma as Record<string, unknown> | undefined;
+    if (!karma) {
+      steps.push('No `karma` key on the global call.');
+    } else {
+      steps.push(`karma keys → ${Object.keys(karma).join(', ')}`);
+      steps.push(`karma.post = ${String(karma.post)}, karma.comment = ${String(karma.comment)}`);
+      const groups = karma.groups as Record<string, unknown>[] | undefined;
+      steps.push(
+        Array.isArray(groups)
+          ? `karma.groups → ${groups.length} entries, first keys: ${Object.keys(groups[0] ?? {}).join(', ')}\n${preview(groups, 700)}`
+          : 'karma.groups is absent or not an array',
+      );
+    }
+
+    // Does passing a group id change the payload?
+    const mine = await fetchUserGroups();
+    const target = mine.find((g) => g.name !== 'Home') ?? mine[0];
+    if (target?.id) {
+      const scoped = (await api.getUpdates(target.id)) as Record<string, unknown>;
+      const scopedKarma = scoped?.karma as Record<string, unknown> | undefined;
+      steps.push(
+        `getUpdates("${target.name}").karma → ${scopedKarma ? preview(scopedKarma, 400) : 'absent'}`,
+      );
+    }
+
+    return {
+      ...base,
+      status: karma ? 'pass' : 'fail',
+      detail: karma
+        ? 'Karma found — the You tab can render totals and a per-community breakdown.'
+        : 'No karma field. The You tab cannot show it without another source.',
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
+/**
+ * Does the feed accept `type=unread`?
+ *
+ * The official app's For You feed defaults to an **unread** filter alongside hot
+ * and new. Nothing in sidechat.js or offsides mentions it, so it may be newer
+ * than both.
+ *
+ * Differential, not status-based: unrecognised values are **silently ignored**
+ * by this endpoint (that is how the `period` values were pinned down), so a 200
+ * proves nothing. Comparing returned ids against `hot` does.
+ */
+async function probeUnreadFeed(): Promise<ProbeResult> {
+  const base = {
+    id: 'unread-feed',
+    label: 'For You — is there an unread filter?',
+    question: 'Does the feed endpoint recognise type=unread, or silently ignore it?',
+  };
+  try {
+    const mine = await fetchUserGroups();
+    const home = mine.find((g) => g.name === 'Home') ?? mine[0];
+    if (!home?.id) return { ...base, status: 'fail', detail: 'No group to test against.' };
+
+    const idsFor = async (type: string) => {
+      const json = await request<{ posts?: PostOrComment[] }>(
+        `/v1/posts?group_id=${home.id}&type=${type}&cacheBust=${Date.now()}`,
+      );
+      return (json.posts ?? []).map((p) => p.id).filter(Boolean);
+    };
+
+    const hot = await idsFor('hot');
+    const unread = await idsFor('unread');
+    const nonsense = await idsFor('definitely-not-a-real-type');
+
+    const same = (a: string[], b: string[]) =>
+      a.length === b.length && a.every((id, i) => id === b[i]);
+
+    const unreadIsHot = same(hot, unread);
+    const nonsenseIsHot = same(hot, nonsense);
+
+    return {
+      ...base,
+      status: !unreadIsHot && nonsenseIsHot ? 'pass' : 'fail',
+      detail: !unreadIsHot && nonsenseIsHot
+        ? 'unread returns a DIFFERENT set while a nonsense value falls back to hot — so unread is real.'
+        : nonsenseIsHot
+          ? 'unread returned exactly the hot set, same as a nonsense value — the API ignores it.'
+          : 'Inconclusive: even the nonsense value differed, so the feed is not stable enough to compare.',
+      evidence: [
+        `hot      → ${hot.length} posts, first ${hot[0] ?? '(none)'}`,
+        `unread   → ${unread.length} posts, first ${unread[0] ?? '(none)'}  ${unreadIsHot ? '(identical to hot)' : '(different)'}`,
+        `nonsense → ${nonsense.length} posts, first ${nonsense[0] ?? '(none)'}  ${nonsenseIsHot ? '(identical to hot — the control behaved)' : '(different — control failed)'}`,
+      ].join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
+/** Is there an endpoint for posts I have upvoted, and does explore carry a creation date? */
+async function probeYouTabGaps(): Promise<ProbeResult> {
+  const base = {
+    id: 'you-gaps',
+    label: 'You / Explore — upvotes and sort fields',
+    question: 'Is there an upvoted-posts endpoint, and can explore sort by newest?',
+  };
+  const steps: string[] = [];
+  try {
+    const candidates = [
+      '/v1/posts?type=my_upvotes',
+      '/v1/posts?type=upvoted',
+      '/v1/posts/upvoted',
+      '/v1/posts/voted',
+      '/v1/users/upvotes',
+      '/v1/posts?type=my_votes',
+    ];
+    for (const path of candidates) {
+      try {
+        const res = await api.sendRequest(path);
+        const text = await res.text();
+        steps.push(
+          `${path} → ${res.status}` +
+            (res.ok ? ` keys=${Object.keys(JSON.parse(text) ?? {}).join(',')}` : ''),
+        );
+      } catch (e) {
+        steps.push(`${path} → threw ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    // Sorting explore by "newest" needs a date field. The search payload has no
+    // obvious one; check what the explore list actually carries.
+    const explore = (await api.getAvailableGroups(true)) as unknown as Record<string, unknown>[];
+    const first = Array.isArray(explore) ? explore[0] : undefined;
+    steps.push(`\nexplore entry keys → ${first ? Object.keys(first).join(', ') : '(none)'}`);
+    const dateish = first
+      ? Object.keys(first).filter((k) => /created|date|time|added|since/i.test(k))
+      : [];
+    steps.push(
+      dateish.length
+        ? `date-ish fields → ${dateish.join(', ')}`
+        : 'NO date-ish field — "newest" cannot be sorted client-side.',
+    );
+
+    return {
+      ...base,
+      status: steps.some((l) => / 200/.test(l)) || dateish.length ? 'partial' : 'fail',
+      detail: 'See evidence: which upvote route exists, and whether explore carries a creation date.',
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
@@ -835,6 +1010,9 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
     await probeGroupIconSource(),
     await probeVideoPoster(),
     await probeImageFailures(),
+    await probeKarma(),
+    await probeUnreadFeed(),
+    await probeYouTabGaps(),
   ];
 }
 

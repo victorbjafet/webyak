@@ -145,6 +145,10 @@ src/
 | 22 | Group chats | `getGroupChats`, `joinGroupChat` | ⛔ `getGroupChats` URL broken |
 | 23 | Hide user's posts | `hidePostsFromUser`, `unhidePostsFromAllUsers` | |
 | 24 | Mark activity read | `readActivity` | |
+| 30 | Yakarma total + per-community | `getUpdates().karma` | ✅ with post/comment split |
+| 31 | For You feed | `Home` group, `index_name: "all"` | ✅ not a community — no top, not postable |
+| 32 | Saved posts list | `/v1/posts/saved` | ✅ read-only |
+| 33 | Upvoted posts list | — | ⛔ no endpoint found |
 | 25 | Save / unsave post | — | List works: `/v1/posts/saved` → `{posts, cursor}`. ⛔ Write path: 8 candidates swept, all 404 |
 | 26 | Follow / unfollow post | — | ⛔ readable, not writable; six candidate paths all 404 |
 | 27 | Notification feed | — | ✅ `/v1/activity` → `{items, cursor}` with server-rendered `text`. Ready to build |
@@ -181,6 +185,7 @@ are mostly plumbing; three need a probe before they can be estimated.
 | B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | Nothing. Ready to build |
 | B3 | **Show removal / warning state** when a post is taken down or reported | Nothing known. No moderation field has been seen on any payload, and the account has never had a post removed, so there is no sample to look at | A probe — and realistically, a post that actually gets moderated. May not be observable until it happens |
 | B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing beyond B2 |
+| B7 | **Sort your own posts/comments by top of all time** | **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
 | B6 | **Style deleted posts properly** | They come back in feeds and threads with `text` replaced by the literal `"Deleted Post"`, which we render as ordinary body text so it reads like someone typed it. Should be muted, italic, without vote or reply controls | No `deleted` flag has been found, so detection means matching that string — fragile, worth a probe first ([docs/API.md](docs/API.md#deleted-posts-render-as-bare-text)) |
 | B5 | **Yakarma over time** on the You tab, per-post and overall | The API almost certainly exposes only a *current* value — no history endpoint has been seen, and no karma field appears in any typedef, though activity text proves the server tracks it. So the history has to be **logged client-side**, sampled on app open, exactly as proposed | A probe to find where the current score lives. Then a storage decision: samples are per-device and per-browser, so this silently resets on a new device and should say so rather than look like lost data |
 
@@ -359,6 +364,23 @@ Full checklist and pre-scan findings:
       input paints its own ([docs/DESIGN.md](docs/DESIGN.md#focus-rings))
 
 ### Phase 5 — groups & profile ✅ (one worker dependency)
+- [x] **For You parity** — "Home" is not a community: it is the combined feed.
+      Renamed, given a glyph, denied `top`, and composing from it posts to the
+      school group instead ([docs/API.md](docs/API.md#home-is-not-a-community--it-is-the-for-you-feed))
+- [x] Every post labelled with its community, on every feed, as Yik Yak does
+- [ ] ⛔ For You `unread` filter — the official app defaults to it, but the feed
+      endpoint silently ignores unknown values so a 200 proves nothing. The
+      differential probe settles it; hot/new ship until then
+- [x] Explore sorted by member count by default
+- [ ] ⛔ Explore "newest" — no timestamp on any explore field. Shown disabled
+      with a reason ([docs/API.md](docs/API.md#-explore-cannot-sort-by-newest))
+- [x] School group-chats section on Explore — placeholder; `/v1/chats/explore`
+      works, but there is nowhere to open a chat until Phase 6
+- [x] You tab: yakarma total and per-community, each expanding to the
+      post/comment split ([docs/API.md](docs/API.md#yakarma))
+- [x] You tab: saved posts (read-only — no save endpoint exists)
+- [ ] ⛔ You tab: upvoted posts — six candidate endpoints swept, all 404
+      ([docs/API.md](docs/API.md#-posts-you-upvoted))
 - [~] **Fix images first.** Explore is a grid of community icons and profiles
       are built around avatars, so this bites here before anything else does.
       Groundwork done 2026-08-27:

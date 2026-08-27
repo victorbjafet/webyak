@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { useCurrentGroup } from '@/api/current-group';
+import { groupDisplayName, isForYouFeed } from '@/api/groups';
+import { useSession } from '@/api/session';
 import { uploadAssetWeb } from '@/api/client';
 import { useCreatePost } from '@/api/mutations';
 import { usePost } from '@/api/queries';
@@ -33,6 +35,7 @@ export default function ComposeScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { current } = useCurrentGroup();
+  const { primaryGroup } = useSession();
   const params = useLocalSearchParams<{ repost?: string; group?: string }>();
 
   const [text, setText] = useState('');
@@ -53,7 +56,11 @@ export default function ComposeScreen() {
   // exactly the kind of thing nobody notices until they've posted to the wrong
   // place.
   const targetGroup = params.group && quoted.data?.group ? quoted.data.group : current;
-  const groupId = params.group || current?.id;
+  // You cannot post to For You — it is a combined view, not a community. offsides
+  // substitutes the school group's id for exactly this case, and so do we;
+  // posting to the Home id would either fail or land somewhere unexpected.
+  const composeTarget = isForYouFeed(targetGroup) ? primaryGroup : targetGroup;
+  const groupId = params.group || composeTarget?.id || current?.id;
 
   // The preview is an object URL; dropping the screen without releasing it pins
   // the decoded bitmap for the life of the tab.
@@ -173,14 +180,14 @@ export default function ComposeScreen() {
       <View style={styles.body}>
         <View style={styles.groupRow}>
           <GroupAvatar
-            group={targetGroup}
-            name={targetGroup?.name}
-            iconUrl={targetGroup?.icon_url}
-            color={targetGroup?.color}
+            group={composeTarget}
+            name={groupDisplayName(composeTarget)}
+            iconUrl={composeTarget?.icon_url}
+            color={composeTarget?.color}
             size={24}
           />
           <ThemedText type="smallBold" themeColor="textSecondary">
-            Posting to {targetGroup?.name ?? 'this community'}
+            Posting to {groupDisplayName(composeTarget) || 'this community'}
           </ThemedText>
         </View>
 

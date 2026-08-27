@@ -201,3 +201,35 @@ We prefer the photo when an account has one. `@snoopyvt` carries *both* an
 `icon_url` and a `conversation_icon` emoji, so under their order the photo would
 never appear — which is a defensible product call on a phone, and the wrong one
 for a client whose users asked to see profile pictures.
+
+
+## Round 4 — the You tab and the Home feed (2026-08-27)
+
+### Karma lives on `getUpdates`
+
+`MyProfileScreen.jsx` reads `API.getUpdates(currentGroup?.id)` and takes
+`updates.karma`, shaped `{post, comment, groups: [...]}`, rendering post karma,
+comment karma and a card per community. That answered "where is yakarma" without
+a single probe — nothing in sidechat.js's typedefs mentions karma at all.
+
+### Home is special, and they enforce it
+
+Two behaviours copied straight across:
+
+- **`top` is refused on Home.** `HomeScreen.jsx` blocks it with "This feature
+  isn't supported in your Home group". Our For You feed drops the tab entirely
+  and corrects a stale `top` selection rather than sending it.
+- **Posting from Home substitutes the school group id**:
+  `groupID: currentGroup?.name == 'Home' ? appState.schoolGroupID : currentGroup.id`.
+  We do the same via `primaryGroup`. Without this, composing from For You would
+  post to a group id that isn't a real community.
+
+They identify it by `name == 'Home'`. We check `index_name === 'all'` as well,
+since neither is documented and a display-name comparison is the more fragile of
+the two.
+
+### Where they don't help
+
+`unread` does not appear anywhere in their source — they offer hot / top /
+recent only. So the official app's unread filter is either newer than offsides
+or was never reverse-engineered, and we have to settle it ourselves.

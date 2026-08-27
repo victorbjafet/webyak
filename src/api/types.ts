@@ -207,6 +207,27 @@ export interface MyIdentity {
   conversation_icon?: ConversationIcon;
 }
 
+/**
+ * Yakarma, from `getUpdates().karma`.
+ *
+ * Confirmed from offsides, which reads `{post, comment, groups}` off the same
+ * call (docs/OFFSIDES.md). Everything is optional because the payload is
+ * undocumented — the You tab renders what it gets rather than assuming a shape.
+ */
+export interface KarmaGroup {
+  group_id?: string;
+  name?: string;
+  post?: number;
+  comment?: number;
+  color?: string;
+}
+
+export interface Karma {
+  post?: number;
+  comment?: number;
+  groups?: KarmaGroup[];
+}
+
 export interface Profile {
   id: string;
   name: string;
