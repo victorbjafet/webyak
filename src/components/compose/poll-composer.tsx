@@ -28,6 +28,12 @@ export function PollComposer({
   const theme = useTheme();
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
 
+  // All or nothing: the remove control is gated on the option *count*, so every
+  // row has one or no row does. Everything below reserves the trailing space
+  // only when it is actually occupied, which keeps one right edge down the whole
+  // composer instead of insetting the inputs against a full-width Add button.
+  const showRemove = options.length > MIN_POLL_OPTIONS;
+
   const setAt = (index: number, value: string) =>
     onChange(options.map((option, i) => (i === index ? value : option)));
 
@@ -45,10 +51,20 @@ export function PollComposer({
           accessibilityRole="button"
           accessibilityLabel="Remove poll"
           onPress={onRemove}
-          style={({ hovered }) => [styles.iconButton, hovered && { opacity: 0.7 }]}>
-          <ThemedText type="caption" themeColor="textTertiary">
-            Remove
-          </ThemedText>
+          style={({ hovered, pressed }) => [
+            styles.removePoll,
+            {
+              borderColor: hovered || pressed ? theme.danger : theme.borderStrong,
+              backgroundColor: hovered || pressed ? theme.controlHover : 'transparent',
+            },
+          ]}>
+          {({ hovered, pressed }) => (
+            <ThemedText
+              type="smallBold"
+              style={{ color: hovered || pressed ? theme.danger : theme.textSecondary }}>
+              Remove
+            </ThemedText>
+          )}
         </Pressable>
       </View>
 
@@ -72,39 +88,44 @@ export function PollComposer({
               },
             ]}
           />
-          {options.length > MIN_POLL_OPTIONS ? (
+          {showRemove ? (
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={`Remove option ${index + 1}`}
               onPress={() => removeAt(index)}
-              style={({ hovered }) => [
+              style={({ hovered, pressed }) => [
                 styles.iconButton,
-                hovered && { backgroundColor: theme.controlHover },
+                (hovered || pressed) && { backgroundColor: theme.controlHover },
               ]}>
-              <Ionicons name="close" size={16} color={theme.textSecondary} />
+              {({ hovered, pressed }) => (
+                <Ionicons
+                  name="close"
+                  size={16}
+                  color={hovered || pressed ? theme.danger : theme.textSecondary}
+                />
+              )}
             </Pressable>
-          ) : (
-            // Keeps the inputs aligned when the remove control isn't available,
-            // so rows don't shift sideways as options are added and removed.
-            <View style={styles.iconButton} />
-          )}
+          ) : null}
         </View>
       ))}
 
       {options.length < MAX_POLL_OPTIONS ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Add option"
-          onPress={() => onChange([...options, ''])}
-          style={({ hovered, pressed }) => [
-            styles.add,
-            { backgroundColor: hovered || pressed ? theme.controlHover : theme.control },
-          ]}>
-          <Ionicons name="add" size={16} color={theme.controlText} />
-          <ThemedText type="smallBold" themeColor="controlText">
-            Add option
-          </ThemedText>
-        </Pressable>
+        <View style={styles.optionRow}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add option"
+            onPress={() => onChange([...options, ''])}
+            style={({ hovered, pressed }) => [
+              styles.add,
+              { backgroundColor: hovered || pressed ? theme.controlHover : theme.control },
+            ]}>
+            <Ionicons name="add" size={16} color={theme.controlText} />
+            <ThemedText type="smallBold" themeColor="controlText">
+              Add option
+            </ThemedText>
+          </Pressable>
+          {showRemove ? <View style={styles.iconButton} /> : null}
+        </View>
       ) : null}
     </View>
   );
@@ -137,14 +158,23 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.two,
     paddingHorizontal: Spacing.two,
   },
+  removePoll: {
+    minHeight: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.three,
+    borderRadius: Radius.pill,
+    borderWidth: 1,
+  },
   iconButton: {
-    width: 28,
-    height: 28,
+    width: 32,
+    height: 32,
     borderRadius: Radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   add: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
