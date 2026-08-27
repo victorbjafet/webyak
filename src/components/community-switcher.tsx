@@ -1,4 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { useCallback } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { GroupAvatar } from './group-avatar';
@@ -16,7 +18,18 @@ import { useTheme } from '@/hooks/use-theme';
  */
 export function CommunitySwitcher({ variant }: { variant: 'sidebar' | 'bar' }) {
   const theme = useTheme();
+  const router = useRouter();
   const { groups, current, setCurrent, isLoading } = useCurrentGroup();
+
+  // Selecting always lands you on that community's feed, so the choice has a
+  // visible result even if you were three screens deep when you made it.
+  const choose = useCallback(
+    (group: (typeof groups)[number]) => {
+      setCurrent(group);
+      router.push('/');
+    },
+    [setCurrent, router],
+  );
 
   if (isLoading || groups.length === 0) return null;
 
@@ -34,7 +47,7 @@ export function CommunitySwitcher({ variant }: { variant: 'sidebar' | 'bar' }) {
                 key={group.id}
                 accessibilityRole="button"
                 accessibilityState={{ selected: active }}
-                onPress={() => setCurrent(group.id)}
+                onPress={() => choose(group)}
                 style={({ hovered, pressed }) => [
                   styles.chip,
                   {
@@ -75,7 +88,7 @@ export function CommunitySwitcher({ variant }: { variant: 'sidebar' | 'bar' }) {
             key={group.id}
             accessibilityRole="button"
             accessibilityState={{ selected: active }}
-            onPress={() => setCurrent(group.id)}
+            onPress={() => choose(group)}
             style={({ hovered, pressed }) => [
               styles.row,
               active && { backgroundColor: theme.backgroundSelected },

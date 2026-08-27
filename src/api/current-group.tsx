@@ -7,14 +7,23 @@ import type { Group } from './types';
 
 import { cacheStorage } from '@/lib/storage';
 
-const SELECTED_KEY = 'webyak.currentGroupId';
+/**
+ * The whole selected group is persisted, not just its id.
+ *
+ * Storing an id means every read is a lookup that can miss — a stale id, a group
+ * that dropped out of `getUpdates`, an id field that isn't what we assumed — and
+ * a missed lookup falls back silently to the primary group, which looks exactly
+ * like "selecting a community does nothing". Storing the object removes the
+ * lookup, so a selection cannot fail to take effect.
+ */
+const SELECTED_KEY = 'webyak.currentGroup';
 
 interface CurrentGroupValue {
   /** The communities this account belongs to. */
   groups: Group[];
   isLoading: boolean;
   current: Group | null;
-  setCurrent(groupId: string): void;
+  setCurrent(group: Group): void;
 }
 
 const CurrentGroupContext = createContext<CurrentGroupValue | null>(null);
@@ -29,7 +38,7 @@ const CurrentGroupContext = createContext<CurrentGroupValue | null>(null);
  */
 export function CurrentGroupProvider({ children }: { children: React.ReactNode }) {
   const { status, primaryGroup } = useSession();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Group | null>(null);
   const [restored, setRestored] = useState(false);
 
   const query = useQuery({
@@ -47,9 +56,15 @@ export function CurrentGroupProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const stored = await cacheStorage.getItem(SELECTED_KEY);
+      const raw = await cacheStorage.getItem(SELECTED_KEY);
       if (cancelled) return;
-      setSelectedId(stored);
+      if (raw) {
+        try {
+          setSelected(JSON.parse(raw) as Group);
+        } catch {
+          /* corrupt entry — fall through to the default */
+        }
+      }
       setRestored(true);
     })();
     return () => {
@@ -57,21 +72,20 @@ export function CurrentGroupProvider({ children }: { children: React.ReactNode }
     };
   }, []);
 
-  const setCurrent = useCallback((groupId: string) => {
-    setSelectedId(groupId);
-    void cacheStorage.setItem(SELECTED_KEY, groupId);
+  const setCurrent = useCallback((group: Group) => {
+    setSelected(group);
+    void cacheStorage.setItem(SELECTED_KEY, JSON.stringify(group));
   }, []);
 
   const groups = useMemo(() => query.data ?? [], [query.data]);
 
   const current = useMemo(() => {
+    // The selection wins outright — no lookup, so nothing to miss.
+    if (selected) return selected;
     if (!restored) return null;
-    const chosen = selectedId ? groups.find((g) => g.id === selectedId) : undefined;
-    if (chosen) return chosen;
-    // Fall back to the account's primary group, then to whatever is first.
     const primary = primaryGroup?.id ? groups.find((g) => g.id === primaryGroup.id) : undefined;
     return primary ?? groups[0] ?? (primaryGroup as Group | null) ?? null;
-  }, [restored, selectedId, groups, primaryGroup]);
+  }, [restored, selected, groups, primaryGroup]);
 
   const value = useMemo<CurrentGroupValue>(
     () => ({ groups, isLoading: query.isLoading, current, setCurrent }),

@@ -1,31 +1,29 @@
 import type { PostOrComment } from '@/api/types';
 
 /**
+ * Where webyak is deployed. **This is the canonical public base URL** — shared
+ * links, deep links and anything else user-facing build from it.
+ *
+ * Overridable with EXPO_PUBLIC_BASE_URL for a preview deploy or a local test.
+ */
+export const BASE_URL = process.env.EXPO_PUBLIC_BASE_URL ?? 'https://webyak.vbjfr.xyz';
+
+/**
  * The URL we hand to other people.
  *
- * Deliberately a **yikyak.com** link, not a webyak one: `/p/<code>` can't be
- * opened cold yet (docs/API.md#blocker-1), so a webyak link would be broken for
- * whoever receives it. The public web client resolves the code from any group
- * and title segment, and only the leading `cy` matters — but we fill in the real
- * ones when we have them so the link reads sensibly.
- *
- * Flip this to a webyak URL once the Worker lands (docs/WORKER.md).
+ * Points at webyak, not yikyak.com. An earlier version shared a yikyak.com link
+ * on the reasoning that `/p/<code>` can't be opened cold — but the public web
+ * client has no auth, so a yikyak.com link to a school-community post is
+ * useless to whoever receives it. A webyak link at least works for anyone signed
+ * in who reached the post through a feed, and becomes fully cold-loadable once
+ * the Worker lands (docs/WORKER.md).
  */
 export function shareUrlForPost(post: PostOrComment): string | null {
   if (!post.index_code) return null;
-  const group = post.group?.index_name || post.group?.analytics_name || 'yikyak';
-  const slug = slugify(post.text) || 'post';
-  return `https://web.yikyak.com/cy/${encodeURIComponent(group)}/comments/${post.index_code}/${slug}`;
+  return `${BASE_URL}/p/${encodeURIComponent(post.index_code)}`;
 }
 
-function slugify(text: string | undefined): string {
-  if (!text) return '';
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .split(/\s+/)
-    .slice(0, 8)
-    .join('-')
-    .slice(0, 60);
+/** Canonical link to a community feed. */
+export function shareUrlForGroup(slug: string): string {
+  return `${BASE_URL}/g/${encodeURIComponent(slug)}`;
 }

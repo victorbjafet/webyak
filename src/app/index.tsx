@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useState } from 'react';
 import { View } from 'react-native';
 
 import { useCurrentGroup } from '@/api/current-group';
@@ -20,11 +20,6 @@ export default function HomeScreen() {
   const [period, setPeriod] = useState<TopPeriod>('day');
 
   const feed = useGroupFeed(current?.id, sort, period);
-
-  const openGroup = useCallback(() => {
-    const slug = current?.index_name || current?.analytics_name;
-    if (slug) router.push({ pathname: '/g/[slug]', params: { slug } });
-  }, [current, router]);
 
   if (!current?.id) {
     return (
@@ -69,9 +64,6 @@ export default function HomeScreen() {
         onRefresh={() => feed.refetch()}
         onEndReached={() => feed.fetchNextPage()}
         onRetry={() => feed.refetch()}
-        header={
-          <Button label={`Open ${current.name}`} variant="ghost" onPress={openGroup} />
-        }
       />
     </Screen>
   );

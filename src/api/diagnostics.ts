@@ -17,6 +17,8 @@ import { feedHygieneStats } from './feed';
 import type { PostOrComment } from './types';
 
 export const SAMPLE_GROUP_ID = '602fb305-4ec2-4d01-83be-4d80c6636a56';
+/** Known to have a real profile photo, unlike emoji-only accounts. */
+export const SAMPLE_PROFILE = 'snoopyvt';
 
 export type ProbeStatus = 'pass' | 'fail' | 'partial' | 'error';
 
@@ -195,54 +197,71 @@ async function probeProfileShape(): Promise<ProbeResult> {
   const base = {
     id: 'profile-shape',
     label: 'Profile — icon fields',
-    question: 'What does getUserProfile return for a user icon?',
+    question: `Which field carries @${SAMPLE_PROFILE}'s profile photo?`,
   };
   try {
-    // Find a username from a real post rather than guessing one.
-    const groups = await fetchUserGroups();
-    let username: string | undefined;
-    for (const groupId of [SAMPLE_GROUP_ID, ...groups.slice(0, 3).map((g) => g.id)]) {
-      const page = (await api.getGroupPosts(groupId, 'hot')) as unknown as {
-        posts?: PostOrComment[];
-      };
-      const named = page.posts?.find((p) => p.identity?.posted_with_username && p.identity?.name);
-      if (named) {
-        username = named.identity.name;
-        break;
-      }
-    }
-    if (!username) {
-      return {
-        ...base,
-        status: 'partial',
-        detail: 'No posts by a named user in the sampled feeds — nothing to look up.',
-      };
-    }
-
-    // A profile is a *group* object: getUserProfile hits /v1/groups/username and
-    // returns json.group. That's also why profiles carry icon_url.
+    // A profile is a group object: getUserProfile reads /v1/groups/username.
     const res = await api.sendRequest(
-      `/v1/groups/username?username=${encodeURIComponent(username)}`,
+      `/v1/groups/username?username=${encodeURIComponent(SAMPLE_PROFILE)}`,
     );
     const text = await res.text();
     if (!res.ok) {
-      return {
-        ...base,
-        status: 'fail',
-        detail: `Looked up "${username}": HTTP ${res.status}.`,
-        evidence: preview(text.slice(0, 300)),
-      };
+      return { ...base, status: 'fail', detail: `HTTP ${res.status}.`, evidence: preview(text.slice(0, 300)) };
     }
     const json = JSON.parse(text) as { group?: Record<string, unknown> };
     const group = json.group ?? (json as Record<string, unknown>);
-    const iconUrl = typeof group.icon_url === 'string' ? group.icon_url : undefined;
+
+    // Report every field whose value looks like an image URL, so we stop
+    // guessing at the field name.
+    const urlish = Object.entries(group)
+      .filter(([, v]) => typeof v === 'string' && /^https?:\/\//.test(v))
+      .map(([k, v]) => `${k} = ${String(v).slice(0, 90)}`);
+
     return {
       ...base,
-      status: iconUrl ? 'pass' : 'partial',
-      detail: iconUrl
-        ? `"${username}" has icon_url — that is the profile picture, and icon.yik-yak.com is public.`
-        : `"${username}" returned no icon_url. Keys: ${Object.keys(group).join(', ')}.`,
-      evidence: preview(group, 700),
+      status: urlish.length > 0 ? 'pass' : 'fail',
+      detail:
+        urlish.length > 0
+          ? `Found ${urlish.length} URL-valued field(s) — that's where the photo lives.`
+          : `No URL-valued fields. Keys: ${Object.keys(group).join(', ')}. This account may render its photo from something other than the profile payload.`,
+      evidence: preview({ urlFields: urlish, group }, 900),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
+/** Why doesn't switching communities take effect? Dump what getUpdates returns. */
+async function probeMyGroupsShape(): Promise<ProbeResult> {
+  const base = {
+    id: 'my-groups',
+    label: 'Communities — switcher source',
+    question: 'What exactly does getUpdates().groups contain?',
+  };
+  try {
+    const groups = await fetchUserGroups();
+    const ids = groups.map((g) => g.id);
+    const distinct = new Set(ids.filter(Boolean)).size;
+    const missingId = ids.filter((id) => !id).length;
+
+    return {
+      ...base,
+      status: missingId === 0 && distinct === groups.length ? 'pass' : 'fail',
+      detail:
+        missingId > 0
+          ? `${missingId} of ${groups.length} have no id — selection cannot work by id.`
+          : distinct !== groups.length
+            ? `Only ${distinct} distinct ids across ${groups.length} groups.`
+            : `${groups.length} groups, all with distinct ids. Selection by id is sound.`,
+      evidence: preview(
+        groups.map((g) => ({
+          id: g.id,
+          name: g.name,
+          index_name: g.index_name,
+          icon_url: g.icon_url ?? null,
+        })),
+        900,
+      ),
     };
   } catch (e) {
     return fail(base, e);
@@ -252,6 +271,7 @@ async function probeProfileShape(): Promise<ProbeResult> {
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
+    await probeMyGroupsShape(),
     await probeProfileShape(),
     await probeVideoShape(),
     await probeGapEndpoints(),

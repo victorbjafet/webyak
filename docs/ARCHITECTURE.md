@@ -1,5 +1,21 @@
 # Architecture
 
+## The public URL
+
+**webyak is deployed at `https://webyak.vbjfr.xyz`.**
+
+That is the canonical base for every user-facing link — shared post links, deep
+links, anything printed or copied. It lives in one place, `BASE_URL` in
+[src/lib/share.ts](../src/lib/share.ts), overridable with
+`EXPO_PUBLIC_BASE_URL` for a preview or local deploy. Never hardcode it anywhere
+else.
+
+Because it is a custom domain on GitHub Pages:
+- `npm run build:web` writes a **`CNAME`** file into `dist/`. Pages drops the
+  custom domain on any deploy that lacks it.
+- No `experiments.baseUrl` is needed — the site is served from the domain root,
+  not a `/repo/` subpath.
+
 ## Deployment model — static, serverless, GitHub Pages
 
 webyak ships as a **pure static bundle with no server of its own**. Verified
@@ -40,9 +56,13 @@ back.
    The build touches `.nojekyll` to disable it. Without this the site loads a
    blank page with 404s on all assets.
 
-If deployed to `<user>.github.io/<repo>/` rather than a custom domain or the
-account root, set `expo.experiments.baseUrl` to `/<repo>` in `app.json` or every
-asset path breaks.
+3. **A custom domain needs a `CNAME` file** in the published output, every
+   deploy. The build writes one. If it ever goes missing, Pages silently reverts
+   to `<user>.github.io` and the domain stops resolving.
+
+If this were ever served from `<user>.github.io/<repo>/` instead, it would also
+need `expo.experiments.baseUrl` set to `/<repo>` or every asset path breaks.
+That does not apply at a domain root.
 
 ### Where serverless stops working
 

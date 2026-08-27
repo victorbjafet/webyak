@@ -50,7 +50,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "build:web": "expo export --platform web && cp dist/index.html dist/404.html && touch dist/.nojekyll"
+    "build:web": "expo export --platform web && cp dist/index.html dist/404.html && touch dist/.nojekyll && echo webyak.vbjfr.xyz > dist/CNAME"
   },
   "private": true
 }

@@ -360,13 +360,30 @@ an open set. We render `link` and ignore the rest rather than guessing.
 user's public profile as a group object, which is why the profile typedef carries
 `group_join_type: "account"` and `group_visibility`.
 
-Two consequences:
+Consequence: anything that renders a group renders a profile. Worth reusing
+rather than building a parallel component.
 
-- **The profile picture is `icon_url`**, the same field groups use, pointing at
-  `icon.yik-yak.com` — which is **public** (verified 200 unauthenticated). So
-  profile and community icons load without the bearer, unlike post assets.
-- Anything that renders a group renders a profile. Worth reusing rather than
-  building a parallel component.
+### ⛔ Profile and community photos do not render — unresolved
+
+**Deferred deliberately.** Both are parked; the emoji/initials fallbacks are what
+ships today.
+
+What is known:
+
+- Some profiles have **no `icon_url` at all**. `rat.brat` returns only
+  `conversation_icon: {emoji: "🐀", color: "#9BD46A", secondary_color: …}` — for
+  that account the emoji *is* the avatar, and it renders correctly.
+- Other accounts do have a real photo. **`@snoopyvt` is the reference case** —
+  <http://localhost:8081/u/snoopyvt> locally, or `/u/snoopyvt` on the deploy.
+  Use it to verify any fix.
+- Group objects carry `icon_url` on `icon.yik-yak.com`, which is **public**
+  (verified 200 unauthenticated), so the host is not the obstacle.
+- What is *not* known: which field carries a profile photo when one exists, and
+  why community `icon_url` doesn't render despite being a public URL.
+
+The diagnostics probe now targets `@snoopyvt` and reports **every URL-valued
+field** on the payload rather than guessing at a name, which should settle the
+first question on the next run.
 
 Paths that do **not** exist, swept: `/v1/users/<name>`, `/v1/users/profile`,
 `/v1/users/aliases/<name>`, `/v1/aliases/<name>`, `/v1/users/<name>/profile`,

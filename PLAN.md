@@ -265,7 +265,16 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
       - community and profile icons render (`icon.yik-yak.com` is public)
 - [x] **Profile pictures fixed** — a profile is a group object, so the picture is
       `icon_url`; the earlier probe used a path that doesn't exist
-- [ ] Visual QA round 4
+- [x] Visual QA round 4, and the fixes from it:
+      - community selection persists the group object rather than an id, so a
+        failed lookup can no longer silently fall back
+      - selecting a community navigates to it; the redundant "Open X" button is gone
+      - share links point at `webyak.vbjfr.xyz`, not yikyak.com
+- [ ] ⛔ **Profile and community photos** — deferred. Reference case
+      `/u/snoopyvt`; see [docs/API.md](docs/API.md#-profile-and-community-photos-do-not-render--unresolved)
+- [ ] ⛔ Membership count discrepancy — deferred, switcher source is correct in
+      practice
+- [ ] Visual QA round 5, then Phase 3 closes
 
 ### Phase 4 — write
 - [ ] Optimistic voting on posts and comments
