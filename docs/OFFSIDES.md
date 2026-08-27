@@ -143,3 +143,61 @@ feed.
 
 So they never had to resolve a share code, and there is no prior art here for
 [Blocker 1](API.md#blocker-1--index_code--post_id). That one is ours to solve.
+
+
+## Round 3 — what they told us about images and reposts (2026-08-27)
+
+Consulted after three rounds of failing to render profile photos and reposts.
+Both answers were in their source.
+
+### `post.quote_post.post` — a wrapper, not the post
+
+`Post.jsx`:
+
+```jsx
+{post.quote_post && !repost && (
+  <MemoizedPost post={post.quote_post.post} repost={true} />
+)}
+```
+
+The quoted original is at **`quote_post.post`**. Reading `quote_post` as the post
+itself — the obvious guess, and the one we made — finds nothing and renders
+nothing, which is exactly the symptom: a repost showing only its own caption.
+sidechat.js's typedefs don't mention quotes at all, so there was no way to get
+this from the library.
+
+**We diverge on how it renders.** They recurse into the same `Post` component
+with `repost={true}`, giving an outlined card. We render a lighter, read-only
+`QuotedPost` summary instead, because a full card inside a card would nest vote
+buttons, a delete control and a profile link inside another interactive card —
+the nested-control problem that already bit us once
+([DESIGN.md](DESIGN.md#never-nest-interactive-elements)). React Native tolerates
+that; the web does not.
+
+### Group icons are a plain URI — no token
+
+`GroupAvatar.jsx` renders `source={{ uri: groupImage }}` with **no
+Authorization header**, while `AutoImage.jsx` (post assets) does pass one. So
+they had already drawn the line we spent three rounds finding: not every asset
+on the API host wants a token.
+
+That is what eventually cracked profile photos. `/v1/assets/profile` answers
+`302` to a pre-signed R2 URL **with no auth at all**, and sending a bearer to it
+breaks the request — the header forces a preflight, and a preflighted request
+cannot follow a cross-origin redirect
+([API.md](API.md#profile-photos-icon_url-and-the-bearer-was-breaking-it)).
+offsides never hit this because CORS does not exist on Android.
+
+### Home gets a home glyph
+
+`GroupAvatar.jsx` special-cases `groupName === 'Home'` to an icon rather than
+initials. Copied — "Home" is the synthetic all-communities feed, it has no
+`icon_url` anywhere in the API, and a permanent lone "H" is worse than a glyph.
+
+### Where we deliberately differ on avatars
+
+Their `UserAvatar` checks the emoji **first** and only falls back to the image.
+We prefer the photo when an account has one. `@snoopyvt` carries *both* an
+`icon_url` and a `conversation_icon` emoji, so under their order the photo would
+never appear — which is a defensible product call on a phone, and the wrong one
+for a client whose users asked to see profile pictures.

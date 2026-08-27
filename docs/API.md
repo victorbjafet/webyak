@@ -301,6 +301,7 @@ Verified 2026-08-27 by requesting each form unauthenticated:
 | `api.sidechat.lol/v1/assets/video.m3u8?…&expires=…` | none — signed via query | video streams |
 | `api.sidechat.lol/v1/assets?post_id=…&asset_id=…` | **401** | video thumbnails |
 | `api.sidechat.lol/v1/assets/library/…` | **401** | asset library, `uploadAsset` output |
+| `api.sidechat.lol/v1/assets/profile?…` | **none — 302** to a signed R2 URL | profile photos. Do **not** send the bearer; see below |
 
 The rule that actually holds: **a URL on `api.sidechat.lol` without `expires=`
 or a signature needs the bearer token.** Encoded in `src/lib/asset-url.ts`.
@@ -410,15 +411,48 @@ was true and misleading at the same time: it made the host look innocent and
 sent three rounds of investigation after a rendering bug, when nobody had
 checked whether the app had a URL to render at all.
 
-#### Profile photos: `icon_url`, and it needs the bearer
+#### Profile photos: `icon_url`, and the bearer was breaking it
 
 ```
 icon_url = https://api.sidechat.lol/v1/assets/profile?user_id=<uuid>&asset_id=<uuid>
 ```
 
-On `api.sidechat.lol` with **no `expires=` and no signature**, so by the rule in
-`asset-url.ts` it needs the bearer token — it cannot go in a plain `<img src>`,
-and must go through `AuthedImage`'s blob path.
+It looks like it needs the bearer — API host, no `expires=`, no signature — and
+that inference is what broke it. Requested **unauthenticated**, it answers:
+
+```
+HTTP/2 302
+location: https://sidechat-icon-assets-prod.<hash>.r2.cloudflarestorage.com/<asset_id>
+          ?X-Amz-Signature=…&X-Amz-Expires=3600
+```
+
+**No auth required.** It hands out a pre-signed R2 URL.
+
+Sending the bearer to it is actively harmful in a browser, and the failure is a
+three-step chain worth remembering:
+
+1. An `Authorization` header makes the request **non-simple**, so the browser
+   sends a CORS preflight. That part succeeds — the host returns
+   `access-control-allow-headers: *`.
+2. The real `GET` then answers **302**.
+3. **A preflighted request cannot follow a cross-origin redirect.** The browser
+   aborts with `TypeError: Failed to fetch`.
+
+Which is exactly what the image-failure log recorded:
+`profile-photo · network · api.sidechat.lol · Failed to fetch`. The CORS headers
+on the API host made this look impossible, because the block is not on the API
+host at all — it is on the redirect.
+
+Fixed by *removing* auth: `assetNeedsAuth()` returns false for
+`/v1/assets/profile`, so the URL goes straight into the element, which follows
+the redirect itself and never applies CORS to it. offsides passes group icons as
+a plain URI for the same underlying reason.
+
+**The general lesson:** on the web, a URL that redirects is best given to the
+element rather than to `fetch`. `fetch` + `Authorization` is the combination
+that cannot follow a redirect; `<img src>` has no such restriction. Check
+whether an asset endpoint *actually* rejects an unauthenticated request before
+assuming it needs a token — this one never did.
 
 `@snoopyvt` carries **both** an `icon_url` and a `conversation_icon` emoji (🚬),
 which is why "does this account have a photo" was ambiguous for so long: the
@@ -438,11 +472,15 @@ sidechat.js typedefs don't mention quotes at all, which is why reposts rendered
 as a bare caption with the original missing: the client was reading neither
 possible shape.
 
-[`QuotedPostInline`](../src/components/post/quoted-post-inline.tsx) now handles
-both — it renders an inlined `quote_post` object if the API provides one, and
-otherwise fetches `quote_post_id` through the cached `usePost`. That works
-whichever shape is real. The *Phase 5 — quote-repost shape* write probe settles
-which, so the extra fetch can be dropped once known.
+**The shape came from offsides**: the original lives at **`post.quote_post.post`**
+— `quote_post` is a *wrapper*, not the post. Reading `quote_post` directly finds
+nothing, which is why a repost rendered as its own caption with the original
+missing.
+
+[`QuotedPostInline`](../src/components/post/quoted-post-inline.tsx) reads that,
+and keeps a `quote_post_id` fetch as a fallback for responses that carry only the
+id. The *Phase 5 — quote-repost shape* write probe confirms which the API
+actually sends, so the fallback can be dropped once known.
 
 ### Deleted posts render as bare text
 

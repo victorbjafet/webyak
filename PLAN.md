@@ -374,7 +374,13 @@ Full checklist and pre-scan findings:
         endpoints the app reads omit `icon_url` entirely for some groups, so
         `useGroupIcon` looks it up via search and matches on id. Profile photos:
         the field is `icon_url`, on `api.sidechat.lol`, needing the bearer
-  - [ ] ⛔ Video thumbnails — still open, no video in the sampled feed to probe
+  - [x] **Profile photos fixed** — the endpoint needs *no* auth; it 302s to a
+        signed R2 URL, and sending the bearer forced a preflight that cannot
+        follow a redirect. Removing the header fixed it
+        ([docs/API.md](docs/API.md#profile-photos-icon_url-and-the-bearer-was-breaking-it))
+  - [ ] ⛔ Video thumbnails — still open, no video in the sampled feed to probe.
+        The poster probe now also checks whether that endpoint redirects, since
+        the same fix may apply
   - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
         URL, so feed avatars would need a profile lookup per author
 - [ ] Explore page: group grid, member counts, icons

@@ -673,8 +673,17 @@ async function probeVideoPoster(): Promise<ProbeResult> {
 
     const steps = [`poster host → ${new URL(poster).host}`];
 
-    const bare = await fetch(poster);
-    steps.push(`without bearer → HTTP ${bare.status} (expect 401)`);
+    // `/v1/assets/profile` turned out to answer 302 to a signed R2 URL with no
+    // auth at all, which is why sending the bearer *broke* profile photos: a
+    // preflighted request cannot follow a cross-origin redirect. If posters
+    // behave the same way the fix is identical — stop sending the header.
+    const bare = await fetch(poster, { redirect: 'manual' });
+    steps.push(
+      `without bearer, redirect:manual → HTTP ${bare.status} type=${bare.type}` +
+        (bare.type === 'opaqueredirect'
+          ? '  ← IT REDIRECTS. Load it plainly in an <img> and drop the bearer.'
+          : ''),
+    );
 
     const authed = await fetch(poster, {
       headers: { Authorization: `Bearer ${api.userToken}` },

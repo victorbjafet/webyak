@@ -149,12 +149,16 @@ export interface PostOrComment {
 
   // post only
   /**
-   * Quote-repost. We send `quote_post_id` when creating one; what comes back is
-   * handled both ways — an embedded post if the API inlines it, otherwise the
-   * id alone and the client fetches it (docs/API.md#quote-reposts).
+   * Quote-repost. We send `quote_post_id` when creating one; the response
+   * carries `quote_post`, which is a **wrapper** — the original is at
+   * `quote_post.post`, not `quote_post` itself. Confirmed from offsides, which
+   * renders `post.quote_post.post` (docs/OFFSIDES.md).
+   *
+   * `quote_post_id` is kept as a fallback for the case where only the id comes
+   * back; see `QuotedPostInline`.
    */
   quote_post_id?: string;
-  quote_post?: PostOrComment;
+  quote_post?: { post?: PostOrComment };
   comment_count?: number;
   comments_disabled?: boolean;
   poll?: Poll;

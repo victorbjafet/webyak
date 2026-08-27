@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, View } from 'react-native';
 
 import { AuthedImage } from './authed-image';
@@ -44,10 +45,22 @@ export function GroupAvatar({
   const looked = useGroupIcon(group);
   const resolvedUrl = iconUrl || group?.icon_url || looked.data || undefined;
 
+  // "Home" is the synthetic all-communities feed. It has no icon anywhere in the
+  // API, so initials would render a lone "H" forever — offsides special-cases it
+  // to a home glyph for the same reason (docs/OFFSIDES.md).
+  const label = name ?? group?.name;
+  if (label === 'Home') {
+    return (
+      <View style={[base, styles.fallback, { backgroundColor: color || theme.control }]}>
+        <Ionicons name="home" size={size * 0.5} color="#FFFFFF" />
+      </View>
+    );
+  }
+
   const initialsBlock = (
     <View style={[base, styles.fallback, { backgroundColor: color || theme.control }]}>
       <ThemedText type="caption" style={{ color: '#FFFFFF', fontSize: size * 0.38 }}>
-        {initials(name ?? group?.name)}
+        {initials(label)}
       </ThemedText>
     </View>
   );
