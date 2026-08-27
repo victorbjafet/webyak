@@ -446,6 +446,105 @@ async function probePolls(): Promise<ProbeResult> {
   }
 }
 
+/**
+ * Why does attaching an image fail with "Failed to fetch"?
+ *
+ * `GET /v1/assets/upload_url` succeeds (201) and hands back a pre-signed URL;
+ * the `PUT` to that URL is what dies. In a browser, "Failed to fetch" on a
+ * cross-origin PUT means the request never left — it was blocked before the
+ * server saw it — and a PUT **always** triggers a CORS preflight, so the
+ * storage bucket has to answer an `OPTIONS` from our origin for this to work
+ * at all. Native clients like offsides never hit this; CORS does not exist
+ * there, which is why sidechat.js's own upload path was never written for it.
+ *
+ * This reports the host we are actually being pointed at, the exact failure,
+ * and whether any upload route exists on `api.sidechat.lol` instead — that
+ * host sends `access-control-allow-origin: *`, so an endpoint there would
+ * sidestep the problem completely and save building a proxy.
+ *
+ * Signature and credential params are reported by **name only**. The URL is a
+ * bearer credential in its own right (docs/OPEN-SOURCE.md).
+ */
+async function probeImageUpload(): Promise<ProbeResult> {
+  const base = {
+    id: 'upload',
+    label: 'Phase 4 — image upload CORS',
+    question: 'Where does upload_url point, and can a browser PUT to it?',
+  };
+  const steps: string[] = [];
+
+  try {
+    const { upload_url, asset_id } = await request<{ upload_url: string; asset_id: string }>(
+      '/v1/assets/upload_url?content_type=png',
+    );
+    if (!upload_url) {
+      return { ...base, status: 'fail', detail: 'No upload_url came back.', evidence: steps.join('\n') };
+    }
+
+    const parsed = new URL(upload_url);
+    steps.push(`upload_url host → ${parsed.host}`);
+    steps.push(`  scheme ${parsed.protocol.replace(':', '')}, path depth ${parsed.pathname.split('/').filter(Boolean).length}`);
+    steps.push(`  query params (names only) → ${[...parsed.searchParams.keys()].join(', ') || '(none)'}`);
+    steps.push(`  asset_id returned → ${asset_id ? 'yes' : 'no'}`);
+    steps.push(`  same origin as the API? → ${parsed.host === new URL(api.apiRoot).host ? 'YES' : 'no'}`);
+
+    // 1x1 PNG, small enough that a successful upload costs nothing.
+    const png = await (
+      await fetch(
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      )
+    ).blob();
+
+    try {
+      const put = await fetch(upload_url, {
+        method: 'PUT',
+        body: png,
+        headers: { 'Content-Type': 'image/png' },
+      });
+      steps.push(`PUT with Content-Type → HTTP ${put.status} ${put.ok ? '(WORKS)' : '(rejected by the server, not by CORS)'}`);
+    } catch (e) {
+      steps.push(
+        `PUT with Content-Type → BLOCKED: ${e instanceof Error ? e.message : String(e)}` +
+          '\n    (a thrown fetch here = the browser refused it; the server never replied)',
+      );
+    }
+
+    // Content-Type is not CORS-safelisted at image/*, so it forces a preflight
+    // on its own. Dropping it proves whether the method or the header is the
+    // trigger — PUT alone should still preflight, and if this also fails the
+    // bucket simply has no CORS policy for us.
+    try {
+      const put = await fetch(upload_url, { method: 'PUT', body: png });
+      steps.push(`PUT without Content-Type → HTTP ${put.status}`);
+    } catch (e) {
+      steps.push(`PUT without Content-Type → BLOCKED: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    // Is there an upload route on the CORS-open API host instead?
+    const candidates = ['/v1/assets', '/v1/assets/upload', '/v1/assets/library'];
+    for (const path of candidates) {
+      try {
+        const res = await api.sendRequest(path, 'POST', JSON.stringify({}));
+        steps.push(`POST ${path} → ${res.status} ${res.status === 404 ? '(no such route)' : '(EXISTS — worth pursuing)'}`);
+      } catch (e) {
+        steps.push(`POST ${path} → threw: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    const blocked = steps.some((line) => line.includes('BLOCKED'));
+    return {
+      ...base,
+      status: blocked ? 'fail' : 'pass',
+      detail: blocked
+        ? `Browser uploads are blocked by CORS on ${parsed.host}. This needs the Worker — see docs/WORKER.md.`
+        : 'The PUT was not blocked; the failure is something else.',
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
@@ -463,5 +562,5 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
  * Virginia Tech by clicking "run diagnostics".
  */
 export async function runWriteProbes(): Promise<ProbeResult[]> {
-  return [await probeWriteRoundTrip(), await probePolls()];
+  return [await probeWriteRoundTrip(), await probePolls(), await probeImageUpload()];
 }

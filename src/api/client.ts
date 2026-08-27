@@ -169,11 +169,23 @@ export async function uploadAssetWeb(file: Blob, mimeType: string) {
   const { upload_url, asset_id } = await request<{ upload_url: string; asset_id: string }>(
     `/v1/assets/upload_url?content_type=${imageType}`,
   );
-  const put = await fetch(upload_url, {
-    method: 'PUT',
-    body: file,
-    headers: { 'Content-Type': mimeType },
-  });
+  let put: Response;
+  try {
+    put = await fetch(upload_url, {
+      method: 'PUT',
+      body: file,
+      headers: { 'Content-Type': mimeType },
+    });
+  } catch {
+    // A thrown fetch means the request never left the browser. For a
+    // cross-origin PUT that is almost always CORS: PUT is not a simple method,
+    // so it preflights, and the storage bucket has to answer an OPTIONS from
+    // our origin. "Failed to fetch" tells the user nothing they can act on.
+    throw new ApiError(
+      "The image couldn't be uploaded: the storage host refuses uploads straight from a browser. " +
+        'This needs the proxy described in docs/WORKER.md — see docs/API.md#image-upload-is-blocked-by-cors.',
+    );
+  }
   if (!put.ok) {
     throw new ApiError(`Asset upload failed with ${put.status}`, put.status);
   }

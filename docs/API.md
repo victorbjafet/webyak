@@ -536,6 +536,47 @@ One thing settled that had been an open assumption: **`createPost` returns an
 `index_code`** on the new post (observed: `eVYkniqy`). New posts are therefore
 shareable immediately, with no refetch needed to get a URL.
 
+### ⛔ Image upload is blocked by CORS
+
+**Found 2026-08-27, unresolved.** Attaching an image fails with `Failed to
+fetch`, with or without caption text.
+
+The two-step upload works like this, and only the first step succeeds:
+
+1. `GET /v1/assets/upload_url?content_type=<png|jpeg|gif>` → **201**, returns
+   `{upload_url, asset_id}`. Fine — this is on `api.sidechat.lol`, which sends
+   `access-control-allow-origin: *`.
+2. `PUT <upload_url>` with the bytes → **the request never leaves the browser.**
+
+That second URL is a pre-signed URL on the asset storage host, not on the API
+host. A thrown `fetch` (rather than an HTTP error) means the browser refused to
+send it, and the reason is structural:
+
+- **`PUT` is not a CORS-simple method.** Only `GET`, `HEAD` and `POST` are, so a
+  `PUT` always triggers a preflight `OPTIONS` — no combination of headers avoids
+  it. `Content-Type: image/*` would force one on its own anyway; only
+  `application/x-www-form-urlencoded`, `multipart/form-data` and `text/plain`
+  are safelisted.
+- **The storage bucket must therefore answer an `OPTIONS` from our origin**, and
+  there is no reason for it to. Yik Yak's clients are native apps, where CORS
+  does not exist. `mode: 'no-cors'` is not an escape either — it permits only
+  simple methods, so it cannot send a `PUT` at all.
+
+**This is why sidechat.js's `uploadAsset` was never written for the web**, and
+why offsides never hit it: on Android the request is native and unrestricted.
+Our `uploadAssetWeb` fixed the *body* (the library PUTs `[object Object]`), which
+was a real bug, but the body was never the thing standing in the way.
+
+Run `/diagnostics` → *Run write probes* → **Phase 4 — image upload CORS** for the
+actual host, the exact failure, and a sweep for an upload route on the API host
+that would avoid the problem. The probe reports signature parameters **by name
+only** — a pre-signed URL is a credential.
+
+**This is the first thing that genuinely requires the Worker** rather than merely
+benefiting from it. Share-code resolution (Blocker 1) is a missing convenience;
+this is a feature that cannot work from a static origin at all. See
+[docs/WORKER.md](WORKER.md).
+
 ### Untested: a poll and an image on the same post
 
 The API has never been asked for both at once. The composer makes them mutually

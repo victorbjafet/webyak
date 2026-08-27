@@ -1,16 +1,24 @@
 # The Cloudflare Worker — deferred, specified
 
-**Status: not built. Deferred deliberately.** Nothing in webyak depends on it.
-This file exists so that whenever we do build it, no re-investigation is needed.
+**Status: not built.** This file exists so that whenever we do build it, no
+re-investigation is needed.
+
+> ⚠️ **"Nothing depends on it" stopped being true on 2026-08-27.** Image upload
+> is blocked by CORS on the storage host and **cannot be fixed from a static
+> origin** — see [the second route below](#post-upload) and
+> [API.md](API.md#-image-upload-is-blocked-by-cors). Share codes were a missing
+> convenience; this is a feature of the app that does not work at all.
 
 ## Why it exists
 
-> **Scope narrowed 2026-08-27.** This originally covered *two* gaps: share codes
-> and group slugs. Group slugs were then closed natively — the live search
-> endpoint resolves groups outside explore once its response envelope is read
-> correctly (see [API.md § Blocker 2](API.md#blocker-2--group-slug--group_id)).
-> **The worker's only remaining justification is share codes.** Its `/group/:slug`
-> route is kept below as a documented fallback, not a requirement.
+> **Scope changed twice on 2026-08-27.** It originally covered share codes and
+> group slugs. Group slugs were then closed natively — the live search endpoint
+> resolves groups outside explore once its response envelope is read correctly
+> (see [API.md § Blocker 2](API.md#blocker-2--group-slug--group_id)), and its
+> `/group/:slug` route is kept below as a documented fallback, not a requirement.
+> Then **image upload turned out to need it**, which is a stronger justification
+> than share codes ever were: a shared link failing to cold-load is a degraded
+> experience, while attaching an image simply does not work.
 
 webyak is a static, serverless GitHub Pages app and the authenticated Sidechat
 API is CORS-open, so **the entire app works without a server** — except for
@@ -26,6 +34,7 @@ Probing established the authenticated API **cannot** close that gap:
 |---|---|---|
 | share code → post | no endpoint exists; `/v1/posts/get` is UUID-keyed (a DynamoDB `ValidationException` proves it), and every guessable alternative 404s | ❌ **dead end — this is what the worker is for** |
 | group slug → group | `/v1/groups/explore/search?term=` resolves it | ✅ closed natively, no worker needed |
+| upload image bytes | pre-signed `PUT` to the storage host is blocked by CORS, and no combination of headers or fetch modes avoids the preflight | ❌ **dead end — the second thing the worker is for** |
 
 The public web client resolves share codes unauthenticated, and its only
 obstacles are CORS and an encoding — exactly what a worker is for.
@@ -50,6 +59,45 @@ placeholders above are arbitrary and intentional.
 
 Response carries the post **and its full comment tree**, which means this route
 can serve the whole post detail screen on a cold load.
+
+### `POST /upload`
+
+**Required for image attachments.** Unlike the two routes above this is not a
+scrape — it is a plain byte relay, and it exists purely because browsers enforce
+CORS and native apps do not.
+
+```
+POST /upload?content_type=png
+Authorization: Bearer <the user's token>
+Body: the raw image bytes
+
+→ { "asset_id": "<uuid>" }
+```
+
+What it does:
+
+1. `GET https://api.sidechat.lol/v1/assets/upload_url?content_type=<type>` with
+   the caller's bearer token, to obtain `{upload_url, asset_id}`.
+2. `PUT` the request body to `upload_url` with the right `Content-Type`. **This
+   is the step that only works server-side** — no preflight is involved between
+   two servers.
+3. Return the `asset_id`, which the client puts into `createPost`'s `assets[]`.
+
+Three things to get right:
+
+- **The token belongs to the user, not the worker.** Forward the caller's
+  `Authorization` header; never hold a credential of our own. The worker stays
+  stateless and has nothing worth stealing.
+- **Cap the body size.** An open relay to someone else's storage is worth abusing.
+  Yik Yak's own limit is unknown; something like 10 MB is comfortably above a
+  phone photo and far below useful abuse.
+- **Restrict `content_type`** to `png`, `jpeg` and `gif`, the set
+  `uploadAssetWeb` already enforces, and reject anything else before making the
+  first request.
+
+Client-side, `uploadAssetWeb` already isolates this: it is the only function that
+touches `upload_url`, so wiring the worker in means changing one function body,
+guarded by `EXPO_PUBLIC_WORKER_URL` exactly like the share-code hook.
 
 ### `GET /group/:slug` — optional
 

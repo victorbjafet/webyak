@@ -66,6 +66,13 @@ That does not apply at a domain root.
 
 ### Where serverless stops working
 
+> **Confirmed 2026-08-27: it stops at image upload.** This section was written
+> as a list of hypotheticals. One of them is now real — the pre-signed `PUT`
+> that uploads an image is refused by the browser before it is sent, because a
+> cross-origin `PUT` always preflights and the storage bucket answers no
+> `OPTIONS` from our origin. Nothing client-side gets around it
+> ([API.md](API.md#-image-upload-is-blocked-by-cors)).
+
 Currently: nowhere. Tracked so we notice the moment it changes.
 
 | Need | Static-only? | Notes |

@@ -324,7 +324,7 @@ Full checklist and pre-scan findings:
 - [x] Read every `docs/` file as a stranger — payloads were already redacted to `…`
 - [ ] Create the GitHub repo and push ← **the only step left**
 
-### Phase 4 — write ✅ verified live 2026-08-27
+### Phase 4 — write ✅ verified live 2026-08-27 (one blocker: image upload)
 - [x] Optimistic voting on posts and comments — `useVote`, patched across every
       cache the post lives in ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#one-post-lives-in-many-caches))
 - [x] Compose post: text, anonymous toggle, disable DMs, disable comments
@@ -334,9 +334,12 @@ Full checklist and pre-scan findings:
       `Alert.alert` is a silent no-op on web
 - [x] Poll voting + mark results viewed (fixed the library's broken path)
 - [x] Quote/repost → `/compose?repost=<id>`
-- [x] Image attachments on web — `uploadAssetWeb` + a file-input picker that
-      measures the bitmap, since `createPost` needs `width`/`height` and the
-      upload endpoint returns neither
+- [~] Image attachments on web — picker, preview, measurement and submit all
+      work; **the upload itself is blocked by CORS on the storage host** and
+      cannot be fixed from a static origin
+      ([docs/API.md](docs/API.md#-image-upload-is-blocked-by-cors)). ⛔ **Needs
+      the Worker's `POST /upload` relay** ([docs/WORKER.md](docs/WORKER.md#post-upload))
+      — this is the first hard dependency on it
 - [x] **Native image attachment — closed as out of scope**, owner's decision
       2026-08-27. Attachments are a web feature; revisit only if the app is
       actually ported ([src/lib/image-picker.ts](src/lib/image-picker.ts))
@@ -426,6 +429,10 @@ Resolved ones are kept with their answer so they don't get re-asked.
 
 ## 8. Risks
 
+- **⛔ Fully-serverless is no longer strictly true.** Everything reads and writes from a static
+  origin except image upload, which CORS makes impossible without a proxy. Either the Worker gets
+  built or attachments stay unavailable — there is no third option
+  ([docs/WORKER.md](docs/WORKER.md#post-upload)).
 - **Private API.** sidechat.js is reverse-engineered and unofficial. Endpoints can change or break
   without notice, and this likely runs against Yik Yak's ToS.
 - **Publishing this repo.** It goes open source; the release audit passed 2026-08-27 and found
