@@ -1,4 +1,4 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
@@ -11,11 +11,12 @@ import { PostCard } from '@/components/post/post-card';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Layout, Spacing } from '@/constants/theme';
 import { formatCount } from '@/lib/time';
 
 export default function PostDetailScreen() {
   const { code } = useLocalSearchParams<{ code: string }>();
+  const router = useRouter();
 
   // The API cannot resolve a share code (docs/API.md#blocker-1), so the UUID has
   // to come from a feed we've already loaded. Reached from a feed this always
@@ -47,6 +48,7 @@ export default function PostDetailScreen() {
       title={current.group?.name ?? 'Post'}
       leading={
         <GroupAvatar
+          group={current.group}
           name={current.group?.name}
           iconUrl={current.group?.icon_url}
           color={current.group?.color}
@@ -56,7 +58,12 @@ export default function PostDetailScreen() {
       back
       scroll={false}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <PostCard post={current} />
+        <PostCard
+          post={current}
+          // Deleting the post this screen *is* leaves it showing content that
+          // no longer exists — the caches it reads from have already dropped it.
+          onDeleted={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+        />
 
         {/*
           Directly under the post, not after the comment list. At the bottom it
@@ -101,6 +108,10 @@ export default function PostDetailScreen() {
 
 const styles = StyleSheet.create({
   content: {
+    // Full-width scroller, centred content — see the note in screen.tsx.
+    width: '100%',
+    maxWidth: Layout.feedMaxWidth,
+    alignSelf: 'center',
     paddingHorizontal: Spacing.three,
     paddingBottom: Spacing.five,
     gap: Spacing.two,

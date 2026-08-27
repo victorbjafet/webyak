@@ -97,12 +97,25 @@ export function PostAssets({
             accessibilityLabel="Close image"
           />
           {open ? (
-            <AuthedImage
-              uri={bestAssetUrl(open)}
-              context="post-image-lightbox"
-              style={{ width: screenWidth * 0.94, height: screenHeight * 0.8 }}
-              contentFit="contain"
-            />
+            /*
+              The image is wrapped so pressing it closes too. The backdrop
+              behind it only catches the outer margin — with `contain`, the
+              element keeps its full 94%x80% box while the picture is letterboxed
+              inside it, so every click in that dead space landed on the element
+              and did nothing. An image is not interactive, so wrapping it in a
+              Pressable nests no controls.
+            */
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close image"
+              onPress={() => setOpen(null)}>
+              <AuthedImage
+                uri={bestAssetUrl(open)}
+                context="post-image-lightbox"
+                style={{ width: screenWidth * 0.94, height: screenHeight * 0.8 }}
+                contentFit="contain"
+              />
+            </Pressable>
           ) : null}
 
           <Pressable

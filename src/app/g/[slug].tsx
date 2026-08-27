@@ -92,6 +92,7 @@ export default function GroupFeedScreen() {
       title={group.data.name}
       leading={
         <GroupAvatar
+          group={group.data}
           name={group.data.name}
           iconUrl={group.data.icon_url}
           color={group.data.color}

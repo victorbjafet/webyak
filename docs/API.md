@@ -380,9 +380,81 @@ pipeline at all:
 
 | What | Real cause | Status |
 |---|---|---|
-| Community icons | **No `icon_url` in the data.** `GroupAvatar` renders initials only when the URL is falsy — and the app shows "VT" initials for Virginia Tech, so the group objects we render carry no icon | Probe: *Images — where do community icons live?* |
-| Profile photos | **No render path existed.** `IdentityAvatar` only ever drew `conversation_icon.emoji` or a person glyph. There was no branch that could show a photo, whatever the URL | Path added; field still unidentified |
-| Video thumbnails | Genuinely in the pipeline — auth is required and the blob fetch is implemented, yet the poster stays blank | Probe: *Images — video thumbnail fetch* |
+| Community icons | **No `icon_url` in the data.** The endpoints the app reads groups from omit the field | ✅ **Fixed** — see below |
+| Profile photos | **No render path existed**, and the field was unknown | ✅ **Both found** — see below |
+| Video thumbnails | Genuinely in the pipeline — auth is required and the blob fetch is implemented, yet the poster stays blank | ⛔ Still open; no video in the sampled feed to probe |
+
+#### Community icons: the field is missing, not the image
+
+Probed 2026-08-27. The same group is reachable four ways and **they do not
+return the same fields**:
+
+| Endpoint | `icon_url` |
+|---|---|
+| `getUpdates().groups` — *what the app rendered* | key absent for some groups |
+| `GET /v1/groups/<id>` | key absent for the same ones |
+| `/v1/groups/explore/search?term=` | ✅ present |
+| explore list | ✅ present on all 4237 groups |
+
+Virginia Tech and Home come back with **no `icon_url` key at all**, while Class
+of 2029 comes back *with* one (`https://icon.yik-yak.com/class-of-2029.png`).
+That inconsistency is what made this look like a flaky renderer.
+
+Fixed in [src/api/group-icons.ts](../src/api/group-icons.ts): when a group has
+no `icon_url`, look it up via search and **match on `id`**. Matching on id is
+not optional — a term like "Home" returns many groups that are not the one
+asked for. Cached for a day; icons do not move.
+
+Note that `icon.yik-yak.com` really is public, as originally recorded. That fact
+was true and misleading at the same time: it made the host look innocent and
+sent three rounds of investigation after a rendering bug, when nobody had
+checked whether the app had a URL to render at all.
+
+#### Profile photos: `icon_url`, and it needs the bearer
+
+```
+icon_url = https://api.sidechat.lol/v1/assets/profile?user_id=<uuid>&asset_id=<uuid>
+```
+
+On `api.sidechat.lol` with **no `expires=` and no signature**, so by the rule in
+`asset-url.ts` it needs the bearer token — it cannot go in a plain `<img src>`,
+and must go through `AuthedImage`'s blob path.
+
+`@snoopyvt` carries **both** an `icon_url` and a `conversation_icon` emoji (🚬),
+which is why "does this account have a photo" was ambiguous for so long: the
+emoji is a real, populated field even on accounts that also have a photo. The
+emoji is the *fallback*, not the answer.
+
+⛔ **Still open:** post cards show emoji, not photos. The `identity` object on a
+post carries no photo URL — only `conversation_icon` — so rendering avatars in a
+feed would mean a profile lookup per distinct author. `IdentityAvatar` accepts a
+`photoUrl` for when that is worth doing; the profile screen already has the URL
+and renders it.
+
+### Quote-reposts
+
+Creating one sends `quote_post_id`. **What comes back is undocumented** — the
+sidechat.js typedefs don't mention quotes at all, which is why reposts rendered
+as a bare caption with the original missing: the client was reading neither
+possible shape.
+
+[`QuotedPostInline`](../src/components/post/quoted-post-inline.tsx) now handles
+both — it renders an inlined `quote_post` object if the API provides one, and
+otherwise fetches `quote_post_id` through the cached `usePost`. That works
+whichever shape is real. The *Phase 5 — quote-repost shape* write probe settles
+which, so the extra fetch can be dropped once known.
+
+### Deleted posts render as bare text
+
+Low priority, recorded so it isn't rediscovered: a deleted post still comes back
+in feeds and comment threads, with its text replaced by the literal string
+`"Deleted Post"`. We render that as if it were ordinary body text, so it reads
+like someone typed it.
+
+It should be styled as what it is — muted, italic, no vote or reply controls,
+probably an icon. The API gives no explicit `deleted` flag that has been found,
+so detection currently means matching that string, which is fragile and worth
+probing before building on. Not scheduled.
 
 The lesson worth keeping: `icon.yik-yak.com` was verified public and returning
 200, which made the *host* look innocent and sent three rounds of investigation

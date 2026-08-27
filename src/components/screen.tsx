@@ -28,7 +28,11 @@ interface ScreenProps {
   back?: boolean;
   /** Set false for screens that own their own scrolling (feeds, chat threads). */
   scroll?: boolean;
-  /** Constrain the reading column. Feeds use the default. */
+  /**
+   * Constrain the reading column. Only applies when this component owns the
+   * scrolling — `scroll={false}` screens set it in their own
+   * `contentContainerStyle`, so that the scroller itself stays full-width.
+   */
   maxWidth?: number;
   children: React.ReactNode;
 }
@@ -86,14 +90,16 @@ export function Screen({
   const body = <View style={[styles.column, { maxWidth }]}>{children}</View>;
 
   if (!scroll) {
-    // Screens that own their scrolling (feeds, threads) need the column to
-    // actually fill, or the list inside it has no height to scroll within.
+    // Screens that own their scrolling (feeds, threads) get the **full width**,
+    // not a centred column. Capping the width here made the scrollable element
+    // only as wide as the reading column, so on a wide viewport the empty space
+    // beside the feed belonged to no scroller and the wheel did nothing there.
+    // Those screens centre their own content via `contentContainerStyle`, which
+    // keeps the reading column narrow while the scroll area spans the viewport.
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         {header}
-        <View style={styles.centerFill}>
-          <View style={[styles.column, styles.fill, { maxWidth }]}>{children}</View>
-        </View>
+        <View style={styles.fill}>{children}</View>
       </View>
     );
   }
@@ -144,11 +150,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
-  },
-  centerFill: {
-    flex: 1,
-    alignItems: 'center',
-    width: '100%',
   },
   fill: {
     flex: 1,

@@ -11,7 +11,7 @@ import { usePost } from '@/api/queries';
 import type { NewPostAsset } from '@/api/types';
 import { GroupAvatar } from '@/components/group-avatar';
 import { PollComposer, MAX_POLL_OPTIONS } from '@/components/compose/poll-composer';
-import { QuotedPost } from '@/components/compose/quoted-post';
+import { QuotedPost } from '@/components/post/quoted-post';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
@@ -173,6 +173,7 @@ export default function ComposeScreen() {
       <View style={styles.body}>
         <View style={styles.groupRow}>
           <GroupAvatar
+            group={targetGroup}
             name={targetGroup?.name}
             iconUrl={targetGroup?.icon_url}
             color={targetGroup?.color}

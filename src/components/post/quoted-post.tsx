@@ -1,8 +1,8 @@
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { IdentityAvatar } from '../post/identity-avatar';
-import { TimeStamp } from '../post/time-stamp';
 import { ThemedText } from '../themed-text';
+import { IdentityAvatar } from './identity-avatar';
+import { TimeStamp } from './time-stamp';
 
 import type { PostOrComment } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
@@ -17,13 +17,19 @@ import { useTheme } from '@/hooks/use-theme';
  * only being referenced — and inside the composer those would be nested
  * controls inside a form, which is the nested-button problem again.
  */
-export function QuotedPost({ post }: { post: PostOrComment }) {
+export function QuotedPost({
+  post,
+  onPress,
+}: {
+  post: PostOrComment;
+  /** Opens the original. Omitted in the composer, where nothing should navigate. */
+  onPress?: () => void;
+}) {
   const theme = useTheme();
   const displayName = post.identity?.name || post.alias || 'Anonymous';
 
-  return (
-    <View
-      style={[styles.wrap, { borderColor: theme.border, backgroundColor: theme.background }]}>
+  const body = (
+    <>
       <View style={styles.header}>
         <IdentityAvatar identity={post.identity} size={20} />
         <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1}>
@@ -44,7 +50,27 @@ export function QuotedPost({ post }: { post: PostOrComment }) {
           {post.assets.length === 1 ? 'Contains an image' : `Contains ${post.assets.length} images`}
         </ThemedText>
       ) : null}
-    </View>
+    </>
+  );
+
+  const frame = [styles.wrap, { borderColor: theme.border, backgroundColor: theme.background }];
+
+  // A Pressable is safe here even inside a card: everything above is text and
+  // plain Views — the timestamp is rendered non-interactive on purpose — so no
+  // control ends up nested inside another.
+  if (!onPress) return <View style={frame}>{body}</View>;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel="Open the quoted post"
+      onPress={onPress}
+      style={({ hovered, pressed }) => [
+        frame,
+        (hovered || pressed) && { backgroundColor: theme.backgroundHover },
+      ]}>
+      {body}
+    </Pressable>
   );
 }
 

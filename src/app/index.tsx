@@ -39,6 +39,7 @@ export default function HomeScreen() {
       title={current.name}
       leading={
         <GroupAvatar
+          group={current}
           name={current.name}
           iconUrl={current.icon_url}
           color={current.color}

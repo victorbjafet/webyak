@@ -8,6 +8,7 @@ import { PollView } from './poll-view';
 import { PostActions } from './post-actions';
 import { PostAssets } from './post-assets';
 import { PostAttachments } from './post-attachments';
+import { QuotedPostInline } from './quoted-post-inline';
 import { TimeStamp } from './time-stamp';
 import { VoteControl } from './vote-control';
 
@@ -25,6 +26,12 @@ interface PostCardProps {
   preload?: boolean;
   /** Strictly on screen. Video pauses when this goes false. */
   visible?: boolean;
+  /**
+   * Fired after this post is deleted. Only meaningful where the card *is* the
+   * screen — a feed just drops the row, but the post page would otherwise sit
+   * on content that no longer exists.
+   */
+  onDeleted?: () => void;
 }
 
 /**
@@ -43,6 +50,7 @@ export function PostCard({
   showGroup = false,
   preload = false,
   visible = false,
+  onDeleted,
 }: PostCardProps) {
   const theme = useTheme();
   const router = useRouter();
@@ -106,6 +114,9 @@ export function PostCard({
         )
       ) : null}
 
+      {/* The quoted original, above the media, the way a retweet reads. */}
+      <QuotedPostInline post={post} />
+
       <PostAssets assets={post.assets} preload={preload} visible={visible} />
       <PostAttachments attachments={post.attachments} />
 
@@ -141,7 +152,7 @@ export function PostCard({
         </Pressable>
 
         <View style={styles.spacer} />
-        <PostActions post={post} />
+        <PostActions post={post} onDeleted={onDeleted} />
       </View>
     </View>
   );

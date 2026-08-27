@@ -307,3 +307,36 @@ Two rules:
   replacement.
 
 Text selection is themed for the same reason.
+
+
+## Scrollers span the viewport; content is what's centred
+
+A reading column is capped at `Layout.feedMaxWidth`. The **scrollable element is
+not** — it fills the whole area and centres its content via
+`contentContainerStyle`.
+
+Getting this backwards is easy and the bug is subtle: capping the scroller
+itself looks identical on a laptop and breaks on a wide monitor, where the empty
+space beside the feed belongs to no scroller and the wheel does nothing over it.
+`Screen` therefore hands `scroll={false}` children the full width and lets them
+centre their own content.
+
+## Dismissing overlays
+
+Anything opened over the page closes by clicking **anywhere outside its
+content**, not only via an X.
+
+One trap, hit in the image lightbox: with `contentFit="contain"` the image
+element keeps its full box while the picture is letterboxed inside it, so the
+apparently-empty margin around the picture still belongs to the element. A
+backdrop behind it never receives those clicks. The image is wrapped in its own
+dismiss target so the whole overlay responds — safe because an image is not
+interactive, so nothing ends up nested inside a control.
+
+## Deleting the thing you are looking at
+
+A destructive action on a *screen's own subject* has to navigate. Deleting the
+post you are viewing leaves the screen showing content that no longer exists —
+the caches it reads have already dropped it — so `PostCard` takes an `onDeleted`
+callback and the post screen uses it to go back. In a feed the row simply
+vanishes, which is correct there and wrong here.

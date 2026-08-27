@@ -7,7 +7,7 @@ import { PostCard } from '@/components/post/post-card';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
-import { Radius, Spacing } from '@/constants/theme';
+import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export default function ProfileScreen() {
@@ -112,6 +112,10 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   content: {
+    // Full-width scroller, centred content — see the note in screen.tsx.
+    width: '100%',
+    maxWidth: Layout.feedMaxWidth,
+    alignSelf: 'center',
     paddingHorizontal: Spacing.three,
     paddingBottom: Spacing.five,
     gap: Spacing.two,

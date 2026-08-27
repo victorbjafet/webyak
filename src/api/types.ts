@@ -148,6 +148,13 @@ export interface PostOrComment {
   awards?: unknown[];
 
   // post only
+  /**
+   * Quote-repost. We send `quote_post_id` when creating one; what comes back is
+   * handled both ways — an embedded post if the API inlines it, otherwise the
+   * id alone and the client fetches it (docs/API.md#quote-reposts).
+   */
+  quote_post_id?: string;
+  quote_post?: PostOrComment;
   comment_count?: number;
   comments_disabled?: boolean;
   poll?: Poll;

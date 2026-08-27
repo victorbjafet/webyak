@@ -14,7 +14,7 @@ import { ThemedText } from '../themed-text';
 import { PostCard } from '../post/post-card';
 
 import type { PostOrComment } from '@/api/types';
-import { Spacing } from '@/constants/theme';
+import { Layout, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 /** How many rows either side of the viewport count as "about to be seen". */
@@ -156,6 +156,12 @@ export function FeedList({
 
 const styles = StyleSheet.create({
   content: {
+    // The list fills the viewport so the wheel works anywhere, including the
+    // empty space beside a narrow feed; the *content* is what stays centred and
+    // capped. See the note in screen.tsx.
+    width: '100%',
+    maxWidth: Layout.feedMaxWidth,
+    alignSelf: 'center',
     paddingHorizontal: Spacing.three,
     paddingBottom: Spacing.five,
     gap: 0,

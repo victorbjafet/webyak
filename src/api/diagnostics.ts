@@ -735,6 +735,86 @@ async function probeImageFailures(): Promise<ProbeResult> {
   };
 }
 
+/**
+ * What does a quote-repost actually look like coming back?
+ *
+ * We send `quote_post_id`; nothing documents what the response carries.
+ * `QuotedPostInline` handles both plausible shapes — an inlined post object or
+ * the bare id — so reposts render either way, but knowing which is real lets the
+ * client stop hedging and drop the extra fetch.
+ *
+ * Creates a post, quotes it, dumps the quote's keys, deletes both.
+ */
+async function probeRepostShape(): Promise<ProbeResult> {
+  const base = {
+    id: 'repost-shape',
+    label: 'Phase 5 — quote-repost shape',
+    question: 'Does a repost come back with the original inlined, or just its id?',
+  };
+  const steps: string[] = [];
+  const created: string[] = [];
+
+  try {
+    const original = await createPost({
+      text: `webyak repost test — original ${new Date().toISOString()}`,
+      groupId: SAMPLE_GROUP_ID,
+      anonymous: true,
+    });
+    if (!original?.id) {
+      return { ...base, status: 'fail', detail: 'Could not create the post to quote.' };
+    }
+    created.push(original.id);
+
+    const quote = await createPost({
+      text: 'webyak repost test — the quote',
+      groupId: SAMPLE_GROUP_ID,
+      anonymous: true,
+      repostId: original.id,
+    });
+    if (quote?.id) created.push(quote.id);
+
+    const record = quote as unknown as Record<string, unknown> | undefined;
+    const quoteKeys = record ? Object.keys(record).filter((k) => /quote|repost|parent|original/i.test(k)) : [];
+    steps.push(`quote-ish keys on the created post → ${quoteKeys.join(', ') || '(none)'}`);
+    for (const key of quoteKeys) {
+      const value = record?.[key];
+      steps.push(`  ${key} → ${typeof value === 'object' ? `object, keys: ${Object.keys(value as object).join(', ')}` : String(value)}`);
+    }
+
+    // Re-read it: `createPost`'s echo and a normal feed read are not always the
+    // same shape, and the feed is what the app actually renders from.
+    if (quote?.id) {
+      const refetched = (await api.getPost(quote.id)) as unknown as Record<string, unknown>;
+      const refKeys = Object.keys(refetched ?? {}).filter((k) => /quote|repost|parent|original/i.test(k));
+      steps.push(`after getPost → ${refKeys.join(', ') || '(no quote fields — the link may only exist at creation)'}`);
+      for (const key of refKeys) {
+        const value = refetched[key];
+        steps.push(`  ${key} → ${typeof value === 'object' ? `object, keys: ${Object.keys(value as object).join(', ')}` : String(value)}`);
+      }
+      steps.push(`full key list → ${Object.keys(refetched ?? {}).join(', ')}`);
+    }
+
+    for (const id of created) await deletePostOrComment(id);
+    steps.push(`cleaned up ${created.length} test post(s)`);
+
+    return {
+      ...base,
+      status: steps.some((l) => l.includes('quote')) ? 'pass' : 'partial',
+      detail: 'See which key carries the original — that is what the card should read.',
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return {
+      ...base,
+      status: 'error',
+      detail:
+        (e instanceof Error ? e.message : String(e)) +
+        (created.length ? ` — LEFTOVER POSTS ${created.join(', ')}, delete by hand.` : ''),
+      evidence: steps.join('\n'),
+    };
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
@@ -755,5 +835,10 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
  * Virginia Tech by clicking "run diagnostics".
  */
 export async function runWriteProbes(): Promise<ProbeResult[]> {
-  return [await probeWriteRoundTrip(), await probePolls(), await probeImageUpload()];
+  return [
+    await probeWriteRoundTrip(),
+    await probePolls(),
+    await probeImageUpload(),
+    await probeRepostShape(),
+  ];
 }

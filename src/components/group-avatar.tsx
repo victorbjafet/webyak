@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { AuthedImage } from './authed-image';
 import { ThemedText } from './themed-text';
 
+import { useGroupIcon, type GroupIconSubject } from '@/api/group-icons';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -13,10 +14,14 @@ import { useTheme } from '@/hooks/use-theme';
  * unauthenticated), so these load without the bearer — unlike post assets. Going
  * through AuthedImage anyway costs nothing and keeps one code path for images.
  *
- * The initials are a real fallback now, not just an else-branch: they render
- * when there is no URL *and* when the URL fails, so a broken icon degrades to
+ * The initials are a real fallback, not just an else-branch: they render when
+ * there is no URL *and* when the URL fails, so a broken icon degrades to
  * something readable instead of a hole. Which of those happened is recorded —
  * see src/lib/image-debug.ts.
+ *
+ * Pass `group` rather than a bare `iconUrl` wherever you have the object: most
+ * group payloads omit `icon_url` entirely, and `useGroupIcon` fetches it from
+ * the endpoint that has it (src/api/group-icons.ts).
  */
 export function GroupAvatar({
   name,
@@ -24,32 +29,36 @@ export function GroupAvatar({
   color,
   size = 28,
   context = 'group-icon',
+  group,
 }: {
   name?: string;
   iconUrl?: string;
   color?: string;
   size?: number;
   context?: string;
+  /** Enables the icon lookup for groups whose payload has no `icon_url`. */
+  group?: GroupIconSubject | null;
 }) {
   const theme = useTheme();
   const base = { width: size, height: size, borderRadius: Radius.sm };
+  const looked = useGroupIcon(group);
+  const resolvedUrl = iconUrl || group?.icon_url || looked.data || undefined;
 
   const initialsBlock = (
     <View style={[base, styles.fallback, { backgroundColor: color || theme.control }]}>
       <ThemedText type="caption" style={{ color: '#FFFFFF', fontSize: size * 0.38 }}>
-        {initials(name)}
+        {initials(name ?? group?.name)}
       </ThemedText>
     </View>
   );
 
-  // No URL at all is a *data* gap, not a render one, and the probe answers it
-  // far better than the component could — recording it here would mean a side
-  // effect during render, and a double count under StrictMode.
-  if (!iconUrl) return initialsBlock;
+  // Still nothing to draw: either no lookup was possible, or this community
+  // genuinely has no icon — the synthetic "Home" feed being the obvious case.
+  if (!resolvedUrl) return initialsBlock;
 
   return (
     <AuthedImage
-      uri={iconUrl}
+      uri={resolvedUrl}
       context={context}
       fallback={initialsBlock}
       style={[base, { backgroundColor: theme.control }]}

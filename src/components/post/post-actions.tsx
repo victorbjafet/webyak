@@ -23,7 +23,14 @@ import { shareUrlForPost } from '@/lib/share';
  * **Awards** stay absent: posts carry an `awards[]` array but there is no
  * endpoint to give one, and it is the lowest-value feature on the list.
  */
-export function PostActions({ post }: { post: PostOrComment }) {
+export function PostActions({
+  post,
+  onDeleted,
+}: {
+  post: PostOrComment;
+  /** Fired after a successful delete. The post screen uses it to leave. */
+  onDeleted?: () => void;
+}) {
   const theme = useTheme();
   const router = useRouter();
   const [copied, setCopied] = useState(false);
@@ -98,7 +105,10 @@ export function PostActions({ post }: { post: PostOrComment }) {
         onConfirm={() => {
           remove.mutate(
             { id: post.id, parentPostId: post.parent_post_id },
-            { onSettled: () => setConfirmingDelete(false) },
+            {
+              onSuccess: () => onDeleted?.(),
+              onSettled: () => setConfirmingDelete(false),
+            },
           );
         }}
       />

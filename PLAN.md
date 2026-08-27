@@ -181,6 +181,7 @@ are mostly plumbing; three need a probe before they can be estimated.
 | B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | Nothing. Ready to build |
 | B3 | **Show removal / warning state** when a post is taken down or reported | Nothing known. No moderation field has been seen on any payload, and the account has never had a post removed, so there is no sample to look at | A probe — and realistically, a post that actually gets moderated. May not be observable until it happens |
 | B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing beyond B2 |
+| B6 | **Style deleted posts properly** | They come back in feeds and threads with `text` replaced by the literal `"Deleted Post"`, which we render as ordinary body text so it reads like someone typed it. Should be muted, italic, without vote or reply controls | No `deleted` flag has been found, so detection means matching that string — fragile, worth a probe first ([docs/API.md](docs/API.md#deleted-posts-render-as-bare-text)) |
 | B5 | **Yakarma over time** on the You tab, per-post and overall | The API almost certainly exposes only a *current* value — no history endpoint has been seen, and no karma field appears in any typedef, though activity text proves the server tracks it. So the history has to be **logged client-side**, sampled on app open, exactly as proposed | A probe to find where the current score lives. Then a storage decision: samples are per-device and per-browser, so this silently resets on a new device and should say so rather than look like lost data |
 
 Two things worth deciding before any of these start:
@@ -369,8 +370,13 @@ Full checklist and pre-scan findings:
         initials are a real fallback rather than an else-branch
   - [x] Three probes added: which endpoint carries `icon_url`, whether the
         poster fetch works with the bearer, and what actually failed on screen
-  - [ ] **Run the probes**, then wire groups to whichever endpoint has icons and
-        name the profile-photo field
+  - [x] **Probed 2026-08-27 — two of three solved.** Community icons: the
+        endpoints the app reads omit `icon_url` entirely for some groups, so
+        `useGroupIcon` looks it up via search and matches on id. Profile photos:
+        the field is `icon_url`, on `api.sidechat.lol`, needing the bearer
+  - [ ] ⛔ Video thumbnails — still open, no video in the sampled feed to probe
+  - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
+        URL, so feed avatars would need a profile lookup per author
 - [ ] Explore page: group grid, member counts, icons
 - [ ] ⛔ Explore links to `/g/<slug>`, so it depends on the slug assumption from
       Blocker 2 being confirmed

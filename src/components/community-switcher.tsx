@@ -57,6 +57,7 @@ export function CommunitySwitcher({ variant }: { variant: 'sidebar' | 'bar' }) {
                   !active && (hovered || pressed) ? { backgroundColor: theme.controlHover } : null,
                 ]}>
                 <GroupAvatar
+                  group={group}
                   name={group.name}
                   iconUrl={group.icon_url}
                   color={group.color}
@@ -94,7 +95,13 @@ export function CommunitySwitcher({ variant }: { variant: 'sidebar' | 'bar' }) {
               active && { backgroundColor: theme.backgroundSelected },
               !active && (hovered || pressed) ? { backgroundColor: theme.backgroundHover } : null,
             ]}>
-            <GroupAvatar name={group.name} iconUrl={group.icon_url} color={group.color} size={24} />
+            <GroupAvatar
+              group={group}
+              name={group.name}
+              iconUrl={group.icon_url}
+              color={group.color}
+              size={24}
+            />
             <ThemedText
               type={active ? 'smallBold' : 'small'}
               numberOfLines={1}
