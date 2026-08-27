@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Link, usePathname } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { ComposeButton } from './compose-button';
 import { CommunitySwitcher } from './community-switcher';
 import { ThemedText } from './themed-text';
 import { isActive, NAV_ITEMS } from './nav-config';
@@ -55,6 +56,8 @@ export function Sidebar() {
           );
         })}
       </View>
+
+      <ComposeButton variant="sidebar" />
 
       <CommunitySwitcher variant="sidebar" />
     </View>

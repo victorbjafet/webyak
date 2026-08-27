@@ -60,6 +60,21 @@ export interface Asset {
 }
 
 /**
+ * What an upload turns into when attached to a new post or comment. Narrower
+ * than `Asset` — the server fills in the rest — and `width`/`height` have to be
+ * measured client-side before upload, because the API never returns them for a
+ * freshly uploaded asset.
+ */
+export interface NewPostAsset {
+  id: string;
+  type: 'image';
+  content_type: 'jpeg' | 'png' | 'gif';
+  width: number;
+  height: number;
+  url?: AssetURL;
+}
+
+/**
  * (observed) Link previews. Distinct from `assets` — these are unfurled URLs,
  * not uploads. offsides also mentions a `youtube` type.
  */

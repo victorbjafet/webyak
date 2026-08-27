@@ -132,7 +132,7 @@ src/
 | 9 | Create comment/reply | `createComment(parentPostID, text, groupID, replyCommentID, topLevelReplyID, …)` | 2-level threading |
 | 10 | Delete own content | `deletePostOrComment` | |
 | 11 | Polls | `voteOnPoll`, `viewPollResults` | |
-| 12 | Image upload | `uploadAsset` | ⛔ RN-only — needs web rewrite (finding 5) |
+| 12 | Image upload | `uploadAssetWeb` | ✅ web. ⛔ native needs `expo-image-picker` |
 | 13 | Group asset library | `getAssetLibrary` | stickers/memes per group |
 | 14 | Explore groups | `getAvailableGroups`, `searchAvailableGroups` | `onePage` toggles via `App-Version: 0` |
 | 15 | Group metadata | `getGroupMetadata` | |
@@ -301,15 +301,27 @@ Full checklist and pre-scan findings:
 - [x] Read every `docs/` file as a stranger — payloads were already redacted to `…`
 - [ ] Create the GitHub repo and push ← **the only step left**
 
-### Phase 4 — write
-- [ ] Optimistic voting on posts and comments
-- [ ] Compose post: text, anonymous toggle, disable DMs, disable comments
-- [ ] Poll composer (add/remove options)
-- [ ] Comment + reply-to-reply composer
-- [ ] Delete own post/comment with confirm
-- [ ] Poll voting + view results
-- [ ] Quote/repost
-- [ ] ⛔ Fix `uploadAsset` for web (Blob PUT) → image attachments in compose
+### Phase 4 — write — built, needs verification
+- [x] Optimistic voting on posts and comments — `useVote`, patched across every
+      cache the post lives in ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#one-post-lives-in-many-caches))
+- [x] Compose post: text, anonymous toggle, disable DMs, disable comments
+- [x] Poll composer (2–4 options, add/remove)
+- [x] Comment + reply-to-reply composer, two-level threading
+- [x] Delete own post/comment with confirm — `ConfirmDialog`, because
+      `Alert.alert` is a silent no-op on web
+- [x] Poll voting + mark results viewed (fixed the library's broken path)
+- [x] Quote/repost → `/compose?repost=<id>`
+- [x] Image attachments on web — `uploadAssetWeb` + a file-input picker that
+      measures the bitmap, since `createPost` needs `width`/`height` and the
+      upload endpoint returns neither
+- [ ] ⛔ **Image attachments on native** — needs `expo-image-picker`, not a
+      dependency yet. Deliberately not added: there is no native build in the
+      loop to test it, and the compose screen hides the attach control rather
+      than offering one that does nothing
+      ([src/lib/image-picker.ts](src/lib/image-picker.ts))
+- [ ] **Verify against the live API** — `/diagnostics` → *Run write probes*.
+      These create real content and delete it again; nothing here has been
+      exercised against the server yet
 
 ### Phase 5 — groups & profile
 - [ ] Explore page: group grid, member counts, icons

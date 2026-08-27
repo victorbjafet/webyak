@@ -17,11 +17,28 @@ import { absoluteTime, preciseDelta, relativeTime } from '@/lib/time';
 const COLLAPSED_TICK = 30_000;
 const EXPANDED_TICK = 1_000;
 
-export function TimeStamp({ iso, type = 'small' }: { iso: string; type?: 'small' | 'caption' }) {
+export function TimeStamp({
+  iso,
+  type = 'small',
+  interactive = true,
+}: {
+  iso: string;
+  type?: 'small' | 'caption';
+  /** Set false inside previews, where nothing should be pressable. */
+  interactive?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const now = useNow(expanded ? EXPANDED_TICK : COLLAPSED_TICK);
 
   const detail = `${absoluteTime(iso)} · ${preciseDelta(iso, now)} ago`;
+
+  if (!interactive) {
+    return (
+      <ThemedText type={type} themeColor="textTertiary" numberOfLines={1}>
+        {relativeTime(iso, now)}
+      </ThemedText>
+    );
+  }
 
   return (
     <Pressable

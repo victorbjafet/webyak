@@ -130,6 +130,8 @@ already.
 | `/chats` | DM list | `src/app/chats/index.tsx` |
 | `/chats/<id>` | DM thread | `src/app/chats/[id].tsx` |
 | `/notifications` | Activity | `src/app/notifications.tsx` |
+| `/compose` | New post | `src/app/compose.tsx` |
+| `/compose?repost=<id>&group=<id>` | Quote-repost | ” |
 | `/login` | Auth flow | `src/app/login/index.tsx` |
 | anything else | Not found | `src/app/+not-found.tsx` |
 
@@ -164,3 +166,59 @@ Data flow: **screen → TanStack Query → `src/api/client.ts` → sidechat.js �
 api.sidechat.lol**. The client is a singleton because sidechat.js keeps the bearer
 token on the instance; `SessionProvider` owns loading that token out of storage
 and pushing it into the client.
+
+
+## Writing (Phase 4)
+
+Reads go through `src/api/queries.ts`; writes go through
+[src/api/mutations.ts](../src/api/mutations.ts). The split is not ceremony — the
+two have opposite failure modes. A failed read shows an error state and the user
+retries. A failed *optimistic* write has already changed the screen, so it has to
+be able to put it back.
+
+### Writes are wired to content, not to screens
+
+`PostCard` and `CommentItem` call `useVote()` themselves rather than taking an
+`onVote` prop from whatever is rendering them. Whether a post can be voted on is
+a property of the post, and threading a callback through every list, profile and
+search result only creates places to forget one — the read-only card is then
+indistinguishable from a broken one.
+
+### One post lives in many caches
+
+This is the part that is easy to get wrong. A single post can be cached in:
+
+- every feed page holding it — one infinite query per `sort × period` the user
+  has opened
+- its own `['post', id]` entry
+- a `['comments', postId]` array, if it is a comment
+- a `['profile', username, 'posts']` array
+
+An optimistic update that patches only the one the user is looking at leaves the
+same post showing two different scores on two screens. `patchPostEverywhere`
+walks all four, and **returns a snapshot of only the queries it actually
+changed** so a failure can restore exactly those — restoring untouched queries
+would clobber anything that arrived in the meantime.
+
+Two details that are not obvious:
+
+- **Comment lists are both flat and nested.** `getPostComments` returns a flat
+  array whose entries also carry a `replies` array, so the same comment is
+  reachable twice. In memory those are the same object; after the query cache
+  rehydrates from storage they are two copies. The walker patches both.
+- **The delta is computed per copy, from that copy's own `vote_status`** — not
+  once from a shared "before" value. Two caches can legitimately disagree (a feed
+  page may be minutes stale while the post screen is fresh), and applying a local
+  delta keeps each one self-consistent instead of forcing both to a number that
+  is only correct for one of them.
+
+### What is deliberately not optimistic
+
+**Creating a post.** Where a new post lands depends on the server's ranking, and
+a guess that puts it in the wrong place makes it visibly jump on the next fetch.
+The feed is invalidated and refetched instead — slower, and honest.
+
+**Poll votes are optimistic but unusually consequential.** The API has no "change
+my answer", and `participated` locks the UI to read-only, so without rollback a
+failed vote leaves a permanently locked poll displaying a choice that was never
+recorded.

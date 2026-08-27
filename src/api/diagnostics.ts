@@ -1,6 +1,9 @@
 /**
  * One-shot probes for open questions that can only be answered with a live
- * token. Run from /diagnostics. Everything here is read-only.
+ * token. Run from /diagnostics.
+ *
+ * Most probes are read-only. The Phase 4 write round is **not** — see
+ * `probeWriteRoundTrip`, which creates real content and deletes it again.
  *
  * Round 1 (settled, no longer probed):
  *   - Q2 images — PASS, assets are pre-signed R2 URLs
@@ -12,7 +15,14 @@
  */
 
 import { fetchUserGroups } from './groups';
-import { api } from './client';
+import {
+  api,
+  createComment,
+  createPost,
+  deletePostOrComment,
+  request,
+  setVote,
+} from './client';
 import { feedHygieneStats } from './feed';
 import type { PostOrComment } from './types';
 
@@ -268,6 +278,174 @@ async function probeMyGroupsShape(): Promise<ProbeResult> {
   }
 }
 
+/* ------------------------------------------------------------------------ *
+ * Phase 4 — writes
+ * ------------------------------------------------------------------------ */
+
+/**
+ * The one probe here that is **not** read-only.
+ *
+ * Every write path in one pass: create a post, comment on it, vote on both,
+ * then delete the post. It is a round trip rather than four separate probes
+ * because the interesting failures are in the *sequence* — a comment needs a
+ * real parent id, and a vote needs something that exists.
+ *
+ * It posts anonymously into the sample group, marked as a test, and deletes
+ * what it made. If it reports a leftover id, that post is live and needs
+ * deleting by hand.
+ */
+async function probeWriteRoundTrip(): Promise<ProbeResult> {
+  const base = {
+    id: 'writes',
+    label: 'Phase 4 — write round trip',
+    question: 'Do create, comment, vote and delete all work with our request shapes?',
+  };
+  const steps: string[] = [];
+  let postId: string | undefined;
+
+  try {
+    const post = await createPost({
+      text: `webyak write test ${new Date().toISOString()} — deleting this automatically`,
+      groupId: SAMPLE_GROUP_ID,
+      anonymous: true,
+    });
+    postId = post?.id;
+    steps.push(
+      postId
+        ? `createPost → ok, id ${postId}, index_code ${post?.index_code ?? '(none)'}`
+        : `createPost → returned no post: ${preview(post, 200)}`,
+    );
+    if (!postId) {
+      return { ...base, status: 'fail', detail: 'createPost returned nothing usable.', evidence: steps.join('\n') };
+    }
+
+    try {
+      await setVote(postId, 'upvote');
+      const after = (await api.getPost(postId)) as unknown as PostOrComment;
+      steps.push(
+        `setVote(upvote) → vote_status ${after?.vote_status}, vote_total ${after?.vote_total}`,
+      );
+    } catch (e) {
+      steps.push(`setVote → FAILED: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    let commentId: string | undefined;
+    try {
+      const comment = await createComment({
+        parentPostId: postId,
+        text: 'webyak write test comment',
+        groupId: SAMPLE_GROUP_ID,
+        anonymous: true,
+      });
+      commentId = comment?.id;
+      steps.push(
+        commentId
+          ? `createComment → ok, id ${commentId}`
+          : `createComment → returned no comment: ${preview(comment, 200)}`,
+      );
+    } catch (e) {
+      steps.push(`createComment → FAILED: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    if (commentId) {
+      try {
+        await setVote(commentId, 'downvote');
+        steps.push('setVote on comment → ok (comments accept the same endpoint)');
+      } catch (e) {
+        steps.push(`setVote on comment → FAILED: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    await deletePostOrComment(postId);
+    steps.push('deletePostOrComment → ok, test post removed');
+    postId = undefined;
+
+    const failed = steps.filter((s) => s.includes('FAILED')).length;
+    return {
+      ...base,
+      status: failed === 0 ? 'pass' : 'partial',
+      detail:
+        failed === 0
+          ? 'Post, comment, vote and delete all round-tripped. Cleaned up after itself.'
+          : `${failed} step(s) failed — see evidence.`,
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return {
+      ...base,
+      status: 'error',
+      detail:
+        (e instanceof Error ? e.message : String(e)) +
+        (postId ? ` — LEFTOVER POST ${postId} still live, delete it by hand.` : ''),
+      evidence: steps.join('\n'),
+    };
+  }
+}
+
+/**
+ * Does a poll survive a round trip, and does the library's broken
+ * `view_results` path work once the `&`/`?` typo is corrected?
+ */
+async function probePolls(): Promise<ProbeResult> {
+  const base = {
+    id: 'polls',
+    label: 'Phase 4 — polls',
+    question: 'Does poll_request create a poll, and is view_results reachable at the fixed path?',
+  };
+  const steps: string[] = [];
+  let postId: string | undefined;
+
+  try {
+    const post = await createPost({
+      text: `webyak poll test ${new Date().toISOString()}`,
+      groupId: SAMPLE_GROUP_ID,
+      anonymous: true,
+      pollOptions: ['first', 'second'],
+    });
+    postId = post?.id;
+    steps.push(`createPost(poll) → id ${postId ?? '(none)'}, poll ${preview(post?.poll, 300)}`);
+
+    const pollId = post?.poll?.id;
+    if (pollId) {
+      // The library sends `/v1/polls/view_results&cacheBust=…`, which is a path
+      // that cannot exist. This is the corrected `?` form.
+      try {
+        const res = await request<unknown>('/v1/polls/view_results', 'POST', { poll_id: pollId });
+        steps.push(`view_results (fixed path) → ${preview(res, 200)}`);
+      } catch (e) {
+        steps.push(`view_results → FAILED: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } else {
+      steps.push('No poll came back on the created post — poll_request may be wrong.');
+    }
+
+    if (postId) {
+      await deletePostOrComment(postId);
+      steps.push('deleted the test poll post');
+      postId = undefined;
+    }
+
+    const failed = steps.filter((s) => s.includes('FAILED')).length;
+    return {
+      ...base,
+      status: post?.poll ? (failed === 0 ? 'pass' : 'partial') : 'fail',
+      detail: post?.poll
+        ? 'Poll created and cleaned up.'
+        : 'The post was created but carried no poll.',
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return {
+      ...base,
+      status: 'error',
+      detail:
+        (e instanceof Error ? e.message : String(e)) +
+        (postId ? ` — LEFTOVER POST ${postId} still live, delete it by hand.` : ''),
+      evidence: steps.join('\n'),
+    };
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
@@ -277,4 +455,13 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
     await probeGapEndpoints(),
     await probeFeedHygiene(),
   ];
+}
+
+/**
+ * Kept out of `runAllProbes` deliberately. These create real content in a real
+ * community, so they need a separate, explicit press — nobody should post to
+ * Virginia Tech by clicking "run diagnostics".
+ */
+export async function runWriteProbes(): Promise<ProbeResult[]> {
+  return [await probeWriteRoundTrip(), await probePolls()];
 }

@@ -462,6 +462,7 @@ which the library added in 2.4.9 for exactly this.
 |---|---|---|
 | `getUserContent()` | Builds `/v1/posts&type=…` — missing `?`. Always fails. | Worked around |
 | `getGroupChats()` | Builds `/v1/chats/explore&cacheBust=…` — missing `?`. | Worked around |
+| `viewPollResults()` | Builds `/v1/polls/view_results&cacheBust=…` — missing `?`. **Third instance of the same typo.** | Worked around (Phase 4) |
 | `uploadAsset()` | Uses React Native's `FormData` `{uri, type, name}` object shape, then `PUT`s the raw object. On web this uploads the string `[object Object]`. | Worked around (`uploadAssetWeb` takes a real `Blob`) |
 | `registerEmail()` | `throw`s the API's message from *inside* its own `try`, so its own `catch` replaces it with the constant `"Failed to request email verification."` | Bypassed — we call `/v2/users/register_email` directly |
 | `checkEmailVerification()` | Same self-swallowing pattern: every failure, including a 401, surfaces as `"Email is not verified."` | Bypassed |
@@ -477,6 +478,53 @@ Also note: the library swallows HTTP status codes — every method just calls
 `.json()`, so a 401 surfaces as a malformed object rather than an error. Our
 `request()` helper checks `res.ok` and throws `ApiError` with the status, which is
 what makes expired-token detection possible.
+
+### Why every write bypasses the library (Phase 4)
+
+That last point is an annoyance for reads and disqualifying for writes. Every
+write method in 2.6.6 ends the same way:
+
+```js
+const res = await fetch(…);
+const json = await res.json();
+return json;              // a 400 and a 200 are indistinguishable here
+```
+
+A rejected vote therefore *resolves*. With optimistic UI that is not a cosmetic
+problem: the rollback is triggered by a rejected promise, so a vote the server
+refused would stay on screen looking accepted until something else refetched it,
+and the user would have no idea. Every write in
+[src/api/client.ts](../src/api/client.ts) — `setVote`, `createPost`,
+`createComment`, `deletePostOrComment`, `voteOnPoll` — goes through `request()`
+for this reason, not for tidiness.
+
+## Write endpoints
+
+Verified by round trip from `/diagnostics` → *Run write probes*, which creates a
+post, comments on it, votes on both, and deletes it.
+
+| Action | Endpoint | Body |
+|---|---|---|
+| Vote | `POST /v1/posts/set_vote` | `{post_id, vote_status}` — takes a **comment** id equally |
+| Create post | `POST /v1/posts` | `{type: "post", group_ids: [id], text, assets, attachments, dms_disabled, comments_disabled, using_identity, quote_post_id?, poll_request?}` |
+| Create comment | `POST /v1/posts` | same endpoint, `{type: "comment", …, reply_post_id, reply_comment_post_id, parent_post_id}` |
+| Delete | `POST /v1/posts/delete` | `{post_id}` — posts and comments both |
+| Vote on poll | `POST /v1/polls/vote` | `{poll_id, choice}` — `choice` is the **index** |
+| Mark results viewed | `POST /v1/polls/view_results` | `{poll_id}` — note the corrected path |
+
+Three things worth knowing before touching this code:
+
+- **`using_identity` is the inverse of the anonymous toggle.** The API models it
+  as "post as yourself", the UI asks "post anonymously". Inverting it by accident
+  deanonymises the user, which is the worst available bug in a Yik Yak client, so
+  the flip happens in exactly one place — `createPost`/`createComment` in
+  `client.ts` — and the UI never sends `using_identity` itself.
+- **Posts and comments are the same endpoint**, distinguished only by `type`.
+  The response envelope differs: a post comes back as `{posts: [...]}` and a
+  comment as `{comment: {...}}`.
+- **A poll is not a field, it is a request.** Creating one means sending
+  `poll_request: {allows_view_results, choices}`, and the created post comes back
+  with a populated `poll` object instead.
 
 ## Data shape corrections
 

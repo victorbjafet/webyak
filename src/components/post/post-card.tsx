@@ -11,7 +11,8 @@ import { PostAttachments } from './post-attachments';
 import { TimeStamp } from './time-stamp';
 import { VoteControl } from './vote-control';
 
-import type { PostOrComment, VoteStatus } from '@/api/types';
+import { usePollVote, useVote } from '@/api/mutations';
+import type { PostOrComment } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { formatCount } from '@/lib/time';
@@ -20,7 +21,6 @@ interface PostCardProps {
   post: PostOrComment;
   onPress?: () => void;
   showGroup?: boolean;
-  onVote?: (next: VoteStatus) => void;
   /** Set by the feed when this post is at or near the viewport, so video can buffer early. */
   preload?: boolean;
   /** Strictly on screen. Video pauses when this goes false. */
@@ -41,12 +41,16 @@ export function PostCard({
   post,
   onPress,
   showGroup = false,
-  onVote,
   preload = false,
   visible = false,
 }: PostCardProps) {
   const theme = useTheme();
   const router = useRouter();
+  // Writes are wired here rather than passed down from each screen: whether a
+  // post can be voted on is a property of the post, not of what is showing it,
+  // and threading a callback through every list only creates places to forget.
+  const vote = useVote();
+  const pollVote = usePollVote();
 
   const displayName = post.identity?.name || post.alias || 'Anonymous';
   const username = post.identity?.posted_with_username ? post.identity?.name : undefined;
@@ -105,10 +109,21 @@ export function PostCard({
       <PostAssets assets={post.assets} preload={preload} visible={visible} />
       <PostAttachments attachments={post.attachments} />
 
-      {post.poll ? <PollView poll={post.poll} /> : null}
+      {post.poll ? (
+        <PollView
+          poll={post.poll}
+          onVote={(choiceIndex) =>
+            pollVote.mutate({ pollId: post.poll!.id, choiceIndex, postId: post.id })
+          }
+        />
+      ) : null}
 
       <View style={styles.footer}>
-        <VoteControl total={post.vote_total} status={post.vote_status} onVote={onVote} />
+        <VoteControl
+          total={post.vote_total}
+          status={post.vote_status}
+          onVote={(next) => vote.mutate({ id: post.id, next })}
+        />
 
         <Pressable
           accessibilityRole="button"

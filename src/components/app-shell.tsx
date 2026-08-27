@@ -2,6 +2,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { BottomBar } from './bottom-bar';
 import { CommunitySwitcher } from './community-switcher';
+import { ComposeButton } from './compose-button';
 import { Sidebar } from './sidebar';
 
 import { useSession } from '@/api/session';
@@ -31,7 +32,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <View
       style={[styles.root, { backgroundColor: theme.background }, showNav && wide && styles.wide]}>
       {showNav && wide ? <Sidebar /> : null}
-      <View style={styles.content}>{children}</View>
+      <View style={styles.content}>
+        {children}
+        {/* Inside the content area on purpose: absolutely positioned against the
+            root it would sit underneath the community strip and the tab bar. */}
+        {showNav && !wide ? <ComposeButton variant="floating" /> : null}
+      </View>
       {showNav && !wide ? (
         <>
           <CommunitySwitcher variant="bar" />

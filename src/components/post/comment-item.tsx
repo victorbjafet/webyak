@@ -3,12 +3,14 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '../themed-text';
 import { IdentityAvatar } from './identity-avatar';
+import { PostActions } from './post-actions';
 import { PostAssets } from './post-assets';
 import { PostAttachments } from './post-attachments';
 import { TimeStamp } from './time-stamp';
 import { VoteControl } from './vote-control';
 
-import type { PostOrComment, VoteStatus } from '@/api/types';
+import { useVote } from '@/api/mutations';
+import type { PostOrComment } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -27,13 +29,15 @@ export function isReply(comment: PostOrComment) {
 
 export function CommentItem({
   comment,
-  onVote,
+  onReply,
 }: {
   comment: PostOrComment;
-  onVote?: (next: VoteStatus) => void;
+  /** Omitted when the parent post has comments disabled. */
+  onReply?: (comment: PostOrComment) => void;
 }) {
   const theme = useTheme();
   const router = useRouter();
+  const vote = useVote();
   const reply = isReply(comment);
   const displayName = comment.identity?.name || comment.alias || 'Anonymous';
   const username = comment.identity?.posted_with_username ? comment.identity?.name : undefined;
@@ -70,7 +74,32 @@ export function CommentItem({
       <PostAssets assets={comment.assets} />
       <PostAttachments attachments={comment.attachments} />
 
-      <VoteControl total={comment.vote_total} status={comment.vote_status} onVote={onVote} compact />
+      <View style={styles.footer}>
+        <VoteControl
+          total={comment.vote_total}
+          status={comment.vote_status}
+          onVote={(next) => vote.mutate({ id: comment.id, next })}
+          compact
+        />
+
+        {onReply ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Reply to ${displayName}`}
+            onPress={() => onReply(comment)}
+            style={({ hovered, pressed }) => [
+              styles.replyButton,
+              (hovered || pressed) && { backgroundColor: theme.controlHover },
+            ]}>
+            <ThemedText type="smallBold" themeColor="textSecondary">
+              Reply
+            </ThemedText>
+          </Pressable>
+        ) : null}
+
+        <View style={styles.spacer} />
+        <PostActions post={comment} />
+      </View>
     </View>
   );
 }
@@ -101,5 +130,16 @@ const styles = StyleSheet.create({
   },
   spacer: {
     flex: 1,
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    paddingTop: Spacing.half,
+  },
+  replyButton: {
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+    borderRadius: Radius.pill,
   },
 });

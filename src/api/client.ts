@@ -7,6 +7,7 @@ import type {
   CurrentUser,
   FeedCategory,
   Group,
+  NewPostAsset,
   PostOrComment,
   PostsAndCursor,
   Profile,
@@ -140,6 +141,15 @@ export async function getUserContent(contentType: 'posts' | 'comments') {
   return json.posts ?? [];
 }
 
+/**
+ * The library builds `/v1/polls/view_results&cacheBust=...` (missing `?`), so
+ * its version hits a path that doesn't exist. Third instance of this same typo
+ * in sidechat.js 2.6.6 — see docs/API.md#sidechatjs-defects.
+ */
+export async function viewPollResults(pollId: string) {
+  return request<unknown>('/v1/polls/view_results', 'POST', { poll_id: pollId });
+}
+
 /** The library builds `/v1/chats/explore&cacheBust=...` (missing `?`). */
 export async function getGroupChats() {
   const json = await request<{ chats: unknown[] }>('/v1/chats/explore');
@@ -212,8 +222,17 @@ export async function getPostComments(postId: string) {
   return (await api.getPostComments(postId)) as unknown as PostOrComment[];
 }
 
+/**
+ * Vote on a post or comment. Not `api.setVote`, which reads the response body
+ * without checking the status — so a rejected vote resolves as success and the
+ * optimistic update would never roll back. Every write here goes through
+ * `request` for that reason.
+ */
 export async function setVote(postId: string, action: VoteStatus) {
-  return api.setVote(postId, action);
+  return request<unknown>('/v1/posts/set_vote', 'POST', {
+    post_id: postId,
+    vote_status: action,
+  });
 }
 
 export async function getAvailableGroups(onePage = true) {
@@ -230,4 +249,92 @@ export async function getGroupMetadata(groupId: string) {
 
 export async function getUserProfile(username: string) {
   return (await api.getUserProfile(username)) as unknown as Profile;
+}
+
+/* ------------------------------------------------------------------------ *
+ * Writes
+ *
+ * None of these use the library's own methods. Every write in sidechat.js 2.6.6
+ * ends with `const json = await res.json(); return json;` — no status check — so
+ * a 400 or a 401 resolves as if it succeeded. That is survivable for a
+ * fire-and-forget call and fatal for optimistic UI, which needs a rejected
+ * promise to know it must roll back.
+ * ------------------------------------------------------------------------ */
+
+export interface CreatePostInput {
+  text: string;
+  groupId: string;
+  assets?: NewPostAsset[];
+  anonymous?: boolean;
+  disableDMs?: boolean;
+  disableComments?: boolean;
+  /** Quote-repost: the id of the post being quoted. */
+  repostId?: string;
+  /** 2–4 choices. Omit for a normal post. */
+  pollOptions?: string[];
+}
+
+export async function createPost(input: CreatePostInput) {
+  const body: Record<string, unknown> = {
+    type: 'post',
+    assets: input.assets ?? [],
+    group_ids: [input.groupId],
+    text: input.text,
+    attachments: [],
+    dms_disabled: input.disableDMs ?? false,
+    comments_disabled: input.disableComments ?? false,
+    // The API models this as "posting as yourself", so it is the inverse of the
+    // anonymous toggle the UI shows.
+    using_identity: !(input.anonymous ?? true),
+  };
+  if (input.repostId) body.quote_post_id = input.repostId;
+  if (input.pollOptions?.length) {
+    body.poll_request = { allows_view_results: true, choices: input.pollOptions };
+  }
+
+  const json = await request<{ posts?: PostOrComment[] }>('/v1/posts', 'POST', body);
+  return json.posts?.[0];
+}
+
+export interface CreateCommentInput {
+  /** The post being commented on — always the root, even for a reply. */
+  parentPostId: string;
+  text: string;
+  groupId: string;
+  /** Set when replying to a comment rather than the post itself. */
+  replyCommentId?: string;
+  /**
+   * The *top-level* comment of the thread being replied to. Threading is two
+   * levels, so a reply to a reply still hangs off the top-level comment — see
+   * docs/OFFSIDES.md. Defaults to `replyCommentId` when the target is itself
+   * top-level.
+   */
+  topLevelReplyId?: string;
+  assets?: NewPostAsset[];
+  anonymous?: boolean;
+  disableDMs?: boolean;
+}
+
+export async function createComment(input: CreateCommentInput) {
+  const json = await request<{ comment?: PostOrComment }>('/v1/posts', 'POST', {
+    type: 'comment',
+    assets: input.assets ?? [],
+    group_ids: [input.groupId],
+    text: input.text,
+    reply_post_id: input.topLevelReplyId || input.replyCommentId || input.parentPostId,
+    reply_comment_post_id: input.replyCommentId || input.parentPostId,
+    parent_post_id: input.parentPostId,
+    dms_disabled: input.disableDMs ?? false,
+    using_identity: !(input.anonymous ?? true),
+  });
+  return json.comment;
+}
+
+/** Works for both posts and comments — the API takes either id. */
+export async function deletePostOrComment(id: string) {
+  return request<unknown>('/v1/posts/delete', 'POST', { post_id: id });
+}
+
+export async function voteOnPoll(pollId: string, choiceIndex: number) {
+  return request<unknown>('/v1/polls/vote', 'POST', { poll_id: pollId, choice: choiceIndex });
 }

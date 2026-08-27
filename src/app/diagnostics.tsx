@@ -2,7 +2,13 @@ import * as Clipboard from 'expo-clipboard';
 import { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { runAllProbes, type ProbeResult, type ProbeStatus } from '@/api/diagnostics';
+import {
+  runAllProbes,
+  runWriteProbes,
+  type ProbeResult,
+  type ProbeStatus,
+} from '@/api/diagnostics';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
@@ -21,6 +27,7 @@ export default function DiagnosticsScreen() {
   const [results, setResults] = useState<ProbeResult[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [confirmingWrites, setConfirmingWrites] = useState(false);
 
   const statusColor: Record<ProbeStatus, string> = {
     pass: theme.success,
@@ -34,6 +41,17 @@ export default function DiagnosticsScreen() {
     setCopied(false);
     try {
       setResults(await runAllProbes());
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const runWrites = useCallback(async () => {
+    setConfirmingWrites(false);
+    setBusy(true);
+    setCopied(false);
+    try {
+      setResults(await runWriteProbes());
     } finally {
       setBusy(false);
     }
@@ -76,6 +94,34 @@ export default function DiagnosticsScreen() {
           ) : null}
         </View>
       </View>
+
+      <View
+        style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+        <ThemedText type="bodyBold">Phase 4 — write probes</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          These are not read-only. They create a real post, a real comment and a real poll in the
+          sample community, vote on them, then delete them. Nothing should survive the run — if a
+          probe reports a leftover id, that content is live and needs deleting by hand.
+        </ThemedText>
+        <View style={styles.actions}>
+          <Button
+            label="Run write probes"
+            variant="danger"
+            onPress={() => setConfirmingWrites(true)}
+            disabled={busy}
+          />
+        </View>
+      </View>
+
+      <ConfirmDialog
+        visible={confirmingWrites}
+        title="Post to a real community?"
+        body="This creates a post, a comment and a poll in the sample group and then deletes them. They will be briefly visible to other people."
+        confirmLabel="Run writes"
+        destructive
+        onCancel={() => setConfirmingWrites(false)}
+        onConfirm={runWrites}
+      />
 
       {results?.map((r) => (
         <View

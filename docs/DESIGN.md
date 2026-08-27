@@ -227,3 +227,44 @@ narrow screens. Selection persists.
 The list comes from `getUpdates().groups` — which is **not** a complete
 membership list (`/v1/users/me` reported 4 memberships against 3 groups), so it
 is "communities you can switch to", not "everything you belong to".
+
+
+## Composing (Phase 4)
+
+### The post button is the one brand-colored control
+
+Green is reserved for selection and for posting. The composer entry point takes
+the strongest form the layout allows: a full-width button under the sidebar nav
+on wide, a circular FAB above the tab bar on narrow — where the official app puts
+it. It hides itself on `/compose`, because a button that reopens the screen you
+are already on is noise, and on narrow it would sit on top of the text field.
+
+The FAB renders **inside the content area**, not against the shell root.
+Positioned against the root it sits underneath the community strip and the tab
+bar, which is only visible on a short viewport.
+
+### Confirmations are a component, not `Alert.alert`
+
+`Alert` has no react-native-web implementation. On web the call is silently a
+no-op — so a delete confirmation written the native way would fire the delete
+with no prompt at all. `ConfirmDialog` uses `Modal`, which both platforms
+implement, and it is what any destructive action must use.
+
+### Anonymous is the default, and it is stated
+
+The composer defaults to anonymous, matching Yik Yak, and the toggle spells out
+the consequence either way — "Shown as a random alias" against "Shown with your
+username". This is the one setting where a mistaken guess is unrecoverable: the
+post is already public before you notice.
+
+Under the hood the API's field is `using_identity`, the exact inverse. That
+inversion happens in one place in `client.ts` and never in a component — see
+docs/API.md#write-endpoints.
+
+### Quoted posts are not cards
+
+A quoted post renders through `QuotedPost`, not `PostCard`. A card would bring
+vote buttons, a profile link and a delete control for a post that is only being
+*referenced* — and inside the composer those become interactive controls nested
+in a form, which is the nested-button problem again (see "Never nest interactive
+elements").

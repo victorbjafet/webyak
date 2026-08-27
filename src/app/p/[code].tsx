@@ -1,8 +1,11 @@
 import { useLocalSearchParams } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { useCachedPostByCode, useComments, usePost } from '@/api/queries';
+import type { PostOrComment } from '@/api/types';
 import { GroupAvatar } from '@/components/group-avatar';
+import { CommentComposer } from '@/components/post/comment-composer';
 import { CommentItem } from '@/components/post/comment-item';
 import { PostCard } from '@/components/post/post-card';
 import { Screen } from '@/components/screen';
@@ -20,6 +23,10 @@ export default function PostDetailScreen() {
   const cached = useCachedPostByCode(code);
   const post = usePost(cached?.id);
   const comments = useComments(cached?.id);
+  const [replyTo, setReplyTo] = useState<PostOrComment | null>(null);
+
+  const startReply = useCallback((comment: PostOrComment) => setReplyTo(comment), []);
+  const cancelReply = useCallback(() => setReplyTo(null), []);
 
   if (!cached) {
     return (
@@ -71,7 +78,15 @@ export default function PostDetailScreen() {
           <EmptyState icon="chatbubble-outline" title="No comments yet" body="Be the first." />
         ) : null}
 
-        {comments.data?.map((comment) => <CommentItem key={comment.id} comment={comment} />)}
+        {comments.data?.map((comment) => (
+          <CommentItem
+            key={comment.id}
+            comment={comment}
+            onReply={current.comments_disabled ? undefined : startReply}
+          />
+        ))}
+
+        <CommentComposer post={current} replyTo={replyTo} onCancelReply={cancelReply} />
       </ScrollView>
     </Screen>
   );
