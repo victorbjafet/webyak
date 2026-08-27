@@ -218,7 +218,7 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 - [x] Unicode slugs handled (`wsu-wordle-🧩` is a real `index_name`)
 - [x] `memberships[]` (4) vs `getUpdates` (3) discrepancy documented
 
-### Phase 3 — read
+### Phase 3 — read — built, needs visual QA
 
 > Blocker 2 is **closed** — `/g/<slug>` resolves for any group. Blocker 1 has no
 > client-side fix and is parked on the deferred Worker; it only affects pasted
@@ -231,13 +231,15 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 - [ ] ⛔ `/p/<code>` from a **pasted link** needs [the Worker](docs/WORKER.md),
       which is deferred. In-app navigation carries the UUID, so build the post
       screen against that and the gap closes later. `/g/<slug>` is unaffected.
-- [ ] Group feed with hot/recent/top tabs, cursor infinite scroll
-- [ ] Post card: text, vote count, comment count, alias/identity chip, relative time
-- [ ] Identity avatar (emoji + primary/secondary color)
-- [ ] Image attachments + lightbox
-- [ ] Poll rendering (pre- and post-vote states)
-- [ ] Post detail route + nested comment tree
-- [ ] Empty / loading / error states; pull-to-refresh + refetch
+- [x] Group feed with hot/new/top tabs, cursor infinite scroll
+- [x] Post card: text, vote count, comment count, identity chip, relative time
+- [x] Identity avatar (emoji on the user's color, neutral glyph when anonymous)
+- [x] Image attachments + lightbox
+- [x] Poll rendering (pre- and post-vote states)
+- [x] Post detail route + comment thread with reply indentation
+- [x] Empty / loading / error states; pull-to-refresh + end-of-feed
+- [x] Home feed on the account's primary group
+- [ ] Visual QA — not yet run in a browser by anyone
 
 ### Phase 4 — write
 - [ ] Optimistic voting on posts and comments

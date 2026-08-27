@@ -30,6 +30,8 @@ export interface GroupRef {
   slug: string;
   color?: string;
   icon_url?: string;
+  description?: string;
+  member_count?: number;
 }
 
 const memo = new Map<string, GroupRef>();
@@ -66,6 +68,8 @@ function toRef(group: Group): GroupRef | null {
     slug,
     color: group.color,
     icon_url: group.icon_url,
+    description: group.description,
+    member_count: group.member_count,
   };
 }
 

@@ -105,3 +105,30 @@ to the left.
 
 Press and hover feedback goes through Pressable's children function, which is
 unaffected.
+
+## Feed and post conventions
+
+- **"New" means `recent`.** The API's categories are `hot` / `recent` / `top`;
+  the tab is labelled New because that is what the official app calls it. The
+  label and the API value are deliberately not the same word — keep the mapping
+  in `sort-tabs.tsx` and don't leak `recent` into the UI.
+- **Sort is a query param** (`/g/<slug>?sort=new`), so a sorted feed is
+  linkable and survives a back navigation.
+- **Vote controls render read-only until Phase 4.** `VoteControl` takes an
+  optional `onVote`; without it the arrows are disabled rather than absent, so
+  the layout doesn't shift when voting is wired up.
+- **Identity is emoji-on-color, or a neutral glyph.** `conversation_icon` only
+  exists when someone posts under a username; anonymous is the default and gets
+  a person glyph on `control`, never a fake avatar.
+- **Comment depth is one level.** `reply_post_id !== parent_post_id` marks a
+  reply, which gets an indent and a left rule. There is no deeper nesting to
+  render — see [OFFSIDES.md](OFFSIDES.md#comment-threading-has-one-signal).
+- **Every list state is explicit**: loading, empty, error-with-retry, and
+  end-of-feed all render something. A feed that silently shows nothing is a bug.
+
+### Screen has two modes
+
+`<Screen>` scrolls its children by default. Feeds and threads pass
+`scroll={false}`, which switches the content column to `flex: 1` so the list
+inside owns the scrolling — otherwise the list has no height to scroll within and
+silently renders one screenful.

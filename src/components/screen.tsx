@@ -48,10 +48,14 @@ export function Screen({
   const body = <View style={[styles.column, { maxWidth }]}>{children}</View>;
 
   if (!scroll) {
+    // Screens that own their scrolling (feeds, threads) need the column to
+    // actually fill, or the list inside it has no height to scroll within.
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         {header}
-        <View style={styles.center}>{body}</View>
+        <View style={styles.centerFill}>
+          <View style={[styles.column, styles.fill, { maxWidth }]}>{children}</View>
+        </View>
       </View>
     );
   }
@@ -89,11 +93,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
   },
-  center: {
+  centerFill: {
     flex: 1,
     alignItems: 'center',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
+    width: '100%',
+  },
+  fill: {
+    flex: 1,
   },
   column: {
     width: '100%',
