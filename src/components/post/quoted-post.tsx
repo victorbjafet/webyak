@@ -1,5 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { AuthedImage } from '../authed-image';
 import { ThemedText } from '../themed-text';
 import { IdentityAvatar } from './identity-avatar';
 import { TimeStamp } from './time-stamp';
@@ -7,6 +9,8 @@ import { TimeStamp } from './time-stamp';
 import type { PostOrComment } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { bestAssetUrl } from '@/lib/asset-url';
+import { useMediaMaxHeight } from '@/lib/media';
 
 /**
  * The post being quoted, shown inside the composer and inside a published
@@ -27,6 +31,17 @@ export function QuotedPost({
 }) {
   const theme = useTheme();
   const displayName = post.identity?.name || post.alias || 'Anonymous';
+  // Much shorter than a normal post's cap: a repost stacks two posts in one
+  // card, so a full-height original buries the comment that was the point of
+  // reposting it.
+  const maxHeight = useMediaMaxHeight('quoted');
+
+  // Only the first image. A quote is a reference, not a gallery — the rest are
+  // one tap away on the original.
+  const preview = post.assets?.find((a) => a.type === 'image');
+  const video = post.assets?.find((a) => a.type === 'video');
+  const previewUri = preview ? bestAssetUrl(preview) : undefined;
+  const extra = (post.assets?.length ?? 0) - (preview ? 1 : 0);
 
   const body = (
     <>
@@ -45,9 +60,37 @@ export function QuotedPost({
         </ThemedText>
       ) : null}
 
-      {post.assets?.length ? (
+      {previewUri ? (
+        <AuthedImage
+          uri={previewUri}
+          context="quoted-post-image"
+          style={[
+            styles.media,
+            {
+              aspectRatio: preview?.width && preview?.height ? preview.width / preview.height : 1,
+              maxHeight,
+              backgroundColor: theme.skeleton,
+            },
+          ]}
+          // `contain`, like the full-size card: once the cap bites, the frame no
+          // longer matches the asset's ratio and `cover` would crop it.
+          contentFit="contain"
+          transition={100}
+        />
+      ) : null}
+
+      {video && !previewUri ? (
+        <View style={[styles.mediaNote, { backgroundColor: theme.control }]}>
+          <Ionicons name="videocam-outline" size={13} color={theme.textSecondary} />
+          <ThemedText type="caption" themeColor="textSecondary">
+            Video
+          </ThemedText>
+        </View>
+      ) : null}
+
+      {extra > 0 ? (
         <ThemedText type="caption" themeColor="textTertiary">
-          {post.assets.length === 1 ? 'Contains an image' : `Contains ${post.assets.length} images`}
+          {`+${extra} more`}
         </ThemedText>
       ) : null}
     </>
@@ -88,5 +131,18 @@ const styles = StyleSheet.create({
   },
   spacer: {
     flex: 1,
+  },
+  media: {
+    width: '100%',
+    borderRadius: Radius.sm,
+  },
+  mediaNote: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingVertical: Spacing.half,
+    paddingHorizontal: Spacing.two,
+    borderRadius: Radius.pill,
   },
 });

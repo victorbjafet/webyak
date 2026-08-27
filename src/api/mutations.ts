@@ -4,6 +4,7 @@ import {
   createComment,
   createPost,
   deletePostOrComment,
+  setGroupMembership,
   setVote,
   voteOnPoll,
   type CreateCommentInput,
@@ -278,6 +279,64 @@ export function useDeleteContent() {
           comment_count: Math.max(0, (post.comment_count ?? 1) - 1),
         }));
       }
+    },
+  });
+}
+
+
+/* ------------------------------------------------------------------------ *
+ * Membership
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Join or leave a community, optimistically.
+ *
+ * Both cached copies matter: the explore catalogue (where the button lives) and
+ * any search results showing the same group. They are separate query keys
+ * holding separate objects, so a join that only patched one would leave the
+ * button showing the opposite state on the other screen.
+ *
+ * The user's own group list is invalidated rather than patched — joining
+ * changes what the switcher and the home feed show, and the server decides the
+ * order.
+ */
+export function useGroupMembership() {
+  const client = useQueryClient();
+
+  const patchMembership = (id: string, member: boolean): Snapshot => {
+    const snapshot: Snapshot = [];
+    for (const [key, data] of client.getQueriesData<{ id: string; membership_type?: string }[]>({
+      queryKey: ['explore'],
+    })) {
+      if (!Array.isArray(data)) continue;
+      if (!data.some((g) => g?.id === id)) continue;
+      snapshot.push({ key, data });
+      client.setQueryData(
+        key,
+        data.map((g) =>
+          g?.id === id ? { ...g, membership_type: member ? 'member' : 'non_member' } : g,
+        ),
+      );
+    }
+    return snapshot;
+  };
+
+  return useMutation({
+    mutationFn: ({ groupId, join }: { groupId: string; join: boolean }) =>
+      setGroupMembership(groupId, join),
+
+    onMutate: ({ groupId, join }) => ({ snapshot: patchMembership(groupId, join) }),
+
+    onError: (error, { join }, context) => {
+      if (context?.snapshot) restore(client, context.snapshot);
+      toastError(error, join ? "Couldn't join that community." : "Couldn't leave that community.");
+    },
+
+    onSuccess: () => {
+      // The switcher, the home feed and the slug resolver all read the user's
+      // groups; only the server knows the resulting list.
+      void client.invalidateQueries({ queryKey: ['my-groups'] });
+      void client.invalidateQueries({ queryKey: ['group', 'slug'] });
     },
   });
 }

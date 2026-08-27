@@ -5,10 +5,10 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 
-import { api, getGroupPosts } from './client';
+import { api, getGroupPosts, getUserContent } from './client';
 import { mergeFeedPages, sanitizePosts } from './feed';
-import { resolveGroupBySlug, type GroupRef } from './groups';
-import type { Cursor, FeedCategory, PostOrComment, Profile, TopPeriod } from './types';
+import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
+import type { Cursor, FeedCategory, Group, PostOrComment, Profile, TopPeriod } from './types';
 
 export const queryKeys = {
   groupBySlug: (slug: string) => ['group', 'slug', slug] as const,
@@ -18,6 +18,9 @@ export const queryKeys = {
   comments: (postId: string) => ['comments', postId] as const,
   profile: (username: string) => ['profile', username] as const,
   userPosts: (username: string) => ['profile', username, 'posts'] as const,
+  explore: () => ['explore', 'groups'] as const,
+  groupSearch: (term: string) => ['explore', 'search', term] as const,
+  myContent: (kind: 'posts' | 'comments') => ['me', kind] as const,
 };
 
 /** Resolve a URL slug to a group. Layered — see src/api/groups.ts. */
@@ -130,3 +133,44 @@ export function useCachedPostByCode(code: string | undefined) {
   const client = useQueryClient();
   return code ? findCachedPostByCode(client, code) : null;
 }
+
+
+/**
+ * The full explore catalogue — every joinable community.
+ *
+ * One request returns the lot (4,237 groups as of 2026-08-27), so it is fetched
+ * once and cached hard rather than paged. That is a big response to hold, but
+ * the endpoint offers no cursor and the alternative is refetching it for every
+ * keystroke of client-side filtering.
+ */
+export function useExploreGroups() {
+  return useQuery({
+    queryKey: queryKeys.explore(),
+    staleTime: 1000 * 60 * 30,
+    queryFn: fetchExploreGroups,
+  });
+}
+
+/**
+ * Server-side group search. Only runs on two or more characters — a one-letter
+ * term matches a large fraction of 4,000 groups and is not worth a request.
+ */
+export function useGroupSearch(term: string) {
+  const trimmed = term.trim();
+  return useQuery({
+    queryKey: queryKeys.groupSearch(trimmed),
+    enabled: trimmed.length >= 2,
+    staleTime: 1000 * 60 * 5,
+    queryFn: () => searchGroups(trimmed),
+  });
+}
+
+/** Your own posts or comments, via the URL-patched `getUserContent`. */
+export function useMyContent(kind: 'posts' | 'comments') {
+  return useQuery({
+    queryKey: queryKeys.myContent(kind),
+    queryFn: async () => sanitizePosts(await getUserContent(kind)),
+  });
+}
+
+export type { Group };

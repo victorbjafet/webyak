@@ -237,3 +237,29 @@ The feed is invalidated and refetched instead — slower, and honest.
 my answer", and `participated` locks the UI to read-only, so without rollback a
 failed vote leaves a permanently locked poll displaying a choice that was never
 recorded.
+
+
+## The explore catalogue (Phase 5)
+
+`GET /v1/groups/explore` returns **every** joinable community in one response —
+4,237 of them as of 2026-08-27 — with no cursor and no page parameter. So it is
+fetched once and cached for half an hour rather than paged.
+
+That shapes the search design. Typing filters the cached list locally, which is
+instant and works offline, and a live `explore/search` request is merged in for
+anything the catalogue missed. **Local results come first**, because those
+objects carry the `membership_type` the join button reads — a search result
+substituted over a local one would flip the button to the wrong state.
+
+The list is virtualized with a deliberately tight window. Four thousand rows is
+enough that a generous `windowSize` is felt on scroll.
+
+## Membership is cached in more than one place
+
+Joining patches every cached copy of the group — the explore catalogue and any
+search result holding the same id are separate query keys with separate objects,
+so patching one leaves the other showing the opposite state.
+
+The user's *own* group list is invalidated rather than patched: joining changes
+what the switcher and the home feed show, and only the server knows the
+resulting order.

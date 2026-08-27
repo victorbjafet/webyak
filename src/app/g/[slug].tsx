@@ -8,6 +8,7 @@ import type { FeedCategory, TopPeriod } from '@/api/types';
 import { FeedList } from '@/components/feed/feed-list';
 import { LeaderboardButton } from '@/components/feed/leaderboard-button';
 import { SortTabs } from '@/components/feed/sort-tabs';
+import { JoinButton } from '@/components/explore/join-button';
 import { GroupAvatar } from '@/components/group-avatar';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -74,14 +75,26 @@ export default function GroupFeedScreen() {
 
   const listHeader = (
     <View style={styles.header}>
+      <View style={styles.metaRow}>
+        {group.data.member_count ? (
+          <ThemedText type="caption" themeColor="textTertiary">
+            {formatCount(group.data.member_count)} members
+          </ThemedText>
+        ) : null}
+        <View style={styles.spacer} />
+        {group.data.id ? (
+          <JoinButton
+            groupId={group.data.id}
+            name={group.data.name}
+            isMember={group.data.membership_type === 'member'}
+            canJoin={group.data.can_join !== false}
+          />
+        ) : null}
+      </View>
+
       {group.data.description ? (
         <ThemedText type="small" themeColor="textSecondary">
           {group.data.description}
-        </ThemedText>
-      ) : null}
-      {group.data.member_count ? (
-        <ThemedText type="caption" themeColor="textTertiary">
-          {formatCount(group.data.member_count)} members
         </ThemedText>
       ) : null}
     </View>
@@ -125,5 +138,13 @@ export default function GroupFeedScreen() {
 const styles = StyleSheet.create({
   header: {
     gap: Spacing.two,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  spacer: {
+    flex: 1,
   },
 });

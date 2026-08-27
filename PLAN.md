@@ -378,20 +378,32 @@ Full checklist and pre-scan findings:
         signed R2 URL, and sending the bearer forced a preflight that cannot
         follow a redirect. Removing the header fixed it
         ([docs/API.md](docs/API.md#profile-photos-icon_url-and-the-bearer-was-breaking-it))
-  - [ ] ⛔ Video thumbnails — still open, no video in the sampled feed to probe.
-        The poster probe now also checks whether that endpoint redirects, since
-        the same fix may apply
+  - [ ] ⛔ Video thumbnails — deferred, non-blocking. The failure log shows the
+        **same signature** as the profile-photo bug (`network · Failed to
+        fetch`), so it is likely the same one-line fix; an older probe recording
+        a 401 contradicts that, and the poster probe settles it — but it needs a
+        video in the feed to run
+        ([docs/API.md](docs/API.md#-video-thumbnails--same-signature-deferred))
+  - [ ] ⛔ Video preloading doesn't work — deferred, non-blocking
+        ([docs/API.md](docs/API.md#-videos-are-not-preloading))
   - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
         URL, so feed avatars would need a profile lookup per author
-- [ ] Explore page: group grid, member counts, icons
-- [ ] ⛔ Explore links to `/g/<slug>`, so it depends on the slug assumption from
-      Blocker 2 being confirmed
-- [ ] Group search
-- [ ] Join / leave; membership reflected in nav
-- [ ] Group header: icon, description, member count, rules
-- [ ] Profile: username claim (`checkUsername` → `setUsername`), bio, emoji/color icon picker
-- [ ] Public profile + that user's posts
-- [ ] My posts / my comments (via patched `getUserContent`)
+- [x] Explore page: group grid, member counts, icons. Two columns above 720px,
+      virtualized — the catalogue is 4,237 groups in a single uncursored
+      response, so it is fetched once and cached rather than paged
+- [x] Explore links to `/g/<slug>` — Blocker 2 confirmed closed
+- [x] Group search — local filter over the cached catalogue, merged with live
+      results. Local first, because those objects carry the membership state the
+      join button reads
+- [x] Join / leave, optimistic, with rollback and a toast. Patches every cached
+      copy (explore + search are separate keys) and invalidates the user's own
+      group list, since the server decides the resulting order
+- [x] Group header: icon, description, member count, join control. **No rules
+      field exists** on any group payload — dropped, not deferred
+- [ ] Profile: username claim (`checkUsername` → `setUsername`), bio,
+      emoji/color icon picker
+- [x] Public profile + that user's posts
+- [x] My posts / my comments, tabbed, via the URL-patched `getUserContent`
 
 ### Phase 6 — messaging
 - [ ] DM list + unread state

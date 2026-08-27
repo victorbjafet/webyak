@@ -383,7 +383,7 @@ pipeline at all:
 |---|---|---|
 | Community icons | **No `icon_url` in the data.** The endpoints the app reads groups from omit the field | ✅ **Fixed** — see below |
 | Profile photos | **No render path existed**, and the field was unknown | ✅ **Both found** — see below |
-| Video thumbnails | Genuinely in the pipeline — auth is required and the blob fetch is implemented, yet the poster stays blank | ⛔ Still open; no video in the sampled feed to probe |
+| Video thumbnails | **Almost certainly the same redirect bug as profile photos** — see below | ⛔ Open, deferred by decision |
 
 #### Community icons: the field is missing, not the image
 
@@ -464,6 +464,54 @@ post carries no photo URL — only `conversation_icon` — so rendering avatars 
 feed would mean a profile lookup per distinct author. `IdentityAvatar` accepts a
 `photoUrl` for when that is worth doing; the profile screen already has the URL
 and renders it.
+
+#### ⛔ Video thumbnails — same signature, deferred
+
+**Not fixed. Deferred by decision 2026-08-27** as non-blocking.
+
+The failure log now reports:
+
+```
+1x  video-poster · network · api.sidechat.lol · Failed to fetch
+```
+
+That is character-for-character the signature that profile photos had before
+they were fixed: a **thrown** fetch (not an HTTP error) against a host that
+sends `access-control-allow-origin: *`. The strong hypothesis is therefore the
+same three-step chain — bearer header → preflight → `302` → a preflighted
+request cannot follow a cross-origin redirect.
+
+If that holds, **the fix is one line**: add the poster URL form to
+`isUnauthenticatedRedirect()` in `src/lib/asset-url.ts` so the element loads it
+plainly and follows the redirect itself.
+
+What stops it being applied blind: an earlier sweep recorded
+`/v1/assets?post_id=…&asset_id=…` as **401** unauthenticated, which contradicts
+the redirect theory — a 401 would mean the endpoint really does want the token,
+and removing it would swap one blank poster for another. Those two observations
+cannot both be right, and the *Images — video thumbnail fetch* probe settles it:
+it now requests the poster with `redirect: 'manual'` and reports
+`type=opaqueredirect` if it redirects.
+
+**It needs a video in the sampled feed to run**, which is why this is still open
+— three probe runs have found none. Run it when a video post is visible.
+
+#### ⛔ Videos are not preloading
+
+**Not fixed. Deferred by decision 2026-08-27.**
+
+`FeedList` computes a `preloadRange` two rows either side of the viewport and
+passes `preload` to each card, which reaches `post-video.web.tsx`. Reported not
+to work in practice. Unverified guesses, in the order worth checking:
+
+- `preload` may reach the element only after the source is already attached, so
+  it never changes the `<video preload>` attribute that mattered.
+- HLS is not a single file — with `hls.js`, buffering is controlled by the
+  library's own config, not by the element's `preload` attribute, so setting the
+  attribute may be inert for exactly the sources we serve.
+
+Both are cheap to check with the network panel: scroll a feed and watch whether
+segment requests start before the video is on screen.
 
 ### Quote-reposts
 

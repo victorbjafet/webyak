@@ -33,6 +33,9 @@ export interface GroupRef {
   icon_url?: string;
   description?: string;
   member_count?: number;
+  /** Carried so the header can show join state without a second request. */
+  membership_type?: Group['membership_type'];
+  can_join?: boolean;
 }
 
 const memo = new Map<string, GroupRef>();
@@ -71,6 +74,8 @@ function toRef(group: Group): GroupRef | null {
     icon_url: group.icon_url,
     description: group.description,
     member_count: group.member_count,
+    membership_type: group.membership_type,
+    can_join: group.can_join,
   };
 }
 

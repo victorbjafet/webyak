@@ -251,8 +251,22 @@ export async function getAvailableGroups(onePage = true) {
   return (await api.getAvailableGroups(onePage)) as unknown as Group[];
 }
 
-export async function searchAvailableGroups(query: string) {
-  return (await api.searchAvailableGroups(query)) as unknown as Group[];
+/*
+ * Group search lives in `groups.ts` as `searchGroups` — it needs
+ * `coerceGroupList`, and importing that here would make client ↔ groups
+ * circular. `api.searchAvailableGroups` is unusable regardless: it reads
+ * `json.results`, a key this endpoint does not use.
+ */
+
+/**
+ * Join or leave. `POST /v1/groups/join` and `/v1/groups/leave`, both taking
+ * `{group_id}`. Through `request` rather than the library's method so a refusal
+ * rejects instead of resolving — the membership toggle is optimistic.
+ */
+export async function setGroupMembership(groupId: string, isMember: boolean) {
+  return request<unknown>(`/v1/groups/${isMember ? 'join' : 'leave'}`, 'POST', {
+    group_id: groupId,
+  });
 }
 
 export async function getGroupMetadata(groupId: string) {
