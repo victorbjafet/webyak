@@ -1,5 +1,33 @@
 @AGENTS.md
 
+# ⛔ Check for sensitive data before every commit
+
+**This repo is going open source and has never been pushed anywhere. Nothing has
+been audited yet.** Auditing it is the **first task before Phase 4** — see
+[docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) for the checklist and the findings so
+far.
+
+Until that gate passes and after it passes, **no commit is made without checking
+what is in it first**:
+
+```sh
+git diff --cached | grep -nEi 'eyJ[A-Za-z0-9_-]{10,}|bearer [A-Za-z0-9_.-]{20,}|api[_-]?key|secret|password|access[_-]token|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|"(user_id|device_id|phone_number)"'
+```
+
+Read the hits — `Authorization: Bearer ${api.userToken}` is source code doing its
+job, not a leak. A grep is the floor, not the check.
+
+The realistic leak in *this* project is not a committed `.env`. It is **probe
+output pasted into a doc.** We debug this private API by running authenticated
+probes against a real personal account and writing up what comes back, and those
+responses carry bearer tokens, user ids, device ids, emails and other people's
+posts. So when documenting a probe: **write down what it proved, not what it
+returned.** Redact `token`, `user_id`, `device_id`, `email`, `phone_number` and
+any `Authorization` header if a raw payload must be quoted at all.
+
+A leaked Sidechat token is a full account takeover, and git history is public
+too — deleting a secret in a later commit does not remove it from any clone.
+
 # Document as you go
 
 **Every non-trivial decision or discovery gets written to a doc file in the same
@@ -32,6 +60,7 @@ obvious from the code or `git log`.
 | [docs/DESIGN.md](docs/DESIGN.md) | Color tokens, type scale, layout rules, component conventions |
 | [docs/OFFSIDES.md](docs/OFFSIDES.md) | What the reference Android client already solved, and where we diverge |
 | [docs/WORKER.md](docs/WORKER.md) | The deferred Cloudflare Worker: why, what it does, how to wire it in |
+| [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | Release audit before going public: what must be scrubbed, the standing pre-commit rule |
 
 ## Check offsides first
 

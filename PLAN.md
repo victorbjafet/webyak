@@ -8,7 +8,8 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `⛔` blocked/ga
 **This file is the roadmap.** Decisions and findings live next to it:
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (URL shape, hosting),
 [docs/API.md](docs/API.md) (auth flow, ID blockers, library defects),
-[docs/DESIGN.md](docs/DESIGN.md) (tokens, layout rules).
+[docs/DESIGN.md](docs/DESIGN.md) (tokens, layout rules),
+[docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) (**release audit — gate before Phase 4**).
 The rule for keeping them current is in [CLAUDE.md](CLAUDE.md).
 
 ---
@@ -276,6 +277,25 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
       practice
 - [ ] Visual QA round 5, then Phase 3 closes
 
+### Phase 3.5 — ⛔ open-source audit (GATE, do this first)
+
+**Blocks Phase 4.** The repo has never been pushed and has never been audited.
+Full checklist and pre-scan findings:
+[docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md). The standing pre-commit rule is in
+[CLAUDE.md](CLAUDE.md).
+
+- [ ] Replace `LICENSE` — still says `Copyright (c) 2015-present 650 Industries, Inc.`
+- [ ] Un-hardcode `SAMPLE_PROFILE = 'snoopyvt'` — a real person's handle in a
+      file that becomes public ([src/api/diagnostics.ts:21](src/api/diagnostics.ts))
+- [x] Widen `.gitignore` to cover plain `.env` (Expo reads it for `EXPO_PUBLIC_*`)
+- [ ] Decide: keep or scrub the hardcoded Virginia Tech group UUID
+- [ ] Delete unused Expo template assets (`react-logo*`, `expo-badge*`, `tutorial-web.png`)
+- [ ] README states plainly that the web build keeps the bearer token in `localStorage`
+- [ ] Re-run the secret scan over **full history**, not just `HEAD`
+- [ ] Read every `docs/` file as a stranger — grep cannot catch a campus, a
+      schedule, or a real username inside a quoted payload
+- [ ] Only then: create the GitHub repo and push
+
 ### Phase 4 — write
 - [ ] Optimistic voting on posts and comments
 - [ ] Compose post: text, anonymous toggle, disable DMs, disable comments
@@ -366,8 +386,10 @@ Resolved ones are kept with their answer so they don't get re-asked.
 ## 8. Risks
 
 - **Private API.** sidechat.js is reverse-engineered and unofficial. Endpoints can change or break
-  without notice, and this likely runs against Yik Yak's ToS — worth deciding now whether this
-  stays a personal/local client or ever gets published.
+  without notice, and this likely runs against Yik Yak's ToS.
+- **⛔ Publishing this repo.** Decided: it goes open source. Nothing has been audited for secrets
+  or personal data yet, and probe output — our main documentation input — carries live tokens and
+  user ids. This is a gate before Phase 4: [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md).
 - **Auth is a phone number.** The token is a real account credential. On web it lives in
   `localStorage`, readable by any XSS. Keep third-party script count at zero.
 - **Account risk.** Automated or high-volume requests from a non-official client could get the

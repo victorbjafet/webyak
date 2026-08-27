@@ -30,8 +30,10 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# local env files — plain .env included: expo reads it for EXPO_PUBLIC_*
+.env
+.env.*
+!.env.example
 
 # typescript
 *.tsbuildinfo
