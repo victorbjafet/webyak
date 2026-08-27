@@ -170,6 +170,29 @@ Items 25–29 are the "sniff the official client and add via `sendRequest`" pile
 - PWA: installable, offline shell.
 - *(stretch)* Logged-out read-only mode over `web.yikyak.com/api` — needs the proxy from finding 2.
 
+### Requested 2026-08-27 — not scheduled yet
+
+Five ideas from the owner, with what is already known about each. Two of them
+are mostly plumbing; three need a probe before they can be estimated.
+
+| # | Idea | What we already know | Blocked on |
+|---|---|---|---|
+| B1 | **Live-ish score refresh** on posts and comments | No push channel has been found; this would be polling. The infrastructure is already there — TanStack Query `refetchInterval` on a visible feed, plus the existing viewability tracking so only on-screen posts refetch | Deciding a polite interval. This is a private API and the account is real, so an aggressive poll is an account-risk decision, not just a perf one (PLAN §8) |
+| B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | Nothing. Ready to build |
+| B3 | **Show removal / warning state** when a post is taken down or reported | Nothing known. No moderation field has been seen on any payload, and the account has never had a post removed, so there is no sample to look at | A probe — and realistically, a post that actually gets moderated. May not be observable until it happens |
+| B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing beyond B2 |
+| B5 | **Yakarma over time** on the You tab, per-post and overall | The API almost certainly exposes only a *current* value — no history endpoint has been seen, and no karma field appears in any typedef, though activity text proves the server tracks it. So the history has to be **logged client-side**, sampled on app open, exactly as proposed | A probe to find where the current score lives. Then a storage decision: samples are per-device and per-browser, so this silently resets on a new device and should say so rather than look like lost data |
+
+Two things worth deciding before any of these start:
+
+- **B1 and B4 overlap.** Both want to know "what changed since last time", and
+  the activity feed's `is_seen` already answers it server-side. Building B2/B4
+  first would give B1 a cheaper implementation than polling every score.
+- **B5's data is only as good as its sampling.** A score logged on app open is a
+  sparse, irregular series — fine for a sparkline, misleading if drawn as a
+  continuous line. Worth settling the presentation before collecting, because
+  the collection can't be redone retroactively.
+
 ---
 
 ## 6. Roadmap
@@ -301,7 +324,7 @@ Full checklist and pre-scan findings:
 - [x] Read every `docs/` file as a stranger — payloads were already redacted to `…`
 - [ ] Create the GitHub repo and push ← **the only step left**
 
-### Phase 4 — write — built, needs verification
+### Phase 4 — write ✅ verified live 2026-08-27
 - [x] Optimistic voting on posts and comments — `useVote`, patched across every
       cache the post lives in ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#one-post-lives-in-many-caches))
 - [x] Compose post: text, anonymous toggle, disable DMs, disable comments
@@ -314,14 +337,15 @@ Full checklist and pre-scan findings:
 - [x] Image attachments on web — `uploadAssetWeb` + a file-input picker that
       measures the bitmap, since `createPost` needs `width`/`height` and the
       upload endpoint returns neither
-- [ ] ⛔ **Image attachments on native** — needs `expo-image-picker`, not a
-      dependency yet. Deliberately not added: there is no native build in the
-      loop to test it, and the compose screen hides the attach control rather
-      than offering one that does nothing
-      ([src/lib/image-picker.ts](src/lib/image-picker.ts))
-- [ ] **Verify against the live API** — `/diagnostics` → *Run write probes*.
-      These create real content and delete it again; nothing here has been
-      exercised against the server yet
+- [x] **Native image attachment — closed as out of scope**, owner's decision
+      2026-08-27. Attachments are a web feature; revisit only if the app is
+      actually ported ([src/lib/image-picker.ts](src/lib/image-picker.ts))
+- [x] **Verified against the live API** — write probes PASS, and voting and
+      commenting confirmed to sync **both ways with the official app**
+- [x] Failed writes roll back **and say so** — every mutation pairs its rollback
+      with a toast ([docs/DESIGN.md](docs/DESIGN.md#failure-has-to-be-visible))
+- [x] Focus rings themed — the browser default blue is suppressed and every
+      input paints its own ([docs/DESIGN.md](docs/DESIGN.md#focus-rings))
 
 ### Phase 5 — groups & profile
 - [ ] Explore page: group grid, member counts, icons

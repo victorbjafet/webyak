@@ -268,3 +268,42 @@ vote buttons, a profile link and a delete control for a post that is only being
 *referenced* — and inside the composer those become interactive controls nested
 in a form, which is the nested-button problem again (see "Never nest interactive
 elements").
+
+
+## Failure has to be visible
+
+A rejected write **rolls back and says so.** Rolling back silently is its own
+bug: the score springs back a moment after the user pressed it, with no
+explanation, and reads as the app dropping votes at random — which is worse than
+an error, because the user has no reason to retry.
+
+Every mutation in `src/api/mutations.ts` pairs its rollback with a toast, and the
+message prefers the API's own text (`unwrap` surfaces `error_code` bodies) over a
+generic fallback.
+
+`ToastHost` is mounted once at the root, above the shell, and is **anchored to
+the top**. The bottom is occupied by the tab bar, the community strip and the
+compose FAB on narrow viewports — a toast down there covers the post button,
+which is often the action the user was trying to take.
+
+Repeated messages collapse: voting on three posts while offline says one thing,
+not three identical bars.
+
+## Focus rings
+
+The browser's default focus ring is blue — the one color in the app that belongs
+to nothing, and against pitch black it reads as a rendering artifact.
+react-native-web sets no outline of its own, so this is handled in
+`src/global.css`, which is the only place it can be.
+
+Two rules:
+
+- The ring is on **`:focus-visible`, not `:focus`.** Painting it on every mouse
+  click is why people disable focus rings altogether and break keyboard
+  navigation doing it.
+- Because pointer users therefore see no ring, **every text input paints its own
+  focused border** in brand green. An input whose only focus feedback was the
+  browser default now has none, so this is not optional decoration — it is the
+  replacement.
+
+Text selection is themed for the same reason.

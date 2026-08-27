@@ -10,13 +10,15 @@ const ACCEPTED = ['image/jpeg', 'image/png', 'image/gif'];
  *
  * The dimensions have to be read here: `createPost` wants `width`/`height` on
  * each attached asset, and the upload endpoint returns neither — it only hands
- * back an id. Getting them wrong renders the post with the wrong aspect ratio
+ * back an id. Getting them wrong renders the post at the wrong aspect ratio
  * until a refetch, so they are measured from the decoded bitmap rather than
  * guessed.
  *
- * Resolves `null` when the user cancels, which is indistinguishable from
- * "picker never opened" in the DOM — there is no cancel event, so the promise
- * settles on focus returning to the window with nothing selected.
+ * Cancellation is detected with the input's own `cancel` event. An earlier
+ * version inferred it from `window.focus` returning with no file selected,
+ * which raced against the dialog: the focus handler fired first, resolved
+ * `null`, and removed the input — so the later `change` event landed on a
+ * detached element and picking a file did nothing at all.
  */
 export async function pickImage(): Promise<PickedImage | null> {
   if (typeof document === 'undefined') return null;
@@ -31,18 +33,12 @@ export async function pickImage(): Promise<PickedImage | null> {
     const finish = (value: File | null) => {
       if (settled) return;
       settled = true;
-      window.removeEventListener('focus', onFocus);
       input.remove();
       resolve(value);
     };
 
-    // No cancel event exists in older browsers, so treat "window regained focus
-    // and nothing was picked" as a cancel. Delayed because focus fires before
-    // `change` does.
-    const onFocus = () => setTimeout(() => finish(input.files?.[0] ?? null), 300);
-
     input.addEventListener('change', () => finish(input.files?.[0] ?? null), { once: true });
-    window.addEventListener('focus', onFocus, { once: true });
+    input.addEventListener('cancel', () => finish(null), { once: true });
 
     document.body.append(input);
     input.click();
@@ -77,4 +73,4 @@ export function releaseImage(picked: PickedImage | null) {
 }
 
 /** Whether the attach control should render at all. */
-export const canPickImages = true;
+export const canPickImages: boolean = true;

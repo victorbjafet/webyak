@@ -1,18 +1,19 @@
 /**
- * Image attachment, native side.
+ * Image attachment, native side — **deliberately not implemented**.
  *
- * ⛔ **Not implemented on native.** Picking a photo needs `expo-image-picker`,
- * which isn't a dependency yet, and adding one that can't be exercised here —
- * this is a web-first build deployed to GitHub Pages, with no native build in
- * the loop — would mean shipping an untested native path and calling it done.
+ * Decided 2026-08-27: attachments are a web feature. This app ships to GitHub
+ * Pages and there is no native build in the loop, so a native picker could not
+ * be tested even if it were written. Not a gap to close later unless the app is
+ * actually ported.
  *
- * The web implementation in `image-picker.web.ts` is complete. The compose
- * screen checks `canPickImages` and hides the attach control rather than
- * offering a button that does nothing.
+ * The file still exists so the native bundle compiles, and so the decision is
+ * written down where someone would look for the missing implementation rather
+ * than only in a plan file. `canPickImages` is false here, and the compose
+ * screen hides the attach control instead of offering a dead button.
  *
- * To finish this: `npx expo install expo-image-picker`, then return the picked
- * asset's `uri`, `mimeType`, `width` and `height` — the shape below is already
- * what `uploadAsset` needs. Tracked in PLAN.md Phase 4.
+ * If the port ever happens: `npx expo install expo-image-picker`, then return
+ * the picked asset's `uri`, `mimeType`, `width` and `height` — the shape below
+ * is already what the upload path needs.
  */
 
 export interface PickedImage {
@@ -32,4 +33,4 @@ export async function pickImage(): Promise<PickedImage | null> {
 export function releaseImage(_picked: PickedImage | null) {}
 
 /** Whether the attach control should render at all. */
-export const canPickImages = false;
+export const canPickImages: boolean = false;

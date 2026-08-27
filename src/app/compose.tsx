@@ -42,6 +42,7 @@ export default function ComposeScreen() {
   const [image, setImage] = useState<PickedImage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [focused, setFocused] = useState(false);
 
   const create = useCreatePost();
   const quoted = usePost(params.repost);
@@ -189,13 +190,17 @@ export default function ComposeScreen() {
           multiline
           autoFocus
           maxLength={MAX_LENGTH * 2}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           style={[
             styles.input,
             Typography.body,
             {
               color: theme.text,
               backgroundColor: theme.backgroundElement,
-              borderColor: overLimit ? theme.danger : theme.border,
+              // The global CSS suppresses the browser's focus ring, so the
+              // border is the only focus feedback a pointer user gets.
+              borderColor: overLimit ? theme.danger : focused ? theme.brand : theme.border,
             },
           ]}
         />
@@ -239,8 +244,15 @@ export default function ComposeScreen() {
           />
         ) : null}
 
+        {/*
+          A poll and an image are mutually exclusive. Not because the API is
+          known to reject the combination — it has never been tried — but
+          because the official app doesn't offer it, so a post carrying both is
+          untested territory that would only be discovered by a user losing a
+          draft to it.
+        */}
         <View style={styles.tools}>
-          {canPickImages && !image ? (
+          {canPickImages && !image && !pollOptions ? (
             <ToolButton icon="image-outline" label="Photo" onPress={attach} />
           ) : null}
           {!pollOptions && !image ? (

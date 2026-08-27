@@ -500,8 +500,11 @@ for this reason, not for tidiness.
 
 ## Write endpoints
 
-Verified by round trip from `/diagnostics` → *Run write probes*, which creates a
-post, comments on it, votes on both, and deletes it.
+**Verified live 2026-08-27** by round trip from `/diagnostics` → *Run write
+probes*: create → vote → comment → vote on comment → delete, then a separate
+poll round trip. Both PASS. Voting and commenting were also confirmed to sync
+**both ways with the official Yik Yak app**, which is the real proof that the
+request shapes are right rather than merely accepted.
 
 | Action | Endpoint | Body |
 |---|---|---|
@@ -524,7 +527,21 @@ Three things worth knowing before touching this code:
   comment as `{comment: {...}}`.
 - **A poll is not a field, it is a request.** Creating one means sending
   `poll_request: {allows_view_results, choices}`, and the created post comes back
-  with a populated `poll` object instead.
+  with a populated `poll` object — confirmed, with `choices` echoed back as
+  `{count: 0, text, selected: false}` and a `poll.id` distinct from the post id.
+  `/v1/polls/view_results` returns `{}` on success at the corrected path, which
+  is why the library's broken `&` version failed silently rather than loudly.
+
+One thing settled that had been an open assumption: **`createPost` returns an
+`index_code`** on the new post (observed: `eVYkniqy`). New posts are therefore
+shareable immediately, with no refetch needed to get a URL.
+
+### Untested: a poll and an image on the same post
+
+The API has never been asked for both at once. The composer makes them mutually
+exclusive, matching the official app — this is a deliberate guess, not a known
+limit, and the note is here so nobody later reads the UI as evidence the API
+refuses it.
 
 ## Data shape corrections
 

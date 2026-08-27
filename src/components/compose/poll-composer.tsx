@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '../themed-text';
@@ -25,6 +26,7 @@ export function PollComposer({
   onRemove: () => void;
 }) {
   const theme = useTheme();
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
 
   const setAt = (index: number, value: string) =>
     onChange(options.map((option, i) => (i === index ? value : option)));
@@ -58,13 +60,15 @@ export function PollComposer({
             placeholder={`Option ${index + 1}`}
             placeholderTextColor={theme.textTertiary}
             maxLength={80}
+            onFocus={() => setFocusedIndex(index)}
+            onBlur={() => setFocusedIndex((current) => (current === index ? null : current))}
             style={[
               styles.input,
               Typography.small,
               {
                 color: theme.text,
                 backgroundColor: theme.backgroundElement,
-                borderColor: theme.border,
+                borderColor: focusedIndex === index ? theme.brand : theme.border,
               },
             ]}
           />

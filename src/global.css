@@ -7,3 +7,33 @@
   --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 }
+
+/*
+ * Focus.
+ *
+ * The browser default is a blue ring, which is the one color in the app that
+ * belongs to nothing — it reads as a rendering bug against pitch black and the
+ * green accent. react-native-web sets no outline of its own, so this has to be
+ * done in CSS; there is no RN style prop for it.
+ *
+ * `:focus-visible`, not `:focus`: the ring is a keyboard affordance, and
+ * painting it on every mouse click is the reason people disable it entirely
+ * and break keyboard navigation in the process. Inputs additionally get a
+ * themed border on focus from their own components, so pointer users still get
+ * feedback.
+ */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid #10ceac;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Text selection, for the same reason — the default is the browser's blue. */
+::selection {
+  background: #10ceac;
+  color: #00201a;
+}

@@ -9,6 +9,7 @@ import { QueryProvider } from '@/api/query-provider';
 import { SessionProvider, useSession } from '@/api/session';
 import { AppShell } from '@/components/app-shell';
 import { ThemedText } from '@/components/themed-text';
+import { ToastHost } from '@/components/toast-host';
 import { useColorScheme, useTheme } from '@/hooks/use-theme';
 import { ThemePreferenceProvider } from '@/theme/theme-provider';
 
@@ -86,6 +87,9 @@ function RootNavigator() {
             </ThemedText>
           </View>
         ) : null}
+
+        {/* Above the shell so a failed write is visible from any screen. */}
+        <ToastHost />
       </View>
     </ThemeProvider>
   );

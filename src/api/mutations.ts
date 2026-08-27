@@ -11,6 +11,7 @@ import {
 } from './client';
 import { queryKeys } from './queries';
 import type { PostOrComment, VoteStatus } from './types';
+import { toastError } from '@/lib/toast';
 
 /* ------------------------------------------------------------------------ *
  * Cache surgery
@@ -140,8 +141,11 @@ export function useVote() {
       return { snapshot };
     },
 
-    onError: (_error, _vars, context) => {
+    onError: (error, _vars, context) => {
       if (context?.snapshot) restore(client, context.snapshot);
+      // Rolling back silently is its own bug: the score springs back with no
+      // explanation and reads as the app losing the vote at random.
+      toastError(error, "That vote didn't go through.");
     },
   });
 }
@@ -184,8 +188,9 @@ export function usePollVote() {
       return { snapshot };
     },
 
-    onError: (_error, _vars, context) => {
+    onError: (error, _vars, context) => {
       if (context?.snapshot) restore(client, context.snapshot);
+      toastError(error, "That poll vote didn't go through.");
     },
   });
 }
@@ -199,6 +204,7 @@ export function useCreatePost() {
 
   return useMutation({
     mutationFn: (input: CreatePostInput) => createPost(input),
+    onError: (error) => toastError(error, "That post didn't send."),
     onSuccess: () => {
       // No optimistic insert. A new post's placement depends on the server's
       // ranking, and guessing it wrong puts the post somewhere it will jump away
@@ -213,6 +219,7 @@ export function useCreateComment() {
 
   return useMutation({
     mutationFn: (input: CreateCommentInput) => createComment(input),
+    onError: (error) => toastError(error, "That comment didn't send."),
     onSuccess: (_comment, input) => {
       void client.invalidateQueries({ queryKey: queryKeys.comments(input.parentPostId) });
       // The count is rendered from the post, which the comment list refetch
@@ -261,6 +268,7 @@ export function useDeleteContent() {
 
   return useMutation({
     mutationFn: ({ id }: { id: string; parentPostId?: string }) => deletePostOrComment(id),
+    onError: (error) => toastError(error, "That couldn't be deleted."),
     onSuccess: (_result, { id, parentPostId }) => {
       dropEverywhere(client, id);
       client.removeQueries({ queryKey: queryKeys.post(id) });
