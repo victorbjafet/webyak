@@ -11,20 +11,12 @@
  * we inherited from offsides against our own data.
  */
 
-import {
-  coerceGroupList,
-  fetchExploreGroups,
-  fetchUserGroups,
-  lookupGroupDirect,
-  resolveGroupBySlug,
-  searchGroups,
-} from './groups';
+import { fetchUserGroups } from './groups';
 import { api } from './client';
 import { feedHygieneStats } from './feed';
-import type { Group, PostOrComment } from './types';
+import type { PostOrComment } from './types';
 
 export const SAMPLE_GROUP_ID = '602fb305-4ec2-4d01-83be-4d80c6636a56';
-export const SAMPLE_GROUP_SLUG = 'wordle';
 
 export type ProbeStatus = 'pass' | 'fail' | 'partial' | 'error';
 
@@ -74,128 +66,6 @@ async function probeAuth(): Promise<ProbeResult> {
   }
 }
 
-/** Does the layered resolver actually resolve a group explore omits? */
-async function probeResolver(): Promise<ProbeResult> {
-  const base = {
-    id: 'resolver',
-    label: 'Blocker 2 — slug resolver end to end',
-    question: `Does resolveGroupBySlug("${SAMPLE_GROUP_SLUG}") return the right UUID?`,
-  };
-  try {
-    const ref = await resolveGroupBySlug(SAMPLE_GROUP_SLUG);
-    if (!ref) {
-      return {
-        ...base,
-        status: 'fail',
-        detail:
-          'No layer resolved the slug. /g/<slug> cannot work as designed — the resolver needs another source.',
-      };
-    }
-    const correct = ref.id === SAMPLE_GROUP_ID;
-    return {
-      ...base,
-      status: correct ? 'pass' : 'partial',
-      detail: correct
-        ? `Resolved to ${ref.id}, matching the known UUID. /g/<slug> works — Blocker 2 closed.`
-        : `Resolved to ${ref.id} but expected ${SAMPLE_GROUP_ID}. Investigate before relying on it.`,
-      evidence: preview(ref),
-    };
-  } catch (e) {
-    return fail(base, e);
-  }
-}
-
-/** Which layer does the work? Explore is known to miss this group. */
-async function probeLayers(): Promise<ProbeResult> {
-  const base = {
-    id: 'layers',
-    label: 'Blocker 2 — which layer hits',
-    question: 'User groups, explore, or live search?',
-  };
-  // Must tolerate undefined: round 2 crashed here because sidechat.js's search
-  // wrapper returned undefined, which turned a miss into an exception and hid
-  // whether the layer works at all.
-  const found = (groups: Group[] | undefined | null) =>
-    Array.isArray(groups) &&
-    groups.some((g) => g.index_name === SAMPLE_GROUP_SLUG || g.analytics_name === SAMPLE_GROUP_SLUG);
-
-  try {
-    const notes: string[] = [];
-    let anyHit = false;
-
-    try {
-      const userGroups = await fetchUserGroups();
-      const hit = found(userGroups);
-      anyHit ||= hit;
-      notes.push(`user groups (getUpdates): ${userGroups.length} groups, ${hit ? 'HIT' : 'miss'}`);
-    } catch (e) {
-      notes.push(`user groups: error — ${e instanceof Error ? e.message : e}`);
-    }
-
-    try {
-      const explore = await fetchExploreGroups();
-      const hit = found(explore);
-      anyHit ||= hit;
-      notes.push(`explore: ${explore.length} groups, ${hit ? 'HIT' : 'miss (expected)'}`);
-    } catch (e) {
-      notes.push(`explore: error — ${e instanceof Error ? e.message : e}`);
-    }
-
-    try {
-      const results = await searchGroups(SAMPLE_GROUP_SLUG);
-      const hit = found(results);
-      anyHit ||= hit;
-      notes.push(`search: ${results?.length ?? 0} results, ${hit ? 'HIT' : 'miss'}`);
-    } catch (e) {
-      notes.push(`search: error — ${e instanceof Error ? e.message : e}`);
-    }
-
-    return {
-      ...base,
-      status: anyHit ? 'pass' : 'fail',
-      detail: anyHit
-        ? 'At least one layer covers a group explore omits, which is what the resolver needs.'
-        : 'No layer found it. The resolver has no working hole-filler.',
-      evidence: notes.join('\n'),
-    };
-  } catch (e) {
-    return fail(base, e);
-  }
-}
-
-/** Does GET /v1/groups/<slug> accept a slug where it expects a UUID? */
-async function probeDirectLookup(): Promise<ProbeResult> {
-  const base = {
-    id: 'direct-lookup',
-    label: 'Blocker 2 — direct slug lookup',
-    question: 'Does GET /v1/groups/<slug> work, collapsing layers 3–4?',
-  };
-  try {
-    const group = await lookupGroupDirect(SAMPLE_GROUP_SLUG);
-    if (group?.id === SAMPLE_GROUP_ID) {
-      return {
-        ...base,
-        status: 'pass',
-        detail: 'Accepts a slug. The resolver can short-circuit to a single request.',
-        evidence: preview({ id: group.id, name: group.name, index_name: group.index_name }),
-      };
-    }
-    return {
-      ...base,
-      status: 'partial',
-      detail: group
-        ? `Returned a group but not the expected one (${group.id}).`
-        : 'UUID only — keep the layered resolver. Not a problem, just not a shortcut.',
-    };
-  } catch (e) {
-    return {
-      ...base,
-      status: 'partial',
-      detail: `UUID only — keep the layered resolver. (${e instanceof Error ? e.message : e})`,
-    };
-  }
-}
-
 /** Verify offsides' two feed defences are actually needed against our data. */
 async function probeFeedHygiene(): Promise<ProbeResult> {
   const base = {
@@ -232,107 +102,95 @@ async function probeFeedHygiene(): Promise<ProbeResult> {
 }
 
 /**
- * What does the search endpoint actually return? sidechat.js assumes
- * `json.results` and got undefined, so this dumps the envelope instead of
- * assuming anything.
+ * Find a real video asset so the model can be checked against live data.
+ * offsides says `type: "video"`, an m3u8 `url`, and a poster at
+ * `thumbnail_asset.url` — this confirms or corrects that.
  */
-async function probeSearchShape(): Promise<ProbeResult> {
+async function probeVideoShape(): Promise<ProbeResult> {
   const base = {
-    id: 'search-shape',
-    label: 'Search — response shape',
-    question: 'What envelope does /v1/groups/explore/search actually use?',
+    id: 'video-shape',
+    label: 'Video — asset shape',
+    question: 'What does a video asset actually look like?',
   };
   try {
-    const res = await api.sendRequest(
-      `/v1/groups/explore/search?term=${encodeURIComponent(SAMPLE_GROUP_SLUG)}`,
-    );
-    const text = await res.text();
-    if (!res.ok) {
-      return {
-        ...base,
-        status: 'fail',
-        detail: `HTTP ${res.status}. The endpoint may not be usable by this account.`,
-        evidence: preview(text.slice(0, 300)),
-      };
-    }
-    let json: unknown;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      return { ...base, status: 'fail', detail: 'Response was not JSON.', evidence: preview(text.slice(0, 300)) };
-    }
+    const groups = await fetchUserGroups();
+    const targets = [SAMPLE_GROUP_ID, ...groups.slice(0, 3).map((g) => g.id)];
 
-    const groups = coerceGroupList(json);
-    const keys = json && typeof json === 'object' && !Array.isArray(json) ? Object.keys(json) : ['<array>'];
-    const hit = groups.some((g) => g.index_name === SAMPLE_GROUP_SLUG);
-
+    for (const groupId of targets) {
+      for (const sort of ['hot', 'top'] as const) {
+        const page = (await api.getGroupPosts(groupId, sort)) as unknown as {
+          posts?: PostOrComment[];
+        };
+        const post = page.posts?.find((p) => p.assets?.some((a) => a.type !== 'image'));
+        const asset = post?.assets?.find((a) => a.type !== 'image');
+        if (asset) {
+          return {
+            ...base,
+            status: 'pass',
+            detail: `Found a "${asset.type}" asset. content_type=${asset.content_type}, thumbnail=${asset.thumbnail_asset?.url ? 'yes' : 'no'}, url ends .m3u8=${String((asset.url || '').split('?')[0].endsWith('.m3u8'))}`,
+            evidence: preview({ ...asset, url: (asset.url || '').slice(0, 160) }, 600),
+          };
+        }
+      }
+    }
     return {
       ...base,
-      status: groups.length > 0 ? (hit ? 'pass' : 'partial') : 'fail',
-      detail: [
-        `Top-level keys: ${keys.join(', ') || '(none)'}.`,
-        `Extracted ${groups.length} groups.`,
-        groups.length === 0
-          ? 'Nothing usable — search cannot be the hole-filler and the Worker is the remaining option.'
-          : hit
-            ? `Found "${SAMPLE_GROUP_SLUG}" — search works once the envelope is read correctly.`
-            : `Did not include "${SAMPLE_GROUP_SLUG}", so search covers the same curated set as explore.`,
-      ].join(' '),
-      evidence: preview(
-        {
-          keys,
-          sample: groups.slice(0, 4).map((g) => ({ name: g.name, index_name: g.index_name, id: g.id })),
-          rawHead: typeof json === 'object' ? preview(json, 220) : String(json).slice(0, 220),
-        },
-        700,
-      ),
+      status: 'partial',
+      detail:
+        'No non-image assets in the sampled feeds. Open a post you know has a video and re-run, or paste its asset JSON.',
     };
   } catch (e) {
     return fail(base, e);
   }
 }
 
-/** getUpdates returned 3 groups but /v1/users/me reported 4 memberships. */
-async function probeMembershipGap(): Promise<ProbeResult> {
+/** /v1/posts/saved and /v1/activity both exist (401, not 404). What do they return? */
+async function probeGapEndpoints(): Promise<ProbeResult> {
   const base = {
-    id: 'membership-gap',
-    label: 'Groups — memberships vs getUpdates',
-    question: 'Why does /v1/users/me report more memberships than getUpdates returns groups?',
+    id: 'gap-endpoints',
+    label: 'Gaps — saved posts and activity',
+    question: 'sidechat.js has no methods for these, but the routes exist. What is their shape?',
   };
-  try {
-    const res = await api.sendRequest('/v1/users/me');
-    const me = (await res.json()) as { memberships?: { groupId: string; type: string }[] };
-    const memberships = me.memberships ?? [];
-    const groups = await fetchUserGroups();
-    const groupIds = new Set(groups.map((g) => g.id));
-    const missing = memberships.filter((m) => !groupIds.has(m.groupId));
+  const notes: string[] = [];
+  let anyOk = false;
 
-    return {
-      ...base,
-      status: missing.length === 0 ? 'pass' : 'partial',
-      detail:
-        missing.length === 0
-          ? 'They agree — getUpdates covers every membership.'
-          : `${missing.length} membership(s) are absent from getUpdates. If those are resolvable by id, memberships is a better seed for the slug map than getUpdates.`,
-      evidence: preview({
-        membershipCount: memberships.length,
-        getUpdatesGroups: groups.length,
-        missingGroupIds: missing.map((m) => m.groupId),
-      }),
-    };
-  } catch (e) {
-    return fail(base, e);
+  for (const endpoint of ['/v1/posts/saved', '/v1/activity']) {
+    try {
+      const res = await api.sendRequest(endpoint);
+      const text = await res.text();
+      if (res.ok) {
+        anyOk = true;
+        let keys = '<non-json>';
+        try {
+          const json = JSON.parse(text) as Record<string, unknown>;
+          keys = Array.isArray(json) ? `array(${json.length})` : Object.keys(json).join(', ');
+        } catch {
+          /* keep placeholder */
+        }
+        notes.push(`${endpoint}: 200, keys = ${keys}\n  ${text.slice(0, 220)}`);
+      } else {
+        notes.push(`${endpoint}: HTTP ${res.status} — ${text.slice(0, 120)}`);
+      }
+    } catch (e) {
+      notes.push(`${endpoint}: error — ${e instanceof Error ? e.message : e}`);
+    }
   }
+
+  return {
+    ...base,
+    status: anyOk ? 'pass' : 'partial',
+    detail: anyOk
+      ? 'At least one works. These close Phase 8 gaps that were recorded as "no endpoint exists".'
+      : 'Neither returned data. They exist as routes but may need parameters.',
+    evidence: notes.join('\n\n'),
+  };
 }
 
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
-    await probeSearchShape(),
-    await probeMembershipGap(),
-    await probeResolver(),
-    await probeLayers(),
-    await probeDirectLookup(),
+    await probeVideoShape(),
+    await probeGapEndpoints(),
     await probeFeedHygiene(),
   ];
 }

@@ -3,6 +3,8 @@ import { Image } from 'expo-image';
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
+import { PostVideo } from './post-video';
+
 import type { Asset } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -26,6 +28,10 @@ export function PostAssets({ assets }: { assets?: Asset[] }) {
     <>
       <View style={styles.stack}>
         {assets.map((asset) => {
+          // Videos are HLS streams, not images — rendering one through <Image>
+          // is why video posts showed a blank frame.
+          if (asset.type === 'video') return <PostVideo key={asset.id} asset={asset} />;
+
           const uri = asset.signed_url || asset.url;
           if (!uri) return null;
           const ratio = asset.width && asset.height ? asset.width / asset.height : 1;

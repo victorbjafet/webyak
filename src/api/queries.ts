@@ -5,16 +5,19 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 
-import { api } from './client';
+import { api, getGroupPosts } from './client';
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { resolveGroupBySlug, type GroupRef } from './groups';
-import type { Cursor, FeedCategory, PostOrComment, PostsAndCursor } from './types';
+import type { Cursor, FeedCategory, PostOrComment, Profile, TopPeriod } from './types';
 
 export const queryKeys = {
   groupBySlug: (slug: string) => ['group', 'slug', slug] as const,
-  feed: (groupId: string, sort: FeedCategory) => ['feed', groupId, sort] as const,
+  feed: (groupId: string, sort: FeedCategory, period?: TopPeriod) =>
+    ['feed', groupId, sort, period ?? 'day'] as const,
   post: (postId: string) => ['post', postId] as const,
   comments: (postId: string) => ['comments', postId] as const,
+  profile: (username: string) => ['profile', username] as const,
+  userPosts: (username: string) => ['profile', username, 'posts'] as const,
 };
 
 /** Resolve a URL slug to a group. Layered — see src/api/groups.ts. */
@@ -35,17 +38,17 @@ export function useGroupBySlug(slug: string | undefined, primaryGroupId?: string
  * because the endpoint returns id-less entries and can repeat a post between
  * pages — see docs/OFFSIDES.md.
  */
-export function useGroupFeed(groupId: string | undefined, sort: FeedCategory) {
+export function useGroupFeed(
+  groupId: string | undefined,
+  sort: FeedCategory,
+  period: TopPeriod = 'day',
+) {
   const query = useInfiniteQuery({
-    queryKey: queryKeys.feed(groupId ?? '', sort),
+    queryKey: queryKeys.feed(groupId ?? '', sort, period),
     enabled: Boolean(groupId),
     initialPageParam: undefined as Cursor | undefined,
     queryFn: async ({ pageParam }) => {
-      const page = (await api.getGroupPosts(
-        groupId as string,
-        sort,
-        pageParam,
-      )) as unknown as PostsAndCursor;
+      const page = await getGroupPosts(groupId as string, sort, pageParam, period);
       return { posts: sanitizePosts(page?.posts), cursor: page?.cursor };
     },
     getNextPageParam: (last) => {
@@ -59,6 +62,23 @@ export function useGroupFeed(groupId: string | undefined, sort: FeedCategory) {
     ...query,
     posts: query.data ? mergeFeedPages(query.data.pages) : [],
   };
+}
+
+export function useUserProfile(username: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.profile(username ?? ''),
+    enabled: Boolean(username),
+    queryFn: async () => (await api.getUserProfile(username as string)) as unknown as Profile,
+  });
+}
+
+export function useUserPosts(username: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.userPosts(username ?? ''),
+    enabled: Boolean(username),
+    queryFn: async () =>
+      sanitizePosts((await api.getUserPosts(username as string)) as unknown as PostOrComment[]),
+  });
 }
 
 export function usePost(postId: string | undefined) {

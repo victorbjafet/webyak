@@ -1,14 +1,16 @@
-import { StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '../themed-text';
 import { IdentityAvatar } from './identity-avatar';
 import { PostAssets } from './post-assets';
+import { PostAttachments } from './post-attachments';
+import { TimeStamp } from './time-stamp';
 import { VoteControl } from './vote-control';
 
 import type { PostOrComment, VoteStatus } from '@/api/types';
-import { Spacing } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { absoluteTime, relativeTime } from '@/lib/time';
 
 /**
  * Threading is two levels, not arbitrary nesting. offsides distinguishes them
@@ -31,31 +33,42 @@ export function CommentItem({
   onVote?: (next: VoteStatus) => void;
 }) {
   const theme = useTheme();
+  const router = useRouter();
   const reply = isReply(comment);
   const displayName = comment.identity?.name || comment.alias || 'Anonymous';
+  const username = comment.identity?.posted_with_username ? comment.identity?.name : undefined;
 
   return (
-    <View
-      style={[
-        styles.wrap,
-        reply && [styles.reply, { borderLeftColor: theme.border }],
-      ]}>
+    <View style={[styles.wrap, reply && [styles.reply, { borderLeftColor: theme.border }]]}>
       <View style={styles.header}>
-        <IdentityAvatar identity={comment.identity} size={22} />
-        <ThemedText type="caption" themeColor="textSecondary" numberOfLines={1} style={styles.name}>
-          {displayName}
-        </ThemedText>
-        <ThemedText
-          type="caption"
-          themeColor="textTertiary"
-          accessibilityLabel={absoluteTime(comment.created_at)}>
-          {relativeTime(comment.created_at)}
-        </ThemedText>
+        {username ? (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`View ${username}'s profile`}
+            onPress={() => router.push({ pathname: '/u/[username]', params: { username } })}
+            style={({ hovered }) => [styles.author, hovered && styles.authorHovered]}>
+            <IdentityAvatar identity={comment.identity} size={22} />
+            <ThemedText type="smallBold" themeColor="textSecondary" numberOfLines={1}>
+              {displayName}
+            </ThemedText>
+          </Pressable>
+        ) : (
+          <View style={styles.author}>
+            <IdentityAvatar identity={comment.identity} size={22} />
+            <ThemedText type="smallBold" themeColor="textSecondary" numberOfLines={1}>
+              {displayName}
+            </ThemedText>
+          </View>
+        )}
+
+        <View style={styles.spacer} />
+        <TimeStamp iso={comment.created_at} />
       </View>
 
       {comment.text ? <ThemedText type="small">{comment.text}</ThemedText> : null}
 
       <PostAssets assets={comment.assets} />
+      <PostAttachments attachments={comment.attachments} />
 
       <VoteControl total={comment.vote_total} status={comment.vote_status} onVote={onVote} compact />
     </View>
@@ -77,7 +90,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.two,
   },
-  name: {
+  author: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    borderRadius: Radius.pill,
+  },
+  authorHovered: {
+    opacity: 0.75,
+  },
+  spacer: {
     flex: 1,
   },
 });

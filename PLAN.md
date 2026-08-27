@@ -144,9 +144,9 @@ src/
 | 22 | Group chats | `getGroupChats`, `joinGroupChat` | ⛔ `getGroupChats` URL broken |
 | 23 | Hide user's posts | `hidePostsFromUser`, `unhidePostsFromAllUsers` | |
 | 24 | Mark activity read | `readActivity` | |
-| 25 | Save / unsave post | — | ⛔ no method; `is_saved` exists on posts → find endpoint |
-| 26 | Follow / unfollow post | — | ⛔ no method; `follow_status` exists on posts |
-| 27 | Notification feed | — | ⛔ no method; start from `getUpdates`, then sniff |
+| 25 | Save / unsave post | — | `/v1/posts/saved` **exists** (401 not 404); no write path found yet |
+| 26 | Follow / unfollow post | — | ⛔ readable, not writable; six candidate paths all 404 |
+| 27 | Notification feed | — | `/v1/activity` **exists** (401 not 404); pairs with `readActivity` |
 | 28 | Report content | — | ⛔ no method |
 | 29 | Awards | — | ⛔ no method; posts carry an `awards[]` array |
 
@@ -239,7 +239,16 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 - [x] Post detail route + comment thread with reply indentation
 - [x] Empty / loading / error states; pull-to-refresh + end-of-feed
 - [x] Home feed on the account's primary group
-- [ ] Visual QA — not yet run in a browser by anyone
+- [x] Visual QA round 1, and the fixes from it:
+      - nested `<button>` crash — the card is a `View` now, see docs/DESIGN.md
+      - meta text unified at 14px; vote arrows are circular
+      - back button on post, group and profile screens
+      - **Top time ranges** (`period=day|week|all_time`) — new API discovery
+      - author names link to profiles; profile screen reads real data
+      - **video plays** — HLS, with an hls.js fallback for Chrome/Firefox
+      - link-preview attachments render
+      - post age hovers/taps to an exact timestamp and second-level delta
+- [ ] Visual QA round 2
 
 ### Phase 4 — write
 - [ ] Optimistic voting on posts and comments
@@ -281,7 +290,10 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 - [ ] Redirect real Yik Yak URLs (`/cy/<group>/comments/<code>/<slug>`) to `/p/<code>`
 
 ### Phase 8 — gap-filling
-- [ ] Capture official-client traffic to find endpoints for save, follow, notifications, report, awards
+- [x] `/v1/posts/saved` and `/v1/activity` found by 404-vs-401 sweep
+- [ ] Probe their response shapes, then wrap them
+- [ ] Capture official-client traffic for the rest: follow, report, awards, and
+      the *write* path for save
 - [ ] Implement each via `client.sendRequest()`
 - [ ] Upstream the four sidechat.js bugs as a PR
 

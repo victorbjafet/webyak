@@ -1,10 +1,10 @@
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { useGroupFeed } from '@/api/queries';
 import { useSession } from '@/api/session';
-import type { FeedCategory } from '@/api/types';
+import type { FeedCategory, TopPeriod } from '@/api/types';
 import { FeedList } from '@/components/feed/feed-list';
 import { SortTabs } from '@/components/feed/sort-tabs';
 import { Screen } from '@/components/screen';
@@ -17,8 +17,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const { primaryGroup } = useSession();
   const [sort, setSort] = useState<FeedCategory>('hot');
+  const [period, setPeriod] = useState<TopPeriod>('day');
 
-  const feed = useGroupFeed(primaryGroup?.id, sort);
+  const feed = useGroupFeed(primaryGroup?.id, sort, period);
   const openGroup = useCallback(() => {
     if (primaryGroup) {
       const slug = primaryGroup.index_name || primaryGroup.analytics_name;
@@ -33,13 +34,7 @@ export default function HomeScreen() {
           icon="compass-outline"
           title="No home community yet"
           body="Your account doesn't have a primary group set. Find one in Explore and it'll show up here."
-          action={
-            <Link href="/explore" asChild>
-              <View>
-                <Button label="Browse communities" />
-              </View>
-            </Link>
-          }
+          action={<Button label="Browse communities" onPress={() => router.push('/explore')} />}
         />
       </Screen>
     );
@@ -53,7 +48,7 @@ export default function HomeScreen() {
         </ThemedText>
         <Button label="Open" variant="ghost" onPress={openGroup} />
       </View>
-      <SortTabs value={sort} onChange={setSort} />
+      <SortTabs value={sort} onChange={setSort} period={period} onPeriodChange={setPeriod} />
     </View>
   );
 

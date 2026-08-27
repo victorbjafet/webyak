@@ -1,4 +1,4 @@
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
 import { useSession } from '@/api/session';
@@ -11,6 +11,7 @@ import { useTheme } from '@/hooks/use-theme';
 
 export default function MeScreen() {
   const theme = useTheme();
+  const router = useRouter();
   const { userId, primaryGroup, deviceId, signOut } = useSession();
 
   return (
@@ -29,11 +30,11 @@ export default function MeScreen() {
         <ThemedText type="small" themeColor="textSecondary">
           Runs the probes that unblock Phase 3 against the live API.
         </ThemedText>
-        <Link href="/diagnostics" asChild>
-          <View>
-            <Button label="Open diagnostics" variant="secondary" />
-          </View>
-        </Link>
+        <Button
+          label="Open diagnostics"
+          variant="secondary"
+          onPress={() => router.push('/diagnostics')}
+        />
       </View>
 
       <PhasePlaceholder

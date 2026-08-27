@@ -132,3 +132,31 @@ unaffected.
 `scroll={false}`, which switches the content column to `flex: 1` so the list
 inside owns the scrolling — otherwise the list has no height to scroll within and
 silently renders one screenful.
+
+### Never nest interactive elements
+
+react-native-web renders a `Pressable` with `accessibilityRole="button"` as a
+real `<button>`, and React rejects `<button>` inside `<button>` outright — it is
+a console error, not a warning.
+
+The first post card was a `Pressable` wrapping vote buttons, a profile link, a
+timestamp toggle and image buttons. Every one of those is a `<button>`, so the
+card threw on render.
+
+**The card is a plain `View`.** The "open this post" affordance lives on specific
+children — the post text and the comment count — as siblings of the other
+controls. Same rule for `Link`: `<Link asChild>` renders an `<a>`, so a `Button`
+inside one is interactive content inside an anchor. Navigate with
+`router.push()` from the button's own `onPress` instead.
+
+When adding anything pressable to a card, check what it will be nested inside.
+
+### Meta text is one size
+
+Vote count, comment count and post age all render at 14px (`small`/`smallBold`).
+They sit on the same line and mean comparable things, so three different sizes
+read as accidental. Comments use the same 14px — only the vote buttons shrink.
+
+Vote arrows are circular (`control` background, `pill` radius), matching the
+official app, and they keep that treatment while read-only so nothing shifts
+when Phase 4 makes them live.

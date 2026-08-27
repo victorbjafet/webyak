@@ -3,6 +3,7 @@ import { SidechatAPIClient } from 'sidechat.js';
 import type {
   AuthToken,
   Cursor,
+  TopPeriod,
   CurrentUser,
   FeedCategory,
   Group,
@@ -185,8 +186,22 @@ export async function getCurrentUser() {
   return (await api.getCurrentUser()) as unknown as CurrentUser;
 }
 
-export async function getGroupPosts(groupId: string, category: FeedCategory, cursor?: Cursor) {
-  return (await api.getGroupPosts(groupId, category, cursor)) as unknown as PostsAndCursor;
+/**
+ * Feed page. Not sidechat.js's `getGroupPosts`, because that has no way to send
+ * `period` — the time window for the `top` feed (docs/API.md#top-time-ranges).
+ */
+export async function getGroupPosts(
+  groupId: string,
+  category: FeedCategory,
+  cursor?: Cursor,
+  period?: TopPeriod,
+) {
+  const params = new URLSearchParams({ group_id: groupId, type: category });
+  if (cursor) params.set('cursor', cursor);
+  // Only meaningful for `top`; harmless elsewhere, but don't send noise.
+  if (period && category === 'top') params.set('period', period);
+  params.set('cacheBust', String(Date.now()));
+  return request<PostsAndCursor>(`/v1/posts?${params.toString()}`);
 }
 
 export async function getPost(postId: string) {

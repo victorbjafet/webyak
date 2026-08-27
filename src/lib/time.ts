@@ -29,3 +29,24 @@ export function formatCount(n: number | undefined): string {
   if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, '')}k`;
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}m`;
 }
+
+/** Down-to-the-second age, for the expanded timestamp. */
+export function preciseDelta(iso: string, now = Date.now()): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return '';
+  let seconds = Math.max(0, Math.floor((now - then) / 1000));
+
+  const days = Math.floor(seconds / 86400);
+  seconds -= days * 86400;
+  const hours = Math.floor(seconds / 3600);
+  seconds -= hours * 3600;
+  const minutes = Math.floor(seconds / 60);
+  seconds -= minutes * 60;
+
+  const parts: string[] = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  parts.push(`${seconds}s`);
+  return parts.join(' ');
+}

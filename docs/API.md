@@ -262,6 +262,80 @@ but it does mean **we should not assume the shape of what we have not seen**.
 `src/api/feed.ts` therefore drops anything without an `id` rather than trying to
 recognise an ad.
 
+## Top time ranges
+
+The `top` feed accepts a **`period`** query param. Found by differential probing:
+send a candidate, compare the returned post ids against the control.
+
+| Value | Effect |
+|---|---|
+| *(omitted)* | same as `day` |
+| `day` | last ~24h |
+| `week` | verified: reaches back 11 days, top vote 439 vs 46 for `day` |
+| `all_time` | verified: reaches back 1080 days, top vote 15333 |
+
+**Only those three are recognized.** `month`, `year`, `all`, `alltime`,
+`forever`, `today`, `hour`, `7d`, `30d`, `weekly`, `monthly` and a deliberate
+`bogus` all returned results byte-identical to the default — the server silently
+falls back rather than erroring, which is exactly why this needed differential
+testing rather than status codes.
+
+`period` is meaningless for `hot` and `recent`, so we only send it for `top`.
+
+sidechat.js's `getGroupPosts` has no parameter for this, so `getGroupPosts` in
+`src/api/client.ts` builds the request itself.
+
+## Video
+
+Posts can carry video. Shape confirmed from offsides' `Post.jsx`/`AutoVideo.jsx`:
+
+```jsonc
+{
+  "type": "video",
+  "url": "…m3u8",              // HLS stream
+  "content_type": "…",
+  "width": 0, "height": 0,
+  "thumbnail_asset": { "url": "…" }   // poster frame
+}
+```
+
+**The stream is HLS**, which is why video "didn't work at all" on web: Safari
+plays `.m3u8` natively, Chrome and Firefox do not. Our `<Image>` was also being
+handed a video URL, which rendered a blank frame.
+
+`post-video.web.tsx` checks `canPlayType('application/vnd.apple.mpegurl')` first
+and only falls back to a lazily-imported `hls.js` when the browser can't cope —
+so Safari never downloads the shim, and it code-splits out of the main bundle.
+Native uses `expo-video`, where the platform handles HLS.
+
+## Attachments are link previews
+
+`attachments` is not another asset array. Confirmed from live payloads:
+
+```jsonc
+{ "id": "…", "type": "link", "created_at": "…",
+  "link_url": "https://…", "display_url": "www…", "title": "…" }
+```
+
+offsides also references a `youtube` type in a commented-out branch, so `type` is
+an open set. We render `link` and ignore the rest rather than guessing.
+
+## Endpoints that exist but sidechat.js doesn't wrap
+
+Found by the 404-vs-401 sweep. These were previously recorded as "no endpoint
+exists", which was wrong — the library simply has no method for them:
+
+| Endpoint | Status | Note |
+|---|---|---|
+| `/v1/posts/saved` | 401 → **exists** | Almost certainly the saved-posts list. Closes a Phase 8 gap |
+| `/v1/activity` | 401 → **exists** | The activity feed. `readActivity` already exists to mark items read, so this is its missing counterpart |
+
+Still not found, after sweeping `posts/follow`, `posts/set_follow`,
+`posts/set_follow_status`, `users/follow`, `users/set_follow`, `/v1/follow` — all
+404: **how to follow a post or user.** The state is readable (`follow_status`,
+`identity.is_following`) but not writable through any path we can guess. Profile
+screens say so rather than showing a button that does nothing.
+
 ## sidechat.js 2.6.6 defects
 
 Read from source. Workarounds live in

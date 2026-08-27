@@ -8,6 +8,13 @@
 
 export type VoteStatus = 'upvote' | 'downvote' | 'none';
 export type FeedCategory = 'hot' | 'recent' | 'top';
+
+/**
+ * Time window for the `top` feed, sent as `period`. Verified 2026-08-27: only
+ * these three values are recognized — everything else silently falls back to
+ * `day`, which is also the default when the param is omitted.
+ */
+export type TopPeriod = 'day' | 'week' | 'all_time';
 export type FollowStatus = 'following' | 'not_following';
 export type ContentType = 'post' | 'comment';
 
@@ -40,13 +47,29 @@ export interface Identity {
 
 export interface Asset {
   id: string;
-  type: 'image';
-  content_type: 'jpeg' | 'png' | 'gif';
+  /** (observed) videos exist and are served as HLS — see docs/API.md#video. */
+  type: 'image' | 'video';
+  content_type: 'jpeg' | 'png' | 'gif' | string;
   width: number;
   height: number;
   url?: AssetURL;
   /** (observed) pre-signed variant returned by the public web API. */
   signed_url?: AssetURL;
+  /** (observed, video only) poster frame. */
+  thumbnail_asset?: { url?: AssetURL; width?: number; height?: number };
+}
+
+/**
+ * (observed) Link previews. Distinct from `assets` — these are unfurled URLs,
+ * not uploads. offsides also mentions a `youtube` type.
+ */
+export interface Attachment {
+  id: string;
+  type: 'link' | 'youtube' | string;
+  created_at?: string;
+  link_url?: string;
+  display_url?: string;
+  title?: string;
 }
 
 export interface Group {
@@ -96,7 +119,7 @@ export interface PostOrComment {
   vote_total: number;
   vote_status: VoteStatus;
   assets: Asset[];
-  attachments: unknown[];
+  attachments: Attachment[];
   dms_disabled: boolean;
   tags: string[];
   identity: Identity;

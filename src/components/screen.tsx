@@ -1,9 +1,11 @@
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from './themed-text';
 
-import { Layout, Spacing } from '@/constants/theme';
+import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 interface ScreenProps {
@@ -11,6 +13,11 @@ interface ScreenProps {
   subtitle?: string;
   /** Rendered on the right of the header row. */
   action?: React.ReactNode;
+  /**
+   * Show a back control. Browser back works, but a screen you can only leave
+   * via browser chrome is a dead end on mobile and on native.
+   */
+  back?: boolean;
   /** Set false for screens that own their own scrolling (feeds, chat threads). */
   scroll?: boolean;
   /** Constrain the reading column. Feeds use the default. */
@@ -22,15 +29,29 @@ export function Screen({
   title,
   subtitle,
   action,
+  back = false,
   scroll = true,
   maxWidth = Layout.feedMaxWidth,
   children,
 }: ScreenProps) {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const header = title ? (
     <View style={[styles.header, { borderBottomColor: theme.border }]}>
+      {back ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
+          style={({ hovered, pressed }) => [
+            styles.back,
+            { backgroundColor: hovered || pressed ? theme.controlHover : theme.control },
+          ]}>
+          <Ionicons name="chevron-back" size={20} color={theme.text} />
+        </Pressable>
+      ) : null}
       <View style={styles.headerText}>
         <ThemedText type="subtitle" style={{ color: theme.brand }}>
           {title}
@@ -87,6 +108,13 @@ const styles = StyleSheet.create({
   headerText: {
     flex: 1,
     gap: Spacing.half,
+  },
+  back: {
+    width: 36,
+    height: 36,
+    borderRadius: Radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   scrollContent: {
     alignItems: 'center',

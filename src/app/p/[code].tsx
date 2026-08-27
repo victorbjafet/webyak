@@ -22,7 +22,7 @@ export default function PostDetailScreen() {
 
   if (!cached) {
     return (
-      <Screen title="Post">
+      <Screen title="Post" back>
         <EmptyState
           icon="link-outline"
           title="Can't open this link directly yet"
@@ -35,7 +35,7 @@ export default function PostDetailScreen() {
   const current = post.data ?? cached;
 
   return (
-    <Screen title="Post" subtitle={current.group?.name} scroll={false}>
+    <Screen title="Post" subtitle={current.group?.name} back scroll={false}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <PostCard post={current} />
 

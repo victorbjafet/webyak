@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { useGroupBySlug, useGroupFeed } from '@/api/queries';
 import { useSession } from '@/api/session';
-import type { FeedCategory } from '@/api/types';
+import type { FeedCategory, TopPeriod } from '@/api/types';
 import { FeedList } from '@/components/feed/feed-list';
 import { SortTabs } from '@/components/feed/sort-tabs';
 import { Screen } from '@/components/screen';
@@ -17,24 +17,34 @@ function asCategory(value: string | undefined): FeedCategory {
   return value === 'recent' || value === 'top' ? value : 'hot';
 }
 
+function asPeriod(value: string | undefined): TopPeriod {
+  return value === 'week' || value === 'all_time' ? value : 'day';
+}
+
 export default function GroupFeedScreen() {
   const router = useRouter();
-  const { slug, sort } = useLocalSearchParams<{ slug: string; sort?: string }>();
+  const { slug, sort, period } = useLocalSearchParams<{
+    slug: string;
+    sort?: string;
+    period?: string;
+  }>();
   const { primaryGroup } = useSession();
 
   const category = asCategory(sort);
+  const window = asPeriod(period);
   // `slug` arrives decoded from the router; the resolver normalizes further.
   const group = useGroupBySlug(slug, primaryGroup?.id);
-  const feed = useGroupFeed(group.data?.id, category);
+  const feed = useGroupFeed(group.data?.id, category, window);
 
-  const setSort = useCallback(
-    (next: FeedCategory) => router.setParams({ sort: next }),
+  const setSort = useCallback((next: FeedCategory) => router.setParams({ sort: next }), [router]);
+  const setPeriod = useCallback(
+    (next: TopPeriod) => router.setParams({ period: next }),
     [router],
   );
 
   if (group.isLoading) {
     return (
-      <Screen title={slug ?? 'Group'}>
+      <Screen title={slug ?? 'Group'} back>
         <LoadingState label="Finding this community…" />
       </Screen>
     );
@@ -42,7 +52,7 @@ export default function GroupFeedScreen() {
 
   if (group.isError) {
     return (
-      <Screen title={slug ?? 'Group'}>
+      <Screen title={slug ?? 'Group'} back>
         <ErrorState error={group.error} onRetry={() => group.refetch()} />
       </Screen>
     );
@@ -50,7 +60,7 @@ export default function GroupFeedScreen() {
 
   if (!group.data) {
     return (
-      <Screen title={slug ?? 'Group'}>
+      <Screen title={slug ?? 'Group'} back>
         <EmptyState
           icon="search-outline"
           title="No such community"
@@ -72,12 +82,17 @@ export default function GroupFeedScreen() {
           {formatCount(group.data.member_count)} members
         </ThemedText>
       ) : null}
-      <SortTabs value={category} onChange={setSort} />
+      <SortTabs
+        value={category}
+        onChange={setSort}
+        period={window}
+        onPeriodChange={setPeriod}
+      />
     </View>
   );
 
   return (
-    <Screen title={group.data.name} subtitle={`/g/${group.data.slug}`} scroll={false}>
+    <Screen title={group.data.name} subtitle={`/g/${group.data.slug}`} back scroll={false}>
       <FeedList
         posts={feed.posts}
         isLoading={feed.isLoading}
