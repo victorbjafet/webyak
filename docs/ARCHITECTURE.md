@@ -1,5 +1,13 @@
 # Architecture
 
+## Where this lives
+
+| | |
+|---|---|
+| Source | [github.com/victorbjafet/webyak](https://github.com/victorbjafet/webyak) — public since 2026-08-27 |
+| Site | [webyak.vbjfr.xyz](https://webyak.vbjfr.xyz) — GitHub Pages, `CNAME` written by `npm run build:web` |
+| Backend | none today; one small Cloudflare Worker is required for image upload ([WORKER.md](WORKER.md)) |
+
 ## The public URL
 
 **webyak is deployed at `https://webyak.vbjfr.xyz`.**

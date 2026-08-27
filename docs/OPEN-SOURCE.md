@@ -1,10 +1,10 @@
 # Open-sourcing webyak — release audit
 
-> **Status: PASSED 2026-08-27. Safe to publish.**
+> **Status: PASSED 2026-08-27, and published.**
 > No credentials or personal data were found in `HEAD` or in any of the 294
-> objects in history. Nothing had ever been pushed, so nothing could have leaked.
-> Creating the GitHub repo and pushing is the only step left, and it needs no
-> further scanning.
+> objects in history, and nothing had ever been pushed before the audit ran, so
+> nothing could have leaked. The repo is now public at
+> [github.com/victorbjafet/webyak](https://github.com/victorbjafet/webyak).
 >
 > **The [standing rule](#the-standing-rule) survives this.** The audit cleared
 > what was already here; it does nothing about what the next commit adds, and
@@ -110,7 +110,7 @@ git diff --cached | grep -nEi '[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}|[0-9]{3}[-.
 A hit is not automatically a problem — `Authorization: Bearer ${api.userToken}`
 is source code doing its job. Read the hit; do not just count them.
 
-## Before the first push
+## Before the first push (done — kept for the next repo)
 
 1. Work the "must fix" table above to zero.
 2. Make the decisions in the "decide" table.

@@ -96,8 +96,14 @@ Three things to get right:
   first request.
 
 Client-side, `uploadAssetWeb` already isolates this: it is the only function that
-touches `upload_url`, so wiring the worker in means changing one function body,
-guarded by `EXPO_PUBLIC_WORKER_URL` exactly like the share-code hook.
+touches `upload_url`, so wiring the worker in means changing one function body.
+
+**The attach control is already gated on this.** `imageUploadEnabled` in
+[src/lib/worker.ts](../src/lib/worker.ts) is simply `Boolean(WORKER_URL)`, and
+the composer hides the Photo button when it is false. So there is no flag to
+remember: deploying the worker and setting `EXPO_PUBLIC_WORKER_URL` restores
+attachments, and until then the UI never offers an upload that provably cannot
+complete.
 
 ### `GET /group/:slug` — optional
 

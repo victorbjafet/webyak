@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '../themed-text';
@@ -35,7 +35,16 @@ export function CommentComposer({
   const [text, setText] = useState('');
   const [anonymous, setAnonymous] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
   const create = useCreateComment();
+  const inputRef = useRef<TextInput>(null);
+
+  // The composer sits above the comment list, so pressing Reply on something
+  // far down would otherwise change state off-screen and look like nothing
+  // happened. Focusing scrolls it into view on every platform for free.
+  useEffect(() => {
+    if (replyTo) inputRef.current?.focus();
+  }, [replyTo]);
 
   const trimmed = text.trim();
   const overLimit = trimmed.length > MAX_LENGTH;
@@ -101,19 +110,24 @@ export function CommentComposer({
       ) : null}
 
       <TextInput
+        ref={inputRef}
         value={text}
         onChangeText={setText}
         placeholder={replyTo ? 'Write a reply…' : 'Add a comment…'}
         placeholderTextColor={theme.textTertiary}
         multiline
         maxLength={MAX_LENGTH * 2}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         style={[
           styles.input,
           Typography.small,
           {
             color: theme.text,
             backgroundColor: theme.backgroundElement,
-            borderColor: overLimit ? theme.danger : theme.border,
+            // The global stylesheet suppresses the browser focus ring, so the
+            // border is the only focus feedback (docs/DESIGN.md#focus-rings).
+            borderColor: overLimit ? theme.danger : focused ? theme.brand : theme.border,
           },
         ]}
       />

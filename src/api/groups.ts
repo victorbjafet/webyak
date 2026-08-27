@@ -18,6 +18,7 @@ import { api, request } from './client';
 import type { Group } from './types';
 
 import { cacheStorage } from '@/lib/storage';
+import { workerEndpoint } from '@/lib/worker';
 
 const SLUG_MAP_KEY = 'webyak.slugMap';
 /** Bounded so the persisted map can't grow without limit. */
@@ -161,18 +162,17 @@ export function coerceGroupList(json: unknown): Group[] {
 }
 
 /**
- * Layer 5 — the optional Cloudflare Worker (docs/WORKER.md). Unconfigured by
- * default; set EXPO_PUBLIC_WORKER_URL to enable.
+ * Layer 5 — the optional Cloudflare Worker (docs/WORKER.md). Config lives in
+ * `src/lib/worker.ts`, shared with the image-upload path.
  *
  * No longer load-bearing: layer 4 (live search) was confirmed on 2026-08-27 to
  * resolve groups outside explore, which closed Blocker 2 natively. Kept as a
  * redundant fallback for the case where search is unavailable or rate-limited.
  */
-export const WORKER_URL = process.env.EXPO_PUBLIC_WORKER_URL ?? '';
-
 export async function lookupGroupViaWorker(slug: string): Promise<Group | null> {
-  if (!WORKER_URL) return null;
-  const res = await fetch(`${WORKER_URL.replace(/\/$/, '')}/group/${encodeURIComponent(slug)}`);
+  const endpoint = workerEndpoint(`/group/${encodeURIComponent(slug)}`);
+  if (!endpoint) return null;
+  const res = await fetch(endpoint);
   if (!res.ok) return null;
   const json = (await res.json()) as { group?: Group };
   return json.group ?? null;

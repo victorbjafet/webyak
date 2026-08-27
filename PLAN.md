@@ -305,9 +305,11 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 
 ### Phase 3.5 — open-source audit (GATE) ✅
 
-**Audit passed 2026-08-27.** No credentials or personal data found in `HEAD` or
-in any of the 294 objects in history. The repo is safe to publish; pushing it is
-the one remaining step and needs no further scanning.
+**Audit passed 2026-08-27 and the repo is live** at
+[github.com/victorbjafet/webyak](https://github.com/victorbjafet/webyak). No
+credentials or personal data were found in `HEAD` or in any of the 294 objects
+in history. The [standing pre-commit rule](CLAUDE.md) still applies to every
+commit from here — the audit cleared what was there, not what comes next.
 Full checklist and pre-scan findings:
 [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md). The standing pre-commit rule is in
 [CLAUDE.md](CLAUDE.md).
@@ -322,7 +324,8 @@ Full checklist and pre-scan findings:
 - [x] Real README, including the `localStorage` token disclosure
 - [x] Secret scan over **full history** — every blob, not just `HEAD`. Clean
 - [x] Read every `docs/` file as a stranger — payloads were already redacted to `…`
-- [ ] Create the GitHub repo and push ← **the only step left**
+- [x] Created the GitHub repo and pushed — **public at
+      [github.com/victorbjafet/webyak](https://github.com/victorbjafet/webyak)**
 
 ### Phase 4 — write ✅ verified live 2026-08-27 (one blocker: image upload)
 - [x] Optimistic voting on posts and comments — `useVote`, patched across every
@@ -339,7 +342,11 @@ Full checklist and pre-scan findings:
       cannot be fixed from a static origin
       ([docs/API.md](docs/API.md#-image-upload-is-blocked-by-cors)). ⛔ **Needs
       the Worker's `POST /upload` relay** ([docs/WORKER.md](docs/WORKER.md#post-upload))
-      — this is the first hard dependency on it
+      — the first hard dependency on it
+- [x] **Attach control disabled 2026-08-27** until that relay exists. Gated on
+      `EXPO_PUBLIC_WORKER_URL` in [src/lib/worker.ts](src/lib/worker.ts), not on
+      a hand-flipped flag — deploying the worker turns it back on by itself,
+      and there is no state in which the UI offers an upload that cannot finish
 - [x] **Native image attachment — closed as out of scope**, owner's decision
       2026-08-27. Attachments are a web feature; revisit only if the app is
       actually ported ([src/lib/image-picker.ts](src/lib/image-picker.ts))

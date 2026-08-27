@@ -58,6 +58,15 @@ export default function PostDetailScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <PostCard post={current} />
 
+        {/*
+          Directly under the post, not after the comment list. At the bottom it
+          sits behind however many replies a thread has, so commenting on a busy
+          post means scrolling past everything first. Replying to a specific
+          comment still works from here because the composer focuses itself,
+          which brings it into view on its own.
+        */}
+        <CommentComposer post={current} replyTo={replyTo} onCancelReply={cancelReply} />
+
         <View style={styles.commentsHeader}>
           <ThemedText type="heading">
             {current.comment_count ? `${formatCount(current.comment_count)} comments` : 'Comments'}
@@ -85,8 +94,6 @@ export default function PostDetailScreen() {
             onReply={current.comments_disabled ? undefined : startReply}
           />
         ))}
-
-        <CommentComposer post={current} replyTo={replyTo} onCancelReply={cancelReply} />
       </ScrollView>
     </Screen>
   );

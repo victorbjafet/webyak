@@ -19,6 +19,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { canPickImages, pickImage, releaseImage, type PickedImage } from '@/lib/image-picker';
+import { imageUploadEnabled } from '@/lib/worker';
 
 /**
  * Yik Yak's own limit. Not enforced by the API as far as we can tell — a longer
@@ -245,6 +246,12 @@ export default function ComposeScreen() {
         ) : null}
 
         {/*
+          Attachments are gated on the worker, not on a hand-flipped flag: the
+          upload is a pre-signed PUT that a browser cannot issue at all
+          (docs/API.md#-image-upload-is-blocked-by-cors), so offering the control
+          without a relay means offering an upload that provably cannot finish.
+          Deploying the worker turns it back on by itself.
+
           A poll and an image are mutually exclusive. Not because the API is
           known to reject the combination — it has never been tried — but
           because the official app doesn't offer it, so a post carrying both is
@@ -252,7 +259,7 @@ export default function ComposeScreen() {
           draft to it.
         */}
         <View style={styles.tools}>
-          {canPickImages && !image && !pollOptions ? (
+          {canPickImages && imageUploadEnabled && !image && !pollOptions ? (
             <ToolButton icon="image-outline" label="Photo" onPress={attach} />
           ) : null}
           {!pollOptions && !image ? (

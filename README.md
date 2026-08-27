@@ -5,13 +5,28 @@ and [sidechat.js](https://github.com/micahlt/sidechat.js). Aims at parity with
 the official app, plus a few things it never had.
 
 Runs at **[webyak.vbjfr.xyz](https://webyak.vbjfr.xyz)** — a static single-page
-app on GitHub Pages, with no backend of our own.
+app on GitHub Pages. Source at
+[github.com/victorbjafet/webyak](https://github.com/victorbjafet/webyak).
+
+There is no backend today. One is coming: image upload cannot work from a
+static origin (see below), and a small Cloudflare Worker is specced to relay it.
 
 ## Status
 
-Early. Reading works — feeds, sorting, posts, comments, polls, images and video.
-Writing (voting, composing, replies) is next. See [PLAN.md](PLAN.md) for the
-roadmap and the current list of gaps.
+Early, but usable. Reading works — feeds, sorting, posts, comments, polls,
+images and video. Writing works too: voting, composing, comments and replies,
+polls, quote-reposts and deleting your own content, all verified against the
+live API and confirmed to sync both ways with the official app.
+
+**Known gap: image attachments are disabled.** The upload is a pre-signed `PUT`
+to Yik Yak's storage host, which a browser cannot issue — a cross-origin `PUT`
+always preflights and that bucket answers no preflight from our origin. Native
+clients never hit this because CORS doesn't exist for them. The fix is a small
+relay in the Worker; the control stays hidden until one is configured, rather
+than offering an upload that provably cannot finish.
+[docs/API.md](docs/API.md#-image-upload-is-blocked-by-cors) has the detail.
+
+See [PLAN.md](PLAN.md) for the roadmap and the rest of the gaps.
 
 ## Read this before you trust it
 
@@ -34,6 +49,8 @@ token it returns is a real account credential — treat it like a password.
 ## Running it
 
 ```sh
+git clone https://github.com/victorbjafet/webyak.git
+cd webyak
 npm install
 npx expo start          # dev, all platforms
 npm run build:web       # static export to dist/
@@ -48,7 +65,7 @@ why each one is load-bearing.
 | Variable | Purpose |
 |---|---|
 | `EXPO_PUBLIC_BASE_URL` | Public origin used to build share links. Defaults to `https://webyak.vbjfr.xyz`. |
-| `EXPO_PUBLIC_WORKER_URL` | Optional Cloudflare Worker for share-code resolution. Inert if unset — see [docs/WORKER.md](docs/WORKER.md). |
+| `EXPO_PUBLIC_WORKER_URL` | Cloudflare Worker base URL. Unset by default. Enables share-code resolution **and image attachments**, which are hidden without it — see [docs/WORKER.md](docs/WORKER.md). |
 
 Put them in a `.env`, which is gitignored.
 
