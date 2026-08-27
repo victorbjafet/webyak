@@ -149,7 +149,12 @@ export function PostVideo({
               aside and lets that show. */}
           {!attached ? (
             <View style={styles.posterLayer} pointerEvents="none">
-              <AuthedImage uri={poster} style={styles.poster} contentFit="contain" />
+              <AuthedImage
+                uri={poster}
+                context="video-poster"
+                style={styles.poster}
+                contentFit="contain"
+              />
             </View>
           ) : null}
 

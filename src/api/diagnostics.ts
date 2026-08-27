@@ -24,6 +24,7 @@ import {
   setVote,
 } from './client';
 import { feedHygieneStats } from './feed';
+import { summarizeImageFailures } from '@/lib/image-debug';
 import type { PostOrComment } from './types';
 
 export const SAMPLE_GROUP_ID = '602fb305-4ec2-4d01-83be-4d80c6636a56';
@@ -545,6 +546,195 @@ async function probeImageUpload(): Promise<ProbeResult> {
   }
 }
 
+/* ------------------------------------------------------------------------ *
+ * Phase 5 — the image investigation
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Where do community icons actually come from?
+ *
+ * The reframing that prompted this: the app shows initials for Virginia Tech,
+ * and `GroupAvatar` only does that when `icon_url` is **falsy**. So for the
+ * groups we render there was never a URL to load — no amount of work on the
+ * image pipeline could have fixed it. `icon.yik-yak.com` was verified public
+ * and returning 200, which made the host look innocent and sent the last three
+ * rounds hunting a rendering bug that, for community icons, does not exist.
+ *
+ * The same group is reachable through four endpoints. This asks each one for
+ * it and reports which carry `icon_url`, so the fix becomes "read the group
+ * from the right place" rather than "make images work".
+ */
+async function probeGroupIconSource(): Promise<ProbeResult> {
+  const base = {
+    id: 'group-icons',
+    label: 'Images — where do community icons live?',
+    question: 'Which endpoint returns a group with icon_url?',
+  };
+  const rows: string[] = [];
+
+  const describe = (label: string, group: Record<string, unknown> | undefined | null) => {
+    if (!group) {
+      rows.push(`${label} → no group returned`);
+      return;
+    }
+    const iconish = Object.entries(group)
+      .filter(([k, v]) => typeof v === 'string' && (/icon|image|photo|avatar|logo/i.test(k) || /^https?:\/\//.test(v)))
+      .map(([k, v]) => `${k}=${String(v).slice(0, 80)}`);
+    rows.push(
+      `${label} → icon_url ${group.icon_url ? 'YES' : 'no'}` +
+        (iconish.length ? `\n    image-ish fields: ${iconish.join(', ')}` : '') +
+        `\n    keys: ${Object.keys(group).join(', ')}`,
+    );
+  };
+
+  try {
+    const mine = await fetchUserGroups();
+    const target = mine[0];
+    if (!target) {
+      return { ...base, status: 'fail', detail: 'No groups on this account to test with.' };
+    }
+    rows.push(`Testing with: ${target.name} (${target.id})`);
+    describe('1. getUpdates().groups  [what the app renders]', target as unknown as Record<string, unknown>);
+
+    try {
+      const meta = await request<{ group?: Record<string, unknown> }>(
+        `/v1/groups/${encodeURIComponent(target.id)}`,
+      );
+      describe('2. GET /v1/groups/<id>', meta.group ?? (meta as Record<string, unknown>));
+    } catch (e) {
+      rows.push(`2. GET /v1/groups/<id> → failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    try {
+      const search = await request<{ groups?: Record<string, unknown>[] }>(
+        `/v1/groups/explore/search?term=${encodeURIComponent(target.name)}`,
+      );
+      const hit = search.groups?.find((g) => g.id === target.id) ?? search.groups?.[0];
+      describe('3. /v1/groups/explore/search', hit);
+    } catch (e) {
+      rows.push(`3. search → failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    try {
+      const explore = (await api.getAvailableGroups(true)) as unknown as Record<string, unknown>[];
+      const list = Array.isArray(explore) ? explore : [];
+      const withIcon = list.filter((g) => g.icon_url).length;
+      rows.push(
+        `4. explore list → ${list.length} groups, ${withIcon} with icon_url` +
+          (list[0] ? `\n    first: ${list[0].name} icon_url ${list[0].icon_url ? 'YES' : 'no'}` : ''),
+      );
+    } catch (e) {
+      rows.push(`4. explore list → failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    const anyIcons = rows.some((r) => r.includes('YES'));
+    return {
+      ...base,
+      status: anyIcons ? 'pass' : 'fail',
+      detail: anyIcons
+        ? 'At least one endpoint carries icon_url — read groups from there and the icons appear.'
+        : 'No endpoint returned icon_url for this group. The community may genuinely have no icon.',
+      evidence: rows.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
+/**
+ * Is the video thumbnail 401 real, and does the bearer actually fix it?
+ *
+ * `assetNeedsAuth` says these URLs need the token and `AuthedImage` fetches them
+ * with it, yet posters stayed blank. This separates the two possibilities that
+ * were never distinguished: the fetch is refused (auth or CORS), or it succeeds
+ * and the *element* refuses the bytes.
+ */
+async function probeVideoPoster(): Promise<ProbeResult> {
+  const base = {
+    id: 'video-poster',
+    label: 'Images — video thumbnail fetch',
+    question: 'Does fetching a poster with the bearer actually return an image?',
+  };
+  try {
+    const page = (await api.getGroupPosts(SAMPLE_GROUP_ID, 'hot')) as unknown as {
+      posts?: PostOrComment[];
+    };
+    const withVideo = page.posts?.find((p) => p.assets?.some((a) => a.type === 'video'));
+    const asset = withVideo?.assets?.find((a) => a.type === 'video');
+    const poster = asset?.thumbnail_asset?.url;
+
+    if (!poster) {
+      return {
+        ...base,
+        status: 'partial',
+        detail: 'No video post in the current hot feed to test with. Try again later.',
+      };
+    }
+
+    const steps = [`poster host → ${new URL(poster).host}`];
+
+    const bare = await fetch(poster);
+    steps.push(`without bearer → HTTP ${bare.status} (expect 401)`);
+
+    const authed = await fetch(poster, {
+      headers: { Authorization: `Bearer ${api.userToken}` },
+    });
+    steps.push(`with bearer → HTTP ${authed.status}`);
+    if (authed.ok) {
+      const blob = await authed.blob();
+      steps.push(`  content-type ${blob.type || '(none)'}, ${blob.size} bytes`);
+      steps.push(
+        blob.size > 0 && blob.type.startsWith('image/')
+          ? '  → real image bytes, so the fetch is NOT the problem; the element is'
+          : '  → not image bytes, which is why the element renders nothing',
+      );
+    }
+
+    return {
+      ...base,
+      status: authed.ok ? 'pass' : 'fail',
+      detail: authed.ok
+        ? 'The authed fetch works. The failure is downstream of the request.'
+        : `The authed fetch returns ${authed.status} — the bearer is not enough for this URL.`,
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
+/**
+ * Whatever failed to render since this page loaded.
+ *
+ * Browse the app first, then run this — the buffer is in memory and per page
+ * load. This is the thing that was missing: a failure used to be a blank box
+ * with no reason attached.
+ */
+async function probeImageFailures(): Promise<ProbeResult> {
+  const base = {
+    id: 'image-failures',
+    label: 'Images — what actually failed',
+    question: 'Which images failed to render, and for what reason?',
+  };
+  const summary = summarizeImageFailures();
+  if (summary.length === 0) {
+    return {
+      ...base,
+      status: 'partial',
+      detail:
+        'Nothing recorded. Either every image loaded, or nothing has been rendered yet this page load — browse a feed and a profile first, then run this again.',
+    };
+  }
+  return {
+    ...base,
+    status: 'fail',
+    detail: `${summary.length} distinct failure(s). "no-url" means the API gave us nothing to load; "http"/"network" mean the request failed; "decode" means the bytes arrived and the element rejected them.`,
+    evidence: summary
+      .map((row) => `${row.count}x  ${row.key}${row.sample.detail ? `\n      ${row.sample.detail}` : ''}`)
+      .join('\n'),
+  };
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
@@ -553,6 +743,9 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
     await probeVideoShape(),
     await probeGapEndpoints(),
     await probeFeedHygiene(),
+    await probeGroupIconSource(),
+    await probeVideoPoster(),
+    await probeImageFailures(),
   ];
 }
 

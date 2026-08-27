@@ -294,11 +294,11 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
         failed lookup can no longer silently fall back
       - selecting a community navigates to it; the redundant "Open X" button is gone
       - share links point at `webyak.vbjfr.xyz`, not yikyak.com
-- [ ] ⛔ **Images that don't render** — deferred, re-verified broken 2026-08-27:
-      profile photos, community icons **and video thumbnails**. Likely *one*
-      rendering bug, not three API bugs — a public URL fails the same way an
-      authed one does. Reference case `/u/snoopyvt`; see
-      [docs/API.md](docs/API.md#-images-that-dont-render--unresolved)
+- [x] ⛔ **Images that don't render** — moved into Phase 5 and re-diagnosed.
+      It is **three causes, not one**: community icons have no `icon_url` in the
+      data at all, profile photos had no render path in the component, and only
+      video thumbnails are actually a pipeline problem. See
+      [docs/API.md](docs/API.md#-images-that-dont-render--under-investigation-phase-5)
 - [ ] ⛔ Membership count discrepancy — deferred, switcher source is correct in
       practice
 - [x] Visual QA round 5 — Phase 3 closes with the image bug carried forward
@@ -358,6 +358,19 @@ Full checklist and pre-scan findings:
       input paints its own ([docs/DESIGN.md](docs/DESIGN.md#focus-rings))
 
 ### Phase 5 — groups & profile
+- [~] **Fix images first.** Explore is a grid of community icons and profiles
+      are built around avatars, so this bites here before anything else does.
+      Groundwork done 2026-08-27:
+  - [x] `AuthedImage` no longer swallows failures — renders the caller's
+        fallback and records a reason (`no-url`/`http`/`network`/`decode`) with
+        the host only, never the signed URL
+  - [x] Every call site labelled with a `context`, so a failure names its place
+  - [x] `IdentityAvatar` gained the photo branch it never had; `GroupAvatar`'s
+        initials are a real fallback rather than an else-branch
+  - [x] Three probes added: which endpoint carries `icon_url`, whether the
+        poster fetch works with the bearer, and what actually failed on screen
+  - [ ] **Run the probes**, then wire groups to whichever endpoint has icons and
+        name the profile-photo field
 - [ ] Explore page: group grid, member counts, icons
 - [ ] ⛔ Explore links to `/g/<slug>`, so it depends on the slug assumption from
       Blocker 2 being confirmed

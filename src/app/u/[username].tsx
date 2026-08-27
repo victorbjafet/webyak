@@ -54,11 +54,13 @@ export default function ProfileScreen() {
           ]}>
           <View style={styles.identityRow}>
             <View style={[styles.bigAvatar, { backgroundColor: icon?.color || theme.control }]}>
-              {imageUrl ? (
-                <AuthedImage uri={imageUrl} style={styles.avatarImage} contentFit="cover" />
-              ) : (
-                <ThemedText style={styles.bigEmoji}>{icon?.emoji ?? '👤'}</ThemedText>
-              )}
+              <AuthedImage
+                uri={imageUrl}
+                context="profile-photo"
+                fallback={<ThemedText style={styles.bigEmoji}>{icon?.emoji ?? '👤'}</ThemedText>}
+                style={styles.avatarImage}
+                contentFit="cover"
+              />
             </View>
             <View style={styles.identityText}>
               <ThemedText type="subtitle">{profile.data?.name ?? username}</ThemedText>

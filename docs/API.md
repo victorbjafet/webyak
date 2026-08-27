@@ -312,10 +312,9 @@ which is what offsides does.
 
 > ⛔ **This did not actually fix video thumbnails.** Verified still broken
 > 2026-08-27. The auth theory above is sound and the blob path is implemented,
-> but the poster is still blank in practice. Grouped with the other unrendered
-> images below — see
-> [Images that don't render](#-images-that-dont-render--unresolved), because
-> they now look like one bug, not three.
+> but the poster is still blank in practice. **This is the only one of the three
+> unrendered image classes that is genuinely a pipeline problem** — see
+> [Images that don't render](#-images-that-dont-render--under-investigation-phase-5).
 
 ## Video
 
@@ -371,51 +370,49 @@ user's public profile as a group object, which is why the profile typedef carrie
 Consequence: anything that renders a group renders a profile. Worth reusing
 rather than building a parallel component.
 
-### ⛔ Images that don't render — unresolved
+### ⛔ Images that don't render — under investigation (Phase 5)
 
-**Deferred deliberately.** Re-verified still broken 2026-08-27. Three classes of
-image do not appear; the emoji / initials / black-box fallbacks are what ships.
+**Re-framed 2026-08-27.** The previous entry here called this "one bug, not
+three" on the grounds that a public URL and an authenticated one failed
+identically. Reading the components rather than the API showed that was wrong.
+There are **three separate causes**, and two of them were never in the image
+pipeline at all:
 
-| What | URL host | Needs bearer? | Renders? |
-|---|---|---|---|
-| Profile photos | unknown — field not identified | unknown | ❌ |
-| Community icons | `icon.yik-yak.com` | **no** — public, verified 200 | ❌ |
-| Video thumbnails | `api.sidechat.lol/v1/assets?post_id=…` | **yes** — 401 without it | ❌ |
+| What | Real cause | Status |
+|---|---|---|
+| Community icons | **No `icon_url` in the data.** `GroupAvatar` renders initials only when the URL is falsy — and the app shows "VT" initials for Virginia Tech, so the group objects we render carry no icon | Probe: *Images — where do community icons live?* |
+| Profile photos | **No render path existed.** `IdentityAvatar` only ever drew `conversation_icon.emoji` or a person glyph. There was no branch that could show a photo, whatever the URL | Path added; field still unidentified |
+| Video thumbnails | Genuinely in the pipeline — auth is required and the blob fetch is implemented, yet the poster stays blank | Probe: *Images — video thumbnail fetch* |
 
-**These were three separate investigations and should be one.** The table is the
-finding: one of them needs auth, one provably does not, and they fail the same
-way. That makes a shared rendering fault more likely than three independent
-causes, and it means *the auth work was probably never the blocker*. Start there
-next time rather than re-probing endpoints.
+The lesson worth keeping: `icon.yik-yak.com` was verified public and returning
+200, which made the *host* look innocent and sent three rounds of investigation
+after a rendering bug. Nobody checked whether the app had a URL to render in the
+first place. **Confirm the data exists before debugging the thing that displays
+it.**
 
-Two concrete things to check first, both in the render path rather than the API:
+#### Failures are no longer silent
 
-1. **`AuthedImage` returns `null` on any failure**
-   ([authed-image.web.tsx:49](../src/components/authed-image.web.tsx)). So a
-   failed image renders *nothing* — and the caller has already branched into the
-   image path, so its fallback is unreachable. `GroupAvatar` only draws initials
-   when `iconUrl` is absent, never when it is present-but-broken
-   ([group-avatar.tsx:32](../src/components/group-avatar.tsx)). This guarantees a
-   blank box and, worse, no error surface: there is currently **no way to tell a
-   404 from a decode failure from a fetch that never fired**. Make it fail loudly
-   before theorising further.
-2. **Community icons never touch the token path at all.** `assetNeedsAuth()` is
-   false for `icon.yik-yak.com`, so the URL goes straight to `<Image>` — the
-   blob shim is not involved, and neither is auth. If a public URL in a plain
-   `<Image>` does not render, the fault is in expo-image on web or in the style
-   (a zero-height box renders as nothing), not in the API.
+`AuthedImage` used to `return null` on any problem, so a 404, a blocked request,
+a decode failure and a missing URL were indistinguishable — and because the
+caller had already branched into the image path, its own placeholder was
+unreachable. Every failure now renders the caller's `fallback` and is recorded
+with a reason (`no-url` / `http` / `network` / `decode`), readable from
+`/diagnostics` → *Images — what actually failed*. Only the host is recorded,
+never the full URL, since a pre-signed asset URL is a credential.
 
-What is known about profiles specifically:
+Every call site passes a `context` (`group-icon`, `profile-photo`,
+`video-poster`, `post-image`) so a failure names the place it happened.
 
-- Some profiles have **no photo at all**. `rat.brat` returns only
+#### What is known about profiles
+
+- Some accounts have **no photo at all**. `rat.brat` returns only
   `conversation_icon: {emoji: "🐀", color: "#9BD46A", …}` — for that account the
-  emoji *is* the avatar, and it renders correctly. So an absent photo is not
+  emoji *is* the avatar, and it renders correctly. An absent photo is not
   evidence of a bug.
 - **`@snoopyvt` is the reference case** — that account definitely has one.
-  `/u/snoopyvt` locally or on the deploy. Verify any fix against it.
-- Which field carries the photo is still unidentified. The diagnostics probe
-  targets `@snoopyvt` and dumps **every URL-valued field** on the payload rather
-  than guessing a name, which should answer it on the next run.
+  `/u/snoopyvt`. Verify any fix against it.
+- Which field carries it is still unidentified; the probe dumps every
+  URL-valued field rather than guessing a name.
 
 Paths that do **not** exist, swept: `/v1/users/<name>`, `/v1/users/profile`,
 `/v1/users/aliases/<name>`, `/v1/aliases/<name>`, `/v1/users/<name>/profile`,

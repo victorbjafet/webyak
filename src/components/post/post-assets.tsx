@@ -58,6 +58,7 @@ export function PostAssets({
                 style={({ hovered }) => [hovered && styles.hovered]}>
                 <AuthedImage
                   uri={uri}
+                  context="post-image"
                   style={[
                     styles.image,
                     {
@@ -98,6 +99,7 @@ export function PostAssets({
           {open ? (
             <AuthedImage
               uri={bestAssetUrl(open)}
+              context="post-image-lightbox"
               style={{ width: screenWidth * 0.94, height: screenHeight * 0.8 }}
               contentFit="contain"
             />
