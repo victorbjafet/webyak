@@ -5,10 +5,18 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 
-import { api, getGroupPosts, getUserContent } from './client';
+import { api, getGroupPosts, getUpdates, getUserContent } from './client';
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
-import type { Cursor, FeedCategory, Group, PostOrComment, Profile, TopPeriod } from './types';
+import type {
+  Cursor,
+  FeedCategory,
+  Group,
+  MyIdentity,
+  PostOrComment,
+  Profile,
+  TopPeriod,
+} from './types';
 
 export const queryKeys = {
   groupBySlug: (slug: string) => ['group', 'slug', slug] as const,
@@ -21,6 +29,7 @@ export const queryKeys = {
   explore: () => ['explore', 'groups'] as const,
   groupSearch: (term: string) => ['explore', 'search', term] as const,
   myContent: (kind: 'posts' | 'comments') => ['me', kind] as const,
+  myIdentity: () => ['me', 'identity'] as const,
 };
 
 /** Resolve a URL slug to a group. Layered — see src/api/groups.ts. */
@@ -174,3 +183,22 @@ export function useMyContent(kind: 'posts' | 'comments') {
 }
 
 export type { Group };
+
+
+/**
+ * Your own username, bio and icon.
+ *
+ * From `getUpdates().user`, not `/v1/users/me` — the latter returns ids,
+ * memberships and email domains but no username or bio, which is the whole
+ * point of this query.
+ */
+export function useMyIdentity() {
+  return useQuery({
+    queryKey: queryKeys.myIdentity(),
+    staleTime: 1000 * 60 * 5,
+    queryFn: async (): Promise<MyIdentity> => {
+      const updates = await getUpdates();
+      return (updates?.user ?? {}) as MyIdentity;
+    },
+  });
+}

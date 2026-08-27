@@ -364,3 +364,52 @@ export async function deletePostOrComment(id: string) {
 export async function voteOnPoll(pollId: string, choiceIndex: number) {
   return request<unknown>('/v1/polls/vote', 'POST', { poll_id: pollId, choice: choiceIndex });
 }
+
+/* ------------------------------------------------------------------------ *
+ * Your own profile
+ *
+ * Username, bio and icon are all `PATCH /v1/users/<id>` with a different body,
+ * so they are one function here rather than three. sidechat.js splits them and
+ * sends a different `App-Version` header in each — "0" for the icon, "5.4.22"
+ * for the bio, the default for the username. That looks cargo-culted rather
+ * than meaningful; we send one consistent set and it works.
+ * ------------------------------------------------------------------------ */
+
+export interface ProfileUpdate {
+  username?: string;
+  bio?: string;
+  conversationIcon?: { emoji: string; color: string; secondary_color: string };
+}
+
+export async function updateProfile(userId: string, update: ProfileUpdate) {
+  const body: Record<string, unknown> = {};
+  if (update.username !== undefined) body.username = update.username;
+  if (update.bio !== undefined) body.bio = update.bio;
+  if (update.conversationIcon) {
+    body.conversation_icon = { ...update.conversationIcon, is_migrated: true };
+  }
+  return request<{ user?: unknown }>(`/v1/users/${encodeURIComponent(userId)}`, 'PATCH', body);
+}
+
+/**
+ * Is this username free?
+ *
+ * `GET /v1/users/username?username=` — 200/204 means available. Not
+ * `api.checkUsername`, which interpolates the name into the query string
+ * **unencoded**: a username containing `&` or `#` would silently check a
+ * different string than the one being claimed.
+ *
+ * Any non-2xx is treated as "taken" rather than thrown, because that is what
+ * the caller needs to render; a network failure is reported separately by the
+ * caller's own error state.
+ */
+export async function checkUsername(username: string): Promise<boolean> {
+  const res = await api.sendRequest(
+    `/v1/users/username?username=${encodeURIComponent(username)}`,
+  );
+  if (res.status === 401) {
+    onUnauthorized?.();
+    throw new ApiError('Session expired', 401);
+  }
+  return res.status === 200 || res.status === 204;
+}

@@ -6,6 +6,8 @@ import {
   deletePostOrComment,
   setGroupMembership,
   setVote,
+  updateProfile,
+  type ProfileUpdate,
   voteOnPoll,
   type CreateCommentInput,
   type CreatePostInput,
@@ -337,6 +339,35 @@ export function useGroupMembership() {
       // groups; only the server knows the resulting list.
       void client.invalidateQueries({ queryKey: ['my-groups'] });
       void client.invalidateQueries({ queryKey: ['group', 'slug'] });
+    },
+  });
+}
+
+
+/* ------------------------------------------------------------------------ *
+ * Your profile
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Username, bio and icon.
+ *
+ * Not optimistic. A username claim can be rejected by the server after the
+ * availability check passed — someone else can take it in between — so showing
+ * it as applied and then reverting would be worse than waiting. Every affected
+ * cache is invalidated on success instead: the identity itself, and any profile
+ * page or post already rendering the old name.
+ */
+export function useUpdateProfile() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ userId, update }: { userId: string; update: ProfileUpdate }) =>
+      updateProfile(userId, update),
+    onError: (error) => toastError(error, "Couldn't save those changes."),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.myIdentity() });
+      void client.invalidateQueries({ queryKey: ['profile'] });
+      void client.invalidateQueries({ queryKey: ['me'] });
     },
   });
 }

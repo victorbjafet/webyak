@@ -2,9 +2,10 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { useMyContent } from '@/api/queries';
+import { useMyContent, useMyIdentity } from '@/api/queries';
 import { useSession } from '@/api/session';
 import { CommentItem } from '@/components/post/comment-item';
+import { IdentityAvatar } from '@/components/post/identity-avatar';
 import { PostCard } from '@/components/post/post-card';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -20,6 +21,7 @@ export default function MeScreen() {
   const router = useRouter();
   const { userId, primaryGroup, deviceId, signOut } = useSession();
   const [tab, setTab] = useState<Tab>('posts');
+  const identity = useMyIdentity();
 
   // Both tabs are cached separately, so switching back is instant.
   const content = useMyContent(tab);
@@ -27,6 +29,31 @@ export default function MeScreen() {
   return (
     <Screen title="You" scroll={false}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View
+          style={[
+            styles.card,
+            styles.identityCard,
+            { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+          ]}>
+          <IdentityAvatar
+            identity={{
+              name: identity.data?.username ?? '',
+              posted_with_username: true,
+              conversation_icon: identity.data?.conversation_icon,
+            }}
+            size={44}
+          />
+          <View style={styles.identityText}>
+            <ThemedText type="bodyBold" numberOfLines={1}>
+              {identity.data?.username || 'No username yet'}
+            </ThemedText>
+            <ThemedText type="caption" themeColor="textSecondary" numberOfLines={2}>
+              {identity.data?.bio || 'No bio yet'}
+            </ThemedText>
+          </View>
+          <Button label="Edit" variant="secondary" onPress={() => router.push('/me/edit')} />
+        </View>
+
         <View style={styles.tabs}>
           <Tabs value={tab} onChange={setTab} />
         </View>
@@ -157,7 +184,17 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   tabs: {
-    paddingTop: Spacing.three,
+    paddingTop: Spacing.one,
+  },
+  identityCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: Spacing.three,
+  },
+  identityText: {
+    flex: 1,
+    gap: Spacing.half,
+    minWidth: 0,
   },
   tabRow: {
     flexDirection: 'row',

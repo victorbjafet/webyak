@@ -142,11 +142,20 @@ export function PostVideo({
 
       {!playing ? (
         <>
-          {/* The poster attribute can't send an Authorization header and these
-              thumbnail URLs require one, so the poster is drawn as an image
-              behind the element rather than set on it. Once the stream is
-              attached the element paints its own first frame, so this steps
-              aside and lets that show. */}
+          {/*
+            ⛔ The poster does not load in a browser, and cannot be made to.
+
+            `/v1/assets?post_id=…` is a hard 401 unauthenticated (verified), so
+            the bearer is required; but sending it forces a CORS preflight, the
+            endpoint answers 302 to signed storage, and a preflighted request
+            cannot follow a cross-origin redirect. Both routes are closed: no
+            header means 401, header means a blocked redirect. It needs the
+            worker's asset relay — docs/API.md#-video-thumbnails-need-the-worker.
+
+            Left in place because it costs nothing and starts working the moment
+            the relay exists. `fallback` is what actually renders today: a
+            neutral panel, so a video reads as a video rather than a black hole.
+          */}
           {!attached ? (
             <View style={styles.posterLayer} pointerEvents="none">
               <AuthedImage
@@ -154,6 +163,11 @@ export function PostVideo({
                 context="video-poster"
                 style={styles.poster}
                 contentFit="contain"
+                fallback={
+                  <View style={[styles.posterFallback, { backgroundColor: theme.skeleton }]}>
+                    <Ionicons name="videocam" size={28} color={theme.textTertiary} />
+                  </View>
+                }
               />
             </View>
           ) : null}
@@ -195,6 +209,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  posterFallback: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   poster: {
     width: '100%',

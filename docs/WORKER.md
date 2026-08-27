@@ -105,6 +105,36 @@ remember: deploying the worker and setting `EXPO_PUBLIC_WORKER_URL` restores
 attachments, and until then the UI never offers an upload that provably cannot
 complete.
 
+### `GET /asset`
+
+**Required for video thumbnails.** Same shape as `/upload` and the same reason:
+a browser cannot complete this request, a server can.
+
+```
+GET /asset?url=<encoded api.sidechat.lol asset URL>
+Authorization: Bearer <the user's token>
+
+→ the image bytes, with permissive CORS headers
+```
+
+The whole job is: forward the caller's bearer to the asset URL, **follow the
+302 it answers**, and stream the bytes back. A browser cannot do this itself
+because `fetch` + `Authorization` triggers a preflight, and a preflighted
+request may not follow a cross-origin redirect
+([API.md](API.md#-video-thumbnails-need-the-worker)).
+
+Two constraints:
+
+- **Only proxy `api.sidechat.lol` URLs.** An open relay that will fetch any URL
+  with a forwarded bearer is an SSRF hole and a credential leak. Validate the
+  host before making the request, and reject everything else.
+- **Never log the URL.** These carry `post_id`, `asset_id` and, after the
+  redirect, a signature.
+
+Client-side this is one function: whatever `AuthedImage` currently fetches
+directly would instead go through the relay when `EXPO_PUBLIC_WORKER_URL` is
+set, which also lights up video posters with no other change.
+
 ### `GET /group/:slug` — optional
 
 Not needed any more; layer 4 of the slug resolver covers this natively. Kept

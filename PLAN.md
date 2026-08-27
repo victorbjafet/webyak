@@ -358,7 +358,7 @@ Full checklist and pre-scan findings:
 - [x] Focus rings themed — the browser default blue is suppressed and every
       input paints its own ([docs/DESIGN.md](docs/DESIGN.md#focus-rings))
 
-### Phase 5 — groups & profile
+### Phase 5 — groups & profile ✅ (one worker dependency)
 - [~] **Fix images first.** Explore is a grid of community icons and profiles
       are built around avatars, so this bites here before anything else does.
       Groundwork done 2026-08-27:
@@ -378,12 +378,13 @@ Full checklist and pre-scan findings:
         signed R2 URL, and sending the bearer forced a preflight that cannot
         follow a redirect. Removing the header fixed it
         ([docs/API.md](docs/API.md#profile-photos-icon_url-and-the-bearer-was-breaking-it))
-  - [ ] ⛔ Video thumbnails — deferred, non-blocking. The failure log shows the
-        **same signature** as the profile-photo bug (`network · Failed to
-        fetch`), so it is likely the same one-line fix; an older probe recording
-        a 401 contradicts that, and the poster probe settles it — but it needs a
-        video in the feed to run
-        ([docs/API.md](docs/API.md#-video-thumbnails--same-signature-deferred))
+  - [x] ⛔ **Video thumbnails — settled: not fixable from a browser.** Both
+        routes are closed. No header → the endpoint is a hard 401 (verified
+        directly, unlike `/v1/assets/profile`). With the header → preflight, then
+        a 302 a preflighted request may not follow. Needs the worker's asset
+        relay ([docs/WORKER.md](docs/WORKER.md#get-asset)). The poster now falls
+        back to a neutral panel instead of a black box
+        ([docs/API.md](docs/API.md#-video-thumbnails-need-the-worker))
   - [ ] ⛔ Video preloading doesn't work — deferred, non-blocking
         ([docs/API.md](docs/API.md#-videos-are-not-preloading))
   - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
@@ -400,8 +401,10 @@ Full checklist and pre-scan findings:
       group list, since the server decides the resulting order
 - [x] Group header: icon, description, member count, join control. **No rules
       field exists** on any group payload — dropped, not deferred
-- [ ] Profile: username claim (`checkUsername` → `setUsername`), bio,
-      emoji/color icon picker
+- [x] Profile: username claim with a debounced availability check, bio, and an
+      emoji/color icon picker with a live preview. All three are the same
+      `PATCH /v1/users/<id>`, and only changed fields are sent — a full payload
+      would re-claim the username on every bio edit
 - [x] Public profile + that user's posts
 - [x] My posts / my comments, tabbed, via the URL-patched `getUserContent`
 
@@ -473,10 +476,10 @@ Resolved ones are kept with their answer so they don't get re-asked.
 
 ## 8. Risks
 
-- **⛔ Fully-serverless is no longer strictly true.** Everything reads and writes from a static
-  origin except image upload, which CORS makes impossible without a proxy. Either the Worker gets
-  built or attachments stay unavailable — there is no third option
-  ([docs/WORKER.md](docs/WORKER.md#post-upload)).
+- **⛔ Fully-serverless is no longer strictly true.** **Two** features need a proxy, both for the
+  same reason — a browser request carrying an `Authorization` header cannot follow a redirect:
+  image upload and video thumbnails. Everything else works from a static origin
+  ([docs/WORKER.md](docs/WORKER.md)).
 - **Private API.** sidechat.js is reverse-engineered and unofficial. Endpoints can change or break
   without notice, and this likely runs against Yik Yak's ToS.
 - **Publishing this repo.** It goes open source; the release audit passed 2026-08-27 and found

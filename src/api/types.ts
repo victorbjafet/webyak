@@ -192,6 +192,21 @@ export interface CurrentUser {
   wildcardEmailDomain: string;
 }
 
+/**
+ * Your own identity, read from `getUpdates().user`.
+ *
+ * `/v1/users/me` does **not** carry a username or bio — it returns ids,
+ * memberships and email domains — so the editable fields come from the updates
+ * payload instead. Fields are optional because that payload is undocumented and
+ * has not been schema-checked; the edit screen degrades rather than assuming.
+ */
+export interface MyIdentity {
+  id?: string;
+  username?: string;
+  bio?: string;
+  conversation_icon?: ConversationIcon;
+}
+
 export interface Profile {
   id: string;
   name: string;

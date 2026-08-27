@@ -465,36 +465,34 @@ feed would mean a profile lookup per distinct author. `IdentityAvatar` accepts a
 `photoUrl` for when that is worth doing; the profile screen already has the URL
 and renders it.
 
-#### ⛔ Video thumbnails — same signature, deferred
+#### ⛔ Video thumbnails need the worker
 
-**Not fixed. Deferred by decision 2026-08-27** as non-blocking.
+**Settled 2026-08-27. Not fixable from a browser.** Both routes are closed:
 
-The failure log now reports:
+| Attempt | Result |
+|---|---|
+| No `Authorization` header | `/v1/assets?post_id=…&asset_id=…` → **401**. Verified directly, with and without `post_context`. Unlike `/v1/assets/profile`, this one really does want the token |
+| With the header | Forces a CORS preflight; the endpoint then answers **302** to signed storage, and a preflighted request **cannot follow a cross-origin redirect** |
 
-```
-1x  video-poster · network · api.sidechat.lol · Failed to fetch
-```
+The failure log is what proves the second row: it records
+`video-poster · network · Failed to fetch` — a **network** failure, not
+`http · 401`. If the token were being rejected we would see a 401 response. We
+see no response at all, which means the request succeeded far enough to be
+redirected somewhere the browser refused to follow.
 
-That is character-for-character the signature that profile photos had before
-they were fixed: a **thrown** fetch (not an HTTP error) against a host that
-sends `access-control-allow-origin: *`. The strong hypothesis is therefore the
-same three-step chain — bearer header → preflight → `302` → a preflighted
-request cannot follow a cross-origin redirect.
+This is the same wall as image upload, and it wants the same fix: an
+authenticated **asset relay** in the worker, which forwards the bearer and
+follows the redirect server-side where CORS does not apply
+([WORKER.md](WORKER.md#get-asset)).
 
-If that holds, **the fix is one line**: add the poster URL form to
-`isUnauthenticatedRedirect()` in `src/lib/asset-url.ts` so the element loads it
-plainly and follows the redirect itself.
+Until then the poster renders a neutral panel with a video glyph rather than
+nothing, so a video reads as a video. The `AuthedImage` call is left in place —
+it costs nothing and starts working the moment the relay exists.
 
-What stops it being applied blind: an earlier sweep recorded
-`/v1/assets?post_id=…&asset_id=…` as **401** unauthenticated, which contradicts
-the redirect theory — a 401 would mean the endpoint really does want the token,
-and removing it would swap one blank poster for another. Those two observations
-cannot both be right, and the *Images — video thumbnail fetch* probe settles it:
-it now requests the poster with `redirect: 'manual'` and reports
-`type=opaqueredirect` if it redirects.
-
-**It needs a video in the sampled feed to run**, which is why this is still open
-— three probe runs have found none. Run it when a video post is visible.
+> This is the third time the same underlying rule has bitten: **on the web,
+> `fetch` + `Authorization` cannot follow a redirect.** Profile photos escaped it
+> because that endpoint needs no auth; upload and video posters cannot, because
+> theirs do.
 
 #### ⛔ Videos are not preloading
 

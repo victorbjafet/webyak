@@ -68,6 +68,7 @@ function RootNavigator() {
               <Stack.Screen name="p/[code]" />
               <Stack.Screen name="u/[username]" />
               <Stack.Screen name="me/index" />
+              <Stack.Screen name="me/edit" />
               <Stack.Screen name="chats/index" />
               <Stack.Screen name="chats/[id]" />
               <Stack.Screen name="diagnostics" />
