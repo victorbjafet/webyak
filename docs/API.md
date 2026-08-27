@@ -353,6 +353,26 @@ Native uses `expo-video`, where the platform handles HLS.
 offsides also references a `youtube` type in a commented-out branch, so `type` is
 an open set. We render `link` and ignore the rest rather than guessing.
 
+## A user profile is a group
+
+`getUserProfile` hits **`/v1/groups/username?username=<name>`** and returns
+`json.group`. That is not a quirk of the wrapper — the API genuinely models a
+user's public profile as a group object, which is why the profile typedef carries
+`group_join_type: "account"` and `group_visibility`.
+
+Two consequences:
+
+- **The profile picture is `icon_url`**, the same field groups use, pointing at
+  `icon.yik-yak.com` — which is **public** (verified 200 unauthenticated). So
+  profile and community icons load without the bearer, unlike post assets.
+- Anything that renders a group renders a profile. Worth reusing rather than
+  building a parallel component.
+
+Paths that do **not** exist, swept: `/v1/users/<name>`, `/v1/users/profile`,
+`/v1/users/aliases/<name>`, `/v1/aliases/<name>`, `/v1/users/<name>/profile`,
+`/v1/profiles/<name>`, `/v1/users/by_username`. `getUserPosts` is separate and
+uses `/v1/users/posts?username=<name>`.
+
 ## Endpoints that exist but sidechat.js doesn't wrap
 
 Found by the 404-vs-401 sweep. These were previously recorded as "no endpoint

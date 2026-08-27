@@ -30,6 +30,13 @@ function bucketFor(intervalMs: number): Bucket {
 function subscribe(intervalMs: number) {
   return (listener: Listener) => {
     const bucket = bucketFor(intervalMs);
+
+    // Refresh on subscribe. A bucket only advances while something is watching
+    // it, so a component switching tick rates — the expanded timestamp folding
+    // back to a relative age — would otherwise read a value up to `intervalMs`
+    // stale and show it until the next tick. React re-reads the snapshot right
+    // after subscribing, so updating it here is picked up immediately.
+    bucket.now = Date.now();
     bucket.listeners.add(listener);
 
     if (!bucket.handle) {

@@ -219,22 +219,30 @@ async function probeProfileShape(): Promise<ProbeResult> {
       };
     }
 
-    const res = await api.sendRequest(`/v1/users/${encodeURIComponent(username)}`);
+    // A profile is a *group* object: getUserProfile hits /v1/groups/username and
+    // returns json.group. That's also why profiles carry icon_url.
+    const res = await api.sendRequest(
+      `/v1/groups/username?username=${encodeURIComponent(username)}`,
+    );
     const text = await res.text();
     if (!res.ok) {
       return {
         ...base,
         status: 'fail',
-        detail: `Looked up "${username}": HTTP ${res.status}. sidechat.js may use a different path.`,
+        detail: `Looked up "${username}": HTTP ${res.status}.`,
         evidence: preview(text.slice(0, 300)),
       };
     }
-    const json = JSON.parse(text) as Record<string, unknown>;
+    const json = JSON.parse(text) as { group?: Record<string, unknown> };
+    const group = json.group ?? (json as Record<string, unknown>);
+    const iconUrl = typeof group.icon_url === 'string' ? group.icon_url : undefined;
     return {
       ...base,
-      status: 'pass',
-      detail: `Looked up "${username}". Top-level keys: ${Object.keys(json).join(', ')}.`,
-      evidence: preview(json, 700),
+      status: iconUrl ? 'pass' : 'partial',
+      detail: iconUrl
+        ? `"${username}" has icon_url — that is the profile picture, and icon.yik-yak.com is public.`
+        : `"${username}" returned no icon_url. Keys: ${Object.keys(group).join(', ')}.`,
+      evidence: preview(group, 700),
     };
   } catch (e) {
     return fail(base, e);

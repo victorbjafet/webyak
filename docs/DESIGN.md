@@ -195,3 +195,35 @@ A dimmed control that explains itself is better than one that appears and
 disappears, and it means Phase 4 changes behaviour without moving anything.
 Awards are the exception — genuinely not built, and low enough value that a
 placeholder would be clutter.
+
+## The header is chrome, not a page title
+
+The header block holds **where you are and what you can do to it**, not a repeat
+of the nav. A feed screen shows the community's icon and name, its sort tabs, and
+the leaderboard control; a post screen keeps the community name and swaps the
+tabs for a back button. Section screens without a community (Explore, Alerts,
+Chats, You) still use their own name, because there is nothing else to put there.
+
+Sort tabs live in the header rather than scrolling with the posts, so switching
+sort never requires scrolling back up. `Screen` takes `leading`, `headerBelow`
+and `action` slots for exactly this.
+
+## Media sizing
+
+Inline media is capped at ~68% of viewport height. A tall portrait image
+otherwise pushes the whole post off screen and has to be opened in the lightbox
+to be read at all. The cap comes from `useWindowDimensions`, so it **tracks
+window resizes** rather than being measured once.
+
+Once capped, the frame no longer matches the asset's aspect ratio, so media uses
+`contain` — `cover` would crop precisely the images that triggered the cap.
+
+## Switching communities
+
+Two presentations of one control, following the official app: a list under the
+nav in the desktop sidebar, and a scrollable strip directly above the tab bar on
+narrow screens. Selection persists.
+
+The list comes from `getUpdates().groups` — which is **not** a complete
+membership list (`/v1/users/me` reported 4 memberships against 3 groups), so it
+is "communities you can switch to", not "everything you belong to".

@@ -9,6 +9,7 @@ import { DownloadButton } from './download-button';
 import type { Asset } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useMediaMaxHeight } from '@/lib/media';
 
 /**
  * Video posts are HLS (`.m3u8`). Safari plays them natively; Chrome and Firefox
@@ -20,12 +21,22 @@ import { useTheme } from '@/hooks/use-theme';
  * play. Attaching the stream does not start playback — `autoplay` is never set,
  * so this buffers quietly and stays paused.
  */
-export function PostVideo({ asset, preload = false }: { asset: Asset; preload?: boolean }) {
+export function PostVideo({
+  asset,
+  preload = false,
+  visible = false,
+}: {
+  asset: Asset;
+  preload?: boolean;
+  /** Strictly on-screen, unlike `preload` which includes the approach margin. */
+  visible?: boolean;
+}) {
   const theme = useTheme();
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [attached, setAttached] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const maxHeight = useMediaMaxHeight();
 
   const src = asset.signed_url || asset.url || '';
   const poster = asset.thumbnail_asset?.url;
@@ -80,10 +91,44 @@ export function PostVideo({ asset, preload = false }: { asset: Asset; preload?: 
     if (playing && attached) void videoRef.current?.play().catch(() => {});
   }, [playing, attached]);
 
+  // Scrolling away pauses — audio continuing from a video nobody can see is the
+  // most annoying thing a feed can do.
+  //
+  // This only touches the element, never component state: the video is an
+  // external system, so pausing it here is exactly what an effect is for, and
+  // setting state instead would cascade a render. `started` stays true, so the
+  // native controls remain and scrolling back leaves it paused with a play
+  // button rather than resuming audio unannounced.
+  useEffect(() => {
+    if (!visible) videoRef.current?.pause();
+  }, [visible]);
+
+  // Nudge the element to decode and paint frame one, so an attached-but-unplayed
+  // video shows a still rather than a black box. The API's own thumbnail needs
+  // the bearer token and is rendered behind this as the first choice; this is
+  // the fallback when that fetch hasn't landed.
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !attached || playing) return;
+    const seekToFirstFrame = () => {
+      if (el.currentTime === 0 && el.readyState >= 1) {
+        try {
+          el.currentTime = 0.05;
+        } catch {
+          /* seeking before metadata is ready throws; the listener retries */
+        }
+      }
+    };
+    el.addEventListener('loadeddata', seekToFirstFrame);
+    seekToFirstFrame();
+    return () => el.removeEventListener('loadeddata', seekToFirstFrame);
+  }, [attached, playing]);
+
   if (!src) return null;
 
   return (
-    <View style={[styles.frame, { aspectRatio: ratio, backgroundColor: theme.skeleton }]}>
+    <View
+      style={[styles.frame, { aspectRatio: ratio, maxHeight, backgroundColor: theme.skeleton }]}>
       <video
         ref={videoRef}
         controls={playing}
@@ -98,11 +143,15 @@ export function PostVideo({ asset, preload = false }: { asset: Asset; preload?: 
       {!playing ? (
         <>
           {/* The poster attribute can't send an Authorization header and these
-              thumbnail URLs require one, so the poster is rendered as an image
-              behind the element rather than set on it. */}
-          <View style={styles.posterLayer} pointerEvents="none">
-            <AuthedImage uri={poster} style={styles.poster} contentFit="contain" />
-          </View>
+              thumbnail URLs require one, so the poster is drawn as an image
+              behind the element rather than set on it. Once the stream is
+              attached the element paints its own first frame, so this steps
+              aside and lets that show. */}
+          {!attached ? (
+            <View style={styles.posterLayer} pointerEvents="none">
+              <AuthedImage uri={poster} style={styles.poster} contentFit="contain" />
+            </View>
+          ) : null}
 
           <Pressable
             onPress={() => setPlaying(true)}

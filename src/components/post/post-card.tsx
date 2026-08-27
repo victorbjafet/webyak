@@ -23,6 +23,8 @@ interface PostCardProps {
   onVote?: (next: VoteStatus) => void;
   /** Set by the feed when this post is at or near the viewport, so video can buffer early. */
   preload?: boolean;
+  /** Strictly on screen. Video pauses when this goes false. */
+  visible?: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export function PostCard({
   showGroup = false,
   onVote,
   preload = false,
+  visible = false,
 }: PostCardProps) {
   const theme = useTheme();
   const router = useRouter();
@@ -99,7 +102,7 @@ export function PostCard({
         )
       ) : null}
 
-      <PostAssets assets={post.assets} preload={preload} />
+      <PostAssets assets={post.assets} preload={preload} visible={visible} />
       <PostAttachments attachments={post.attachments} />
 
       {post.poll ? <PollView poll={post.poll} /> : null}

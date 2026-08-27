@@ -1,6 +1,7 @@
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { BottomBar } from './bottom-bar';
+import { CommunitySwitcher } from './community-switcher';
 import { Sidebar } from './sidebar';
 
 import { useSession } from '@/api/session';
@@ -31,7 +32,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       style={[styles.root, { backgroundColor: theme.background }, showNav && wide && styles.wide]}>
       {showNav && wide ? <Sidebar /> : null}
       <View style={styles.content}>{children}</View>
-      {showNav && !wide ? <BottomBar /> : null}
+      {showNav && !wide ? (
+        <>
+          <CommunitySwitcher variant="bar" />
+          <BottomBar />
+        </>
+      ) : null}
     </View>
   );
 }

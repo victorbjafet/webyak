@@ -6,7 +6,9 @@ import { useGroupBySlug, useGroupFeed } from '@/api/queries';
 import { useSession } from '@/api/session';
 import type { FeedCategory, TopPeriod } from '@/api/types';
 import { FeedList } from '@/components/feed/feed-list';
+import { LeaderboardButton } from '@/components/feed/leaderboard-button';
 import { SortTabs } from '@/components/feed/sort-tabs';
+import { GroupAvatar } from '@/components/group-avatar';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
@@ -70,7 +72,7 @@ export default function GroupFeedScreen() {
     );
   }
 
-  const header = (
+  const listHeader = (
     <View style={styles.header}>
       {group.data.description ? (
         <ThemedText type="small" themeColor="textSecondary">
@@ -82,17 +84,26 @@ export default function GroupFeedScreen() {
           {formatCount(group.data.member_count)} members
         </ThemedText>
       ) : null}
-      <SortTabs
-        value={category}
-        onChange={setSort}
-        period={window}
-        onPeriodChange={setPeriod}
-      />
     </View>
   );
 
   return (
-    <Screen title={group.data.name} subtitle={`/g/${group.data.slug}`} back scroll={false}>
+    <Screen
+      title={group.data.name}
+      leading={
+        <GroupAvatar
+          name={group.data.name}
+          iconUrl={group.data.icon_url}
+          color={group.data.color}
+          size={30}
+        />
+      }
+      action={<LeaderboardButton />}
+      headerBelow={
+        <SortTabs value={category} onChange={setSort} period={window} onPeriodChange={setPeriod} />
+      }
+      back
+      scroll={false}>
       <FeedList
         posts={feed.posts}
         isLoading={feed.isLoading}
@@ -103,7 +114,7 @@ export default function GroupFeedScreen() {
         onRefresh={() => feed.refetch()}
         onEndReached={() => feed.fetchNextPage()}
         onRetry={() => feed.refetch()}
-        header={header}
+        header={listHeader}
         emptyBody="No posts in this community yet."
       />
     </Screen>

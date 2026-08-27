@@ -1,59 +1,64 @@
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 
+import { useCurrentGroup } from '@/api/current-group';
 import { useGroupFeed } from '@/api/queries';
-import { useSession } from '@/api/session';
 import type { FeedCategory, TopPeriod } from '@/api/types';
 import { FeedList } from '@/components/feed/feed-list';
+import { LeaderboardButton } from '@/components/feed/leaderboard-button';
 import { SortTabs } from '@/components/feed/sort-tabs';
+import { GroupAvatar } from '@/components/group-avatar';
 import { Screen } from '@/components/screen';
 import { EmptyState } from '@/components/states';
-import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
-import { Spacing } from '@/constants/theme';
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { primaryGroup } = useSession();
+  const { current } = useCurrentGroup();
   const [sort, setSort] = useState<FeedCategory>('hot');
   const [period, setPeriod] = useState<TopPeriod>('day');
 
-  const feed = useGroupFeed(primaryGroup?.id, sort, period);
-  const openGroup = useCallback(() => {
-    if (primaryGroup) {
-      const slug = primaryGroup.index_name || primaryGroup.analytics_name;
-      if (slug) router.push({ pathname: '/g/[slug]', params: { slug } });
-    }
-  }, [primaryGroup, router]);
+  const feed = useGroupFeed(current?.id, sort, period);
 
-  if (!primaryGroup?.id) {
+  const openGroup = useCallback(() => {
+    const slug = current?.index_name || current?.analytics_name;
+    if (slug) router.push({ pathname: '/g/[slug]', params: { slug } });
+  }, [current, router]);
+
+  if (!current?.id) {
     return (
       <Screen title="Home">
         <EmptyState
           icon="compass-outline"
-          title="No home community yet"
-          body="Your account doesn't have a primary group set. Find one in Explore and it'll show up here."
+          title="No community yet"
+          body="Join one in Explore and it'll show up here and in the switcher."
           action={<Button label="Browse communities" onPress={() => router.push('/explore')} />}
         />
       </Screen>
     );
   }
 
-  const header = (
-    <View style={styles.header}>
-      <View style={styles.titleRow}>
-        <ThemedText type="heading" style={styles.titleText}>
-          {primaryGroup.name}
-        </ThemedText>
-        <Button label="Open" variant="ghost" onPress={openGroup} />
-      </View>
-      <SortTabs value={sort} onChange={setSort} period={period} onPeriodChange={setPeriod} />
-    </View>
-  );
-
   return (
-    <Screen title="Home" scroll={false}>
+    <Screen
+      title={current.name}
+      leading={
+        <GroupAvatar
+          name={current.name}
+          iconUrl={current.icon_url}
+          color={current.color}
+          size={30}
+        />
+      }
+      action={
+        <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+          <LeaderboardButton />
+        </View>
+      }
+      headerBelow={
+        <SortTabs value={sort} onChange={setSort} period={period} onPeriodChange={setPeriod} />
+      }
+      scroll={false}>
       <FeedList
         posts={feed.posts}
         isLoading={feed.isLoading}
@@ -64,22 +69,10 @@ export default function HomeScreen() {
         onRefresh={() => feed.refetch()}
         onEndReached={() => feed.fetchNextPage()}
         onRetry={() => feed.refetch()}
-        header={header}
+        header={
+          <Button label={`Open ${current.name}`} variant="ghost" onPress={openGroup} />
+        }
       />
     </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  header: {
-    gap: Spacing.two,
-  },
-  titleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-  },
-  titleText: {
-    flex: 1,
-  },
-});

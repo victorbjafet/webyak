@@ -10,6 +10,7 @@ import type { Asset } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { bestAssetUrl } from '@/lib/asset-url';
+import { useMediaMaxHeight } from '@/lib/media';
 
 /**
  * Images and videos on a post.
@@ -18,10 +19,19 @@ import { bestAssetUrl } from '@/lib/asset-url';
  * bearer token — so everything goes through AuthedImage rather than a raw
  * source. See src/lib/asset-url.ts for the rules.
  */
-export function PostAssets({ assets, preload = false }: { assets?: Asset[]; preload?: boolean }) {
+export function PostAssets({
+  assets,
+  preload = false,
+  visible = false,
+}: {
+  assets?: Asset[];
+  preload?: boolean;
+  visible?: boolean;
+}) {
   const theme = useTheme();
   const [open, setOpen] = useState<Asset | null>(null);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const maxHeight = useMediaMaxHeight();
 
   if (!assets?.length) return null;
 
@@ -30,7 +40,9 @@ export function PostAssets({ assets, preload = false }: { assets?: Asset[]; prel
       <View style={styles.stack}>
         {assets.map((asset) => {
           if (asset.type === 'video') {
-            return <PostVideo key={asset.id} asset={asset} preload={preload} />;
+            return (
+              <PostVideo key={asset.id} asset={asset} preload={preload} visible={visible} />
+            );
           }
 
           const uri = bestAssetUrl(asset);
@@ -46,8 +58,18 @@ export function PostAssets({ assets, preload = false }: { assets?: Asset[]; prel
                 style={({ hovered }) => [hovered && styles.hovered]}>
                 <AuthedImage
                   uri={uri}
-                  style={[styles.image, { aspectRatio: ratio, backgroundColor: theme.skeleton }]}
-                  contentFit="cover"
+                  style={[
+                    styles.image,
+                    {
+                      aspectRatio: ratio,
+                      // Capped so a tall portrait image can't take over the
+                      // feed. `contain` because once capped the frame no longer
+                      // matches the asset's ratio, and `cover` would crop it.
+                      maxHeight,
+                      backgroundColor: theme.skeleton,
+                    },
+                  ]}
+                  contentFit="contain"
                   transition={120}
                 />
               </Pressable>

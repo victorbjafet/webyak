@@ -149,6 +149,7 @@ src/
 | 27 | Notification feed | — | ✅ `/v1/activity` → `{items, cursor}` with server-rendered `text`. Ready to build |
 | 28 | Report content | — | ⛔ no method |
 | 29 | Awards | — | ⛔ no method; posts carry `awards[]`. Deliberately deprioritised |
+| 30 | Community leaderboard | — | ⛔ no endpoint; groups carry `should_show_leaderboard`. Stub button in the header |
 
 Items 25–29 are the "sniff the official client and add via `sendRequest`" pile (Phase 8).
 
@@ -255,8 +256,16 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
         needed the bearer, which is why they were blank
       - save / repost / share always visible, dimmed where unavailable
       - timestamps live-update, on one shared timer
-- [ ] Visual QA round 3
-- [ ] ⛔ Profile pictures — probe added, cause not yet confirmed
+- [x] Visual QA round 3, and the fixes from it:
+      - timestamps refresh immediately when switching detail level
+      - media capped to the viewport, resize-aware
+      - video pauses when scrolled away, and shows a first frame
+      - header rebuilt: community name + icon, sort tabs, leaderboard stub
+      - community switcher — sidebar list and mobile strip, persisted
+      - community and profile icons render (`icon.yik-yak.com` is public)
+- [x] **Profile pictures fixed** — a profile is a group object, so the picture is
+      `icon_url`; the earlier probe used a path that doesn't exist
+- [ ] Visual QA round 4
 
 ### Phase 4 — write
 - [ ] Optimistic voting on posts and comments

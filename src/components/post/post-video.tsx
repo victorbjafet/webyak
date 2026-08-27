@@ -4,13 +4,15 @@ import { StyleSheet, View } from 'react-native';
 import type { Asset } from '@/api/types';
 import { Radius } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { useMediaMaxHeight } from '@/lib/media';
 
 /**
  * Native video. HLS is handled by the platform players, so unlike the web
  * variant (post-video.web.tsx) this needs no shim.
  */
-export function PostVideo({ asset }: { asset: Asset; preload?: boolean }) {
+export function PostVideo({ asset }: { asset: Asset; preload?: boolean; visible?: boolean }) {
   const theme = useTheme();
+  const maxHeight = useMediaMaxHeight();
   const src = asset.signed_url || asset.url || '';
   const ratio = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
 
@@ -21,7 +23,8 @@ export function PostVideo({ asset }: { asset: Asset; preload?: boolean }) {
   if (!src) return null;
 
   return (
-    <View style={[styles.frame, { aspectRatio: ratio, backgroundColor: theme.skeleton }]}>
+    <View
+      style={[styles.frame, { aspectRatio: ratio, maxHeight, backgroundColor: theme.skeleton }]}>
       <VideoView player={player} style={styles.video} contentFit="contain" nativeControls />
     </View>
   );

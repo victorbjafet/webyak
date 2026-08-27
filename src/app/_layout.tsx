@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { CurrentGroupProvider } from '@/api/current-group';
 import { QueryProvider } from '@/api/query-provider';
 import { SessionProvider, useSession } from '@/api/session';
 import { AppShell } from '@/components/app-shell';
@@ -96,7 +97,9 @@ export default function RootLayout() {
       <ThemePreferenceProvider>
         <QueryProvider>
           <SessionProvider>
-            <RootNavigator />
+            <CurrentGroupProvider>
+              <RootNavigator />
+            </CurrentGroupProvider>
           </SessionProvider>
         </QueryProvider>
       </ThemePreferenceProvider>

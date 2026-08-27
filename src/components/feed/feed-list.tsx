@@ -57,6 +57,9 @@ export function FeedList({
   // Which rows are on screen, widened by PRELOAD_MARGIN so a video has started
   // buffering by the time it scrolls into view rather than when play is pressed.
   const [preloadRange, setPreloadRange] = useState({ start: 0, end: PRELOAD_MARGIN });
+  // Strictly on screen, kept apart from the widened preload band so video can
+  // buffer early but still pause the moment it actually leaves the viewport.
+  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 0 });
   // FlatList rejects a changing onViewableItemsChanged, so both of these must
   // keep a stable identity. `setPreloadRange` is already stable, which lets the
   // callback hold no dependencies.
@@ -68,10 +71,10 @@ export function FeedList({
         .map((v) => v.index)
         .filter((i): i is number => typeof i === 'number');
       if (indices.length === 0) return;
-      setPreloadRange({
-        start: Math.min(...indices) - PRELOAD_MARGIN,
-        end: Math.max(...indices) + PRELOAD_MARGIN,
-      });
+      const first = Math.min(...indices);
+      const last = Math.max(...indices);
+      setVisibleRange({ start: first, end: last });
+      setPreloadRange({ start: first - PRELOAD_MARGIN, end: last + PRELOAD_MARGIN });
     },
     [],
   );
@@ -82,6 +85,7 @@ export function FeedList({
         post={item}
         showGroup={showGroup}
         preload={index >= preloadRange.start && index <= preloadRange.end}
+        visible={index >= visibleRange.start && index <= visibleRange.end}
         onPress={
           item.index_code
             ? () => router.push({ pathname: '/p/[code]', params: { code: item.index_code! } })
@@ -89,7 +93,7 @@ export function FeedList({
         }
       />
     ),
-    [router, showGroup, preloadRange],
+    [router, showGroup, preloadRange, visibleRange],
   );
 
   if (error && posts.length === 0) {

@@ -11,6 +11,14 @@ import { useTheme } from '@/hooks/use-theme';
 interface ScreenProps {
   title?: string;
   subtitle?: string;
+  /** Rendered left of the title — a group icon, typically. */
+  leading?: React.ReactNode;
+  /**
+   * Rendered inside the header block, below the title row. Feeds put their
+   * sort tabs here so the tabs sit in the chrome rather than scrolling with
+   * the posts, matching the official app.
+   */
+  headerBelow?: React.ReactNode;
   /** Rendered on the right of the header row. */
   action?: React.ReactNode;
   /**
@@ -28,6 +36,8 @@ interface ScreenProps {
 export function Screen({
   title,
   subtitle,
+  leading,
+  headerBelow,
   action,
   back = false,
   scroll = true,
@@ -38,8 +48,10 @@ export function Screen({
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
-  const header = title ? (
-    <View style={[styles.header, { borderBottomColor: theme.border }]}>
+  const header =
+    title || headerBelow ? (
+      <View style={[styles.headerBlock, { borderBottomColor: theme.border }]}>
+        <View style={styles.header}>
       {back ? (
         <Pressable
           accessibilityRole="button"
@@ -52,19 +64,24 @@ export function Screen({
           <Ionicons name="chevron-back" size={20} color={theme.text} />
         </Pressable>
       ) : null}
+      {leading}
       <View style={styles.headerText}>
-        <ThemedText type="subtitle" style={{ color: theme.brand }}>
-          {title}
-        </ThemedText>
+        {title ? (
+          <ThemedText type="subtitle" numberOfLines={1} style={{ color: theme.brand }}>
+            {title}
+          </ThemedText>
+        ) : null}
         {subtitle ? (
-          <ThemedText type="small" themeColor="textSecondary">
+          <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
             {subtitle}
           </ThemedText>
         ) : null}
       </View>
       {action}
-    </View>
-  ) : null;
+        </View>
+        {headerBelow ? <View style={styles.headerBelow}>{headerBelow}</View> : null}
+      </View>
+    ) : null;
 
   const body = <View style={[styles.column, { maxWidth }]}>{children}</View>;
 
@@ -97,13 +114,20 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  headerBlock: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingBottom: Spacing.two,
+  },
   header: {
     paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.three,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingTop: Spacing.three,
+    paddingBottom: Spacing.two,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: Spacing.three,
+    gap: Spacing.two,
+  },
+  headerBelow: {
+    paddingHorizontal: Spacing.three,
   },
   headerText: {
     flex: 1,

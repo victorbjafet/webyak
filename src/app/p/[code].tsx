@@ -2,6 +2,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { useCachedPostByCode, useComments, usePost } from '@/api/queries';
+import { GroupAvatar } from '@/components/group-avatar';
 import { CommentItem } from '@/components/post/comment-item';
 import { PostCard } from '@/components/post/post-card';
 import { Screen } from '@/components/screen';
@@ -35,7 +36,18 @@ export default function PostDetailScreen() {
   const current = post.data ?? cached;
 
   return (
-    <Screen title="Post" subtitle={current.group?.name} back scroll={false}>
+    <Screen
+      title={current.group?.name ?? 'Post'}
+      leading={
+        <GroupAvatar
+          name={current.group?.name}
+          iconUrl={current.group?.icon_url}
+          color={current.group?.color}
+          size={30}
+        />
+      }
+      back
+      scroll={false}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <PostCard post={current} />
 
