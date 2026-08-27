@@ -107,11 +107,11 @@ optimization we'd only want if storage reads ever show up in a profile.
 | Device ID | `sha256(DeviceInfo.getAndroidId())` | random persisted UUID | No browser equivalent, and we don't want a fingerprint |
 | Post-login | `RNRestart.restart()` | update session state in place | Restarting isn't a thing on web |
 | School email | flow continues into it | skippable | Token is already valid; interest groups don't need a `.edu` |
-| Images | passes `Authorization: Bearer` on every image request | plain `<img src>` | Post assets come back **pre-signed** (verified). See below |
+| Images | passes `Authorization: Bearer` on every image request | same, via `AuthedImage` | **They were right.** See below |
 | List virtualization | `@shopify/flash-list` | TBD in Phase 3 | Web has different tradeoffs |
 | Group search | unused — explore list only | plan to use `searchAvailableGroups` | They never needed slug resolution; we do |
 
-### The image difference is worth understanding
+### They were right about image auth
 
 `AutoImage.jsx` attaches the bearer token to every image request:
 
@@ -119,15 +119,19 @@ optimization we'd only want if storage reads ever show up in a profile.
 source={{ uri: src, headers: { Authorization: `Bearer ${token}` } }}
 ```
 
-React Native's `Image` supports custom headers; the web's `<img>` does not, so if
-this were required on web we'd need a fetch→blob shim or a proxy. Our probe
-settled it: **post assets come back as pre-signed R2 URLs** with
-`X-Amz-Signature`, which load in a plain `<img>`.
+We initially read that as defensive and rendered images with a plain source,
+having verified that post images are pre-signed. **That verification generalised
+from too small a sample.** Video thumbnails and asset-library URLs are served
+from `api.sidechat.lol` without a signature and return **401** without the
+header — which is why video posters came out blank.
 
-But note offsides isn't being paranoid for no reason — `uploadAsset()` returns
-`api.sidechat.lol/v1/assets/library/<id>`, which is *not* pre-signed. So the rule
-is probably: **assets attached to posts are pre-signed; asset-library URLs need
-the bearer.** Verify that when Phase 4 touches the asset library.
+React Native's image loader takes headers, so offsides gets this for free. The
+web has no equivalent: `<img>` and `<video poster>` cannot send headers, so
+`AuthedImage` fetches those URLs with the token and passes a blob URL instead.
+Rules in [API.md](API.md#asset-urls-and-auth--corrected).
+
+Worth generalising: when offsides does something that looks unnecessary,
+assume they hit a case we haven't yet.
 
 ## What offsides does *not* solve
 

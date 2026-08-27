@@ -144,11 +144,11 @@ src/
 | 22 | Group chats | `getGroupChats`, `joinGroupChat` | ⛔ `getGroupChats` URL broken |
 | 23 | Hide user's posts | `hidePostsFromUser`, `unhidePostsFromAllUsers` | |
 | 24 | Mark activity read | `readActivity` | |
-| 25 | Save / unsave post | — | `/v1/posts/saved` **exists** (401 not 404); no write path found yet |
+| 25 | Save / unsave post | — | List works: `/v1/posts/saved` → `{posts, cursor}`. ⛔ Write path: 8 candidates swept, all 404 |
 | 26 | Follow / unfollow post | — | ⛔ readable, not writable; six candidate paths all 404 |
-| 27 | Notification feed | — | `/v1/activity` **exists** (401 not 404); pairs with `readActivity` |
+| 27 | Notification feed | — | ✅ `/v1/activity` → `{items, cursor}` with server-rendered `text`. Ready to build |
 | 28 | Report content | — | ⛔ no method |
-| 29 | Awards | — | ⛔ no method; posts carry an `awards[]` array |
+| 29 | Awards | — | ⛔ no method; posts carry `awards[]`. Deliberately deprioritised |
 
 Items 25–29 are the "sniff the official client and add via `sendRequest`" pile (Phase 8).
 
@@ -248,7 +248,15 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
       - **video plays** — HLS, with an hls.js fallback for Chrome/Firefox
       - link-preview attachments render
       - post age hovers/taps to an exact timestamp and second-level delta
-- [ ] Visual QA round 2
+- [x] Visual QA round 2, and the fixes from it:
+      - video preloads on approach; fullscreen no longer crops vertical video
+      - download control on images and video
+      - **asset auth corrected** — not everything is pre-signed; video posters
+        needed the bearer, which is why they were blank
+      - save / repost / share always visible, dimmed where unavailable
+      - timestamps live-update, on one shared timer
+- [ ] Visual QA round 3
+- [ ] ⛔ Profile pictures — probe added, cause not yet confirmed
 
 ### Phase 4 — write
 - [ ] Optimistic voting on posts and comments
@@ -290,8 +298,8 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 - [ ] Redirect real Yik Yak URLs (`/cy/<group>/comments/<code>/<slug>`) to `/p/<code>`
 
 ### Phase 8 — gap-filling
-- [x] `/v1/posts/saved` and `/v1/activity` found by 404-vs-401 sweep
-- [ ] Probe their response shapes, then wrap them
+- [x] `/v1/posts/saved` and `/v1/activity` found, and their shapes probed
+- [ ] Wrap both — saved reuses the feed query wholesale, activity needs a screen
 - [ ] Capture official-client traffic for the rest: follow, report, awards, and
       the *write* path for save
 - [ ] Implement each via `client.sendRequest()`

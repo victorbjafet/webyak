@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '../themed-text';
 import { IdentityAvatar } from './identity-avatar';
 import { PollView } from './poll-view';
+import { PostActions } from './post-actions';
 import { PostAssets } from './post-assets';
 import { PostAttachments } from './post-attachments';
 import { TimeStamp } from './time-stamp';
@@ -20,6 +21,8 @@ interface PostCardProps {
   onPress?: () => void;
   showGroup?: boolean;
   onVote?: (next: VoteStatus) => void;
+  /** Set by the feed when this post is at or near the viewport, so video can buffer early. */
+  preload?: boolean;
 }
 
 /**
@@ -32,7 +35,13 @@ interface PostCardProps {
  * specific children (the text, the comment count) rather than the whole card,
  * and no interactive element ever contains another.
  */
-export function PostCard({ post, onPress, showGroup = false, onVote }: PostCardProps) {
+export function PostCard({
+  post,
+  onPress,
+  showGroup = false,
+  onVote,
+  preload = false,
+}: PostCardProps) {
   const theme = useTheme();
   const router = useRouter();
 
@@ -90,7 +99,7 @@ export function PostCard({ post, onPress, showGroup = false, onVote }: PostCardP
         )
       ) : null}
 
-      <PostAssets assets={post.assets} />
+      <PostAssets assets={post.assets} preload={preload} />
       <PostAttachments attachments={post.attachments} />
 
       {post.poll ? <PollView poll={post.poll} /> : null}
@@ -114,7 +123,7 @@ export function PostCard({ post, onPress, showGroup = false, onVote }: PostCardP
         </Pressable>
 
         <View style={styles.spacer} />
-        {post.is_saved ? <Ionicons name="bookmark" size={15} color={theme.brand} /> : null}
+        <PostActions post={post} />
       </View>
     </View>
   );

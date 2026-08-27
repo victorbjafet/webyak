@@ -1,23 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Image } from 'expo-image';
 import { useState } from 'react';
 import { Modal, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 
+import { AuthedImage } from '../authed-image';
+import { DownloadButton } from './download-button';
 import { PostVideo } from './post-video';
 
 import type { Asset } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { bestAssetUrl } from '@/lib/asset-url';
 
 /**
- * Post images.
+ * Images and videos on a post.
  *
- * Verified: post assets come back as **pre-signed** R2 URLs, so no auth header
- * is needed and a plain image source works. offsides attaches a bearer token to
- * every image request because asset-*library* URLs do need one — that
- * distinction matters if Phase 4 renders library assets.
+ * Asset URLs are inconsistent about auth — some are pre-signed, some need the
+ * bearer token — so everything goes through AuthedImage rather than a raw
+ * source. See src/lib/asset-url.ts for the rules.
  */
-export function PostAssets({ assets }: { assets?: Asset[] }) {
+export function PostAssets({ assets, preload = false }: { assets?: Asset[]; preload?: boolean }) {
   const theme = useTheme();
   const [open, setOpen] = useState<Asset | null>(null);
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
@@ -28,27 +29,34 @@ export function PostAssets({ assets }: { assets?: Asset[] }) {
     <>
       <View style={styles.stack}>
         {assets.map((asset) => {
-          // Videos are HLS streams, not images — rendering one through <Image>
-          // is why video posts showed a blank frame.
-          if (asset.type === 'video') return <PostVideo key={asset.id} asset={asset} />;
+          if (asset.type === 'video') {
+            return <PostVideo key={asset.id} asset={asset} preload={preload} />;
+          }
 
-          const uri = asset.signed_url || asset.url;
+          const uri = bestAssetUrl(asset);
           if (!uri) return null;
           const ratio = asset.width && asset.height ? asset.width / asset.height : 1;
+
           return (
-            <Pressable
-              key={asset.id}
-              accessibilityRole="imagebutton"
-              accessibilityLabel="Open image"
-              onPress={() => setOpen(asset)}
-              style={({ hovered }) => [hovered && styles.hovered]}>
-              <Image
-                source={{ uri }}
-                style={[styles.image, { aspectRatio: ratio, backgroundColor: theme.skeleton }]}
-                contentFit="cover"
-                transition={120}
+            <View key={asset.id} style={styles.imageWrap}>
+              <Pressable
+                accessibilityRole="imagebutton"
+                accessibilityLabel="Open image"
+                onPress={() => setOpen(asset)}
+                style={({ hovered }) => [hovered && styles.hovered]}>
+                <AuthedImage
+                  uri={uri}
+                  style={[styles.image, { aspectRatio: ratio, backgroundColor: theme.skeleton }]}
+                  contentFit="cover"
+                  transition={120}
+                />
+              </Pressable>
+              <DownloadButton
+                uri={uri}
+                filename={`webyak-${asset.id}.${asset.content_type || 'jpg'}`}
+                label="Download image"
               />
-            </Pressable>
+            </View>
           );
         })}
       </View>
@@ -58,22 +66,39 @@ export function PostAssets({ assets }: { assets?: Asset[] }) {
         transparent
         animationType="fade"
         onRequestClose={() => setOpen(null)}>
-        <Pressable
-          style={[styles.backdrop, { backgroundColor: theme.overlay }]}
-          onPress={() => setOpen(null)}
-          accessibilityRole="button"
-          accessibilityLabel="Close image">
+        <View style={[styles.backdrop, { backgroundColor: theme.overlay }]}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => setOpen(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Close image"
+          />
           {open ? (
-            <Image
-              source={{ uri: open.signed_url || open.url }}
+            <AuthedImage
+              uri={bestAssetUrl(open)}
               style={{ width: screenWidth * 0.94, height: screenHeight * 0.8 }}
               contentFit="contain"
             />
           ) : null}
-          <View style={[styles.close, { backgroundColor: theme.backgroundElevated }]}>
+
+          <Pressable
+            onPress={() => setOpen(null)}
+            accessibilityRole="button"
+            accessibilityLabel="Close"
+            style={[styles.close, { backgroundColor: theme.backgroundElevated }]}>
             <Ionicons name="close" size={22} color={theme.text} />
-          </View>
-        </Pressable>
+          </Pressable>
+
+          {open ? (
+            <View style={styles.lightboxDownload}>
+              <DownloadButton
+                uri={bestAssetUrl(open)}
+                filename={`webyak-${open.id}.${open.content_type || 'jpg'}`}
+                label="Download image"
+              />
+            </View>
+          ) : null}
+        </View>
       </Modal>
     </>
   );
@@ -82,6 +107,9 @@ export function PostAssets({ assets }: { assets?: Asset[] }) {
 const styles = StyleSheet.create({
   stack: {
     gap: Spacing.two,
+  },
+  imageWrap: {
+    position: 'relative',
   },
   image: {
     width: '100%',
@@ -101,5 +129,12 @@ const styles = StyleSheet.create({
     right: Spacing.three,
     padding: Spacing.two,
     borderRadius: Radius.pill,
+  },
+  lightboxDownload: {
+    position: 'absolute',
+    bottom: Spacing.five,
+    right: Spacing.four,
+    width: 40,
+    height: 40,
   },
 });

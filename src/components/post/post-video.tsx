@@ -9,7 +9,7 @@ import { useTheme } from '@/hooks/use-theme';
  * Native video. HLS is handled by the platform players, so unlike the web
  * variant (post-video.web.tsx) this needs no shim.
  */
-export function PostVideo({ asset }: { asset: Asset }) {
+export function PostVideo({ asset }: { asset: Asset; preload?: boolean }) {
   const theme = useTheme();
   const src = asset.signed_url || asset.url || '';
   const ratio = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
@@ -22,7 +22,7 @@ export function PostVideo({ asset }: { asset: Asset }) {
 
   return (
     <View style={[styles.frame, { aspectRatio: ratio, backgroundColor: theme.skeleton }]}>
-      <VideoView player={player} style={styles.video} contentFit="cover" nativeControls />
+      <VideoView player={player} style={styles.video} contentFit="contain" nativeControls />
     </View>
   );
 }

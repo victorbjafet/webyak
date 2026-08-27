@@ -186,9 +186,65 @@ async function probeGapEndpoints(): Promise<ProbeResult> {
   };
 }
 
+/**
+ * #3 — profile pictures don't render. The Profile type says the icon is
+ * emoji + color, but that typedef came from sidechat.js's JSDoc, which has been
+ * wrong before. This dumps what the endpoint actually returns.
+ */
+async function probeProfileShape(): Promise<ProbeResult> {
+  const base = {
+    id: 'profile-shape',
+    label: 'Profile — icon fields',
+    question: 'What does getUserProfile return for a user icon?',
+  };
+  try {
+    // Find a username from a real post rather than guessing one.
+    const groups = await fetchUserGroups();
+    let username: string | undefined;
+    for (const groupId of [SAMPLE_GROUP_ID, ...groups.slice(0, 3).map((g) => g.id)]) {
+      const page = (await api.getGroupPosts(groupId, 'hot')) as unknown as {
+        posts?: PostOrComment[];
+      };
+      const named = page.posts?.find((p) => p.identity?.posted_with_username && p.identity?.name);
+      if (named) {
+        username = named.identity.name;
+        break;
+      }
+    }
+    if (!username) {
+      return {
+        ...base,
+        status: 'partial',
+        detail: 'No posts by a named user in the sampled feeds — nothing to look up.',
+      };
+    }
+
+    const res = await api.sendRequest(`/v1/users/${encodeURIComponent(username)}`);
+    const text = await res.text();
+    if (!res.ok) {
+      return {
+        ...base,
+        status: 'fail',
+        detail: `Looked up "${username}": HTTP ${res.status}. sidechat.js may use a different path.`,
+        evidence: preview(text.slice(0, 300)),
+      };
+    }
+    const json = JSON.parse(text) as Record<string, unknown>;
+    return {
+      ...base,
+      status: 'pass',
+      detail: `Looked up "${username}". Top-level keys: ${Object.keys(json).join(', ')}.`,
+      evidence: preview(json, 700),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
+    await probeProfileShape(),
     await probeVideoShape(),
     await probeGapEndpoints(),
     await probeFeedHygiene(),

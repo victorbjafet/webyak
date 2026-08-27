@@ -2,6 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { useUserPosts, useUserProfile } from '@/api/queries';
+import { AuthedImage } from '@/components/authed-image';
 import { PostCard } from '@/components/post/post-card';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -38,6 +39,10 @@ export default function ProfileScreen() {
   }
 
   const icon = profile.data?.conversation_icon;
+  // The Profile typedef says the icon is emoji + color, but that came from
+  // sidechat.js's JSDoc which has been wrong before, so handle an image URL too
+  // and fall back to a glyph rather than rendering an empty circle.
+  const imageUrl = profile.data?.icon_url ?? profile.data?.image_url;
 
   return (
     <Screen title={`@${username}`} back scroll={false}>
@@ -48,12 +53,12 @@ export default function ProfileScreen() {
             { backgroundColor: theme.backgroundElement, borderColor: theme.border },
           ]}>
           <View style={styles.identityRow}>
-            <View
-              style={[
-                styles.bigAvatar,
-                { backgroundColor: icon?.color || theme.control },
-              ]}>
-              <ThemedText style={styles.bigEmoji}>{icon?.emoji ?? '👤'}</ThemedText>
+            <View style={[styles.bigAvatar, { backgroundColor: icon?.color || theme.control }]}>
+              {imageUrl ? (
+                <AuthedImage uri={imageUrl} style={styles.avatarImage} contentFit="cover" />
+              ) : (
+                <ThemedText style={styles.bigEmoji}>{icon?.emoji ?? '👤'}</ThemedText>
+              )}
             </View>
             <View style={styles.identityText}>
               <ThemedText type="subtitle">{profile.data?.name ?? username}</ThemedText>
@@ -126,10 +131,15 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   bigEmoji: {
     fontSize: 30,
     lineHeight: 40,
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   identityText: {
     flex: 1,

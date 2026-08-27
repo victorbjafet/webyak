@@ -1,6 +1,13 @@
 import { useRouter } from 'expo-router';
-import { useCallback } from 'react';
-import { ActivityIndicator, FlatList, RefreshControl, StyleSheet, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  View,
+  type ViewToken,
+} from 'react-native';
 
 import { EmptyState, ErrorState, LoadingState } from '../states';
 import { ThemedText } from '../themed-text';
@@ -9,6 +16,9 @@ import { PostCard } from '../post/post-card';
 import type { PostOrComment } from '@/api/types';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+
+/** How many rows either side of the viewport count as "about to be seen". */
+const PRELOAD_MARGIN = 2;
 
 interface FeedListProps {
   posts: PostOrComment[];
@@ -44,11 +54,34 @@ export function FeedList({
   const theme = useTheme();
   const router = useRouter();
 
+  // Which rows are on screen, widened by PRELOAD_MARGIN so a video has started
+  // buffering by the time it scrolls into view rather than when play is pressed.
+  const [preloadRange, setPreloadRange] = useState({ start: 0, end: PRELOAD_MARGIN });
+  // FlatList rejects a changing onViewableItemsChanged, so both of these must
+  // keep a stable identity. `setPreloadRange` is already stable, which lets the
+  // callback hold no dependencies.
+  const viewabilityConfig = useMemo(() => ({ itemVisiblePercentThreshold: 10 }), []);
+
+  const onViewableItemsChanged = useCallback(
+    ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      const indices = viewableItems
+        .map((v) => v.index)
+        .filter((i): i is number => typeof i === 'number');
+      if (indices.length === 0) return;
+      setPreloadRange({
+        start: Math.min(...indices) - PRELOAD_MARGIN,
+        end: Math.max(...indices) + PRELOAD_MARGIN,
+      });
+    },
+    [],
+  );
+
   const renderItem = useCallback(
-    ({ item }: { item: PostOrComment }) => (
+    ({ item, index }: { item: PostOrComment; index: number }) => (
       <PostCard
         post={item}
         showGroup={showGroup}
+        preload={index >= preloadRange.start && index <= preloadRange.end}
         onPress={
           item.index_code
             ? () => router.push({ pathname: '/p/[code]', params: { code: item.index_code! } })
@@ -56,7 +89,7 @@ export function FeedList({
         }
       />
     ),
-    [router, showGroup],
+    [router, showGroup, preloadRange],
   );
 
   if (error && posts.length === 0) {
@@ -86,6 +119,8 @@ export function FeedList({
       ItemSeparatorComponent={() => <View style={styles.separator} />}
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
+      viewabilityConfig={viewabilityConfig}
+      onViewableItemsChanged={onViewableItemsChanged}
       onEndReachedThreshold={0.5}
       onEndReached={hasNextPage ? onEndReached : undefined}
       refreshControl={

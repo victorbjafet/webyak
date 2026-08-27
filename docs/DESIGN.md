@@ -160,3 +160,38 @@ read as accidental. Comments use the same 14px — only the vote buttons shrink.
 Vote arrows are circular (`control` background, `pill` radius), matching the
 official app, and they keep that treatment while read-only so nothing shifts
 when Phase 4 makes them live.
+
+### Media
+
+- **Video buffers on approach, not on press.** The feed reports viewable rows
+  and widens that range by two either side; a post in that band attaches its HLS
+  stream and starts buffering while still paused. Playback only ever begins on an
+  explicit press — preloading must never autoplay.
+- **`object-fit: contain`, never `cover`.** The frame already matches the asset's
+  aspect ratio so inline rendering is identical either way, but `cover` crops the
+  top and bottom off a vertical video in fullscreen, where the container becomes
+  the screen.
+- **Every image and video gets a download control.** On web the `download`
+  attribute is ignored cross-origin, so it fetches to a blob first — which also
+  lets it attach the bearer token for the URLs that need one.
+
+### Live timestamps share one timer
+
+Post ages tick. A feed holds dozens of them, so they subscribe to a shared clock
+(`src/lib/clock.ts`) that keeps **one interval per tick rate** regardless of
+subscriber count and stops when the last one unmounts — rather than each
+timestamp owning a `setInterval` and waking the main thread out of phase.
+
+Tick rate matches what is displayed: 30s for the collapsed relative age, 1s for
+the expanded view, which shows seconds and would look broken frozen.
+
+### Show unavailable actions, dimmed
+
+Save and repost render in their real positions but are inert, with a tooltip
+saying why. The bookmark previously appeared *only* on already-saved posts, which
+read as a rendering bug rather than a state.
+
+A dimmed control that explains itself is better than one that appears and
+disappears, and it means Phase 4 changes behaviour without moving anything.
+Awards are the exception — genuinely not built, and low enough value that a
+placeholder would be clutter.

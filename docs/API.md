@@ -285,19 +285,52 @@ testing rather than status codes.
 sidechat.js's `getGroupPosts` has no parameter for this, so `getGroupPosts` in
 `src/api/client.ts` builds the request itself.
 
+## Asset URLs and auth — corrected
+
+> **This supersedes the earlier Q2 answer**, which said post assets are always
+> pre-signed and therefore need no proxy or blob shim. That was true of the
+> sample it was drawn from (images, via the public web API) and **wrong as a
+> general rule**. The API is not consistent.
+
+Verified 2026-08-27 by requesting each form unauthenticated:
+
+| URL form | Auth | Used by |
+|---|---|---|
+| `sidechat-assets-*.r2.cloudflarestorage.com/…X-Amz-Signature=…` | none | post images |
+| `icon.yik-yak.com/…` | none (200) | group icons |
+| `api.sidechat.lol/v1/assets/video.m3u8?…&expires=…` | none — signed via query | video streams |
+| `api.sidechat.lol/v1/assets?post_id=…&asset_id=…` | **401** | video thumbnails |
+| `api.sidechat.lol/v1/assets/library/…` | **401** | asset library, `uploadAsset` output |
+
+The rule that actually holds: **a URL on `api.sidechat.lol` without `expires=`
+or a signature needs the bearer token.** Encoded in `src/lib/asset-url.ts`.
+
+Neither `<img src>` nor `<video poster>` can send a header, which is why video
+posters rendered blank. `AuthedImage` fetches those with the token and hands the
+element a blob URL instead; native passes headers to the image loader directly,
+which is what offsides does.
+
 ## Video
 
-Posts can carry video. Shape confirmed from offsides' `Post.jsx`/`AutoVideo.jsx`:
+Confirmed against a live asset, not just offsides:
 
 ```jsonc
 {
+  "id": "2298546f-…",
   "type": "video",
-  "url": "…m3u8",              // HLS stream
-  "content_type": "…",
-  "width": 0, "height": 0,
-  "thumbnail_asset": { "url": "…" }   // poster frame
+  "content_type": "mov",              // not a MIME type — a container name
+  "width": 636, "height": 1280,
+  "url": "https://api.sidechat.lol/v1/assets/video.m3u8?asset_id=…&expires=…&post_id=…",
+  "thumbnail_asset": {
+    "id": "368c131a-…", "type": "image", "width": 636, "height": 1280,
+    "url": "https://api.sidechat.lol/v1/assets?post_id=…&post_context=feed&asset_id=…"
+  }
 }
 ```
+
+Two things to note: `content_type` is `"mov"`, a container name rather than a
+MIME type, so don't feed it to anything expecting `video/…`. And the stream URL
+is query-signed while **the thumbnail is not** — the poster needs the bearer.
 
 **The stream is HLS**, which is why video "didn't work at all" on web: Safari
 plays `.m3u8` natively, Chrome and Firefox do not. Our `<Image>` was also being
@@ -327,14 +360,28 @@ exists", which was wrong — the library simply has no method for them:
 
 | Endpoint | Status | Note |
 |---|---|---|
-| `/v1/posts/saved` | 401 → **exists** | Almost certainly the saved-posts list. Closes a Phase 8 gap |
-| `/v1/activity` | 401 → **exists** | The activity feed. `readActivity` already exists to mark items read, so this is its missing counterpart |
+| `/v1/posts/saved` | ✅ 200 | `{posts, cursor}` — **the same shape as a feed**, so it can reuse the feed query and card directly |
+| `/v1/activity` | ✅ 200 | `{items, cursor}`, items are `{id, timestamp, type, is_seen, text}` where `id` is `"votes~<uuid>~25"` and `text` is a ready-made human string like *"Your post reached 25 karma: …"*. Pairs with the existing `readActivity` |
 
-Still not found, after sweeping `posts/follow`, `posts/set_follow`,
-`posts/set_follow_status`, `users/follow`, `users/set_follow`, `/v1/follow` — all
-404: **how to follow a post or user.** The state is readable (`follow_status`,
-`identity.is_following`) but not writable through any path we can guess. Profile
-screens say so rather than showing a button that does nothing.
+The activity `type` seen so far is `votes`; treat it as an open set. Because
+`text` is pre-rendered server-side, the notifications screen can ship without
+knowing every type.
+
+Still not found:
+
+- **How to follow.** Swept `posts/follow`, `posts/set_follow`,
+  `posts/set_follow_status`, `users/follow`, `users/set_follow`, `/v1/follow` —
+  all 404.
+- **How to save.** The *list* works, but the write path does not exist on any of
+  `posts/set_saved`, `posts/save`, `posts/save_post`, `posts/bookmark`,
+  `posts/set_bookmark`, `posts/saved/add`, `users/saved`,
+  `posts/set_save_status` — all 404.
+- **Awards.** Posts carry `awards[]`; no endpoint found and none looked for in
+  depth. Lowest priority on the list, deliberately not built.
+
+All three are readable-but-not-writable. The UI shows these controls dimmed with
+a tooltip explaining why, rather than hiding them — a bookmark that appears only
+on already-saved posts reads as a bug.
 
 ## sidechat.js 2.6.6 defects
 

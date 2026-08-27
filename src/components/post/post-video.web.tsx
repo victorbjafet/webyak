@@ -2,38 +2,46 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { AuthedImage } from '../authed-image';
 import { ThemedText } from '../themed-text';
+import { DownloadButton } from './download-button';
 
 import type { Asset } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 /**
- * Video posts are served as **HLS** (`.m3u8`) — confirmed from offsides, which
- * passes `type: 'm3u8'` to react-native-video.
+ * Video posts are HLS (`.m3u8`). Safari plays them natively; Chrome and Firefox
+ * need hls.js, which is imported lazily so Safari never downloads it and it
+ * code-splits out of the main bundle.
  *
- * Safari plays HLS natively; Chrome and Firefox do not, which is why video
- * "didn't work at all" on web. hls.js is loaded lazily, and only when the
- * browser can't handle the stream itself, so Safari never pays for it.
+ * `preload` is set by the feed when the post is at or near the viewport, so the
+ * manifest and first segments are already in flight by the time anyone presses
+ * play. Attaching the stream does not start playback — `autoplay` is never set,
+ * so this buffers quietly and stays paused.
  */
-export function PostVideo({ asset }: { asset: Asset }) {
+export function PostVideo({ asset, preload = false }: { asset: Asset; preload?: boolean }) {
   const theme = useTheme();
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [started, setStarted] = useState(false);
+  const [attached, setAttached] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const src = asset.signed_url || asset.url || '';
   const poster = asset.thumbnail_asset?.url;
   const ratio = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
 
+  // Attach as soon as the feed says this post is near the viewport, or as soon
+  // as someone presses play — whichever happens first.
+  const shouldAttach = preload || playing;
+
   useEffect(() => {
     const el = videoRef.current;
-    if (!el || !started || !src) return;
+    if (!el || !shouldAttach || !src || attached) return;
 
-    // Safari (and iOS webviews) report native HLS support here.
     if (el.canPlayType('application/vnd.apple.mpegurl')) {
       el.src = src;
-      void el.play().catch(() => {});
+      setAttached(true);
       return;
     }
 
@@ -52,10 +60,10 @@ export function PostVideo({ asset }: { asset: Asset }) {
         hls = instance;
         instance.loadSource(src);
         instance.attachMedia(el);
-        instance.on(Hls.Events.MANIFEST_PARSED, () => void el.play().catch(() => {}));
         instance.on(Hls.Events.ERROR, (_e, data) => {
           if (data.fatal) setError('Playback failed.');
         });
+        setAttached(true);
       } catch {
         if (!destroyed) setError('Could not load the video player.');
       }
@@ -65,43 +73,58 @@ export function PostVideo({ asset }: { asset: Asset }) {
       destroyed = true;
       hls?.destroy();
     };
-  }, [started, src]);
+  }, [shouldAttach, src, attached]);
+
+  // Play only on an explicit press, never as a side effect of preloading.
+  useEffect(() => {
+    if (playing && attached) void videoRef.current?.play().catch(() => {});
+  }, [playing, attached]);
 
   if (!src) return null;
 
   return (
-    <View
-      style={[styles.frame, { aspectRatio: ratio, backgroundColor: theme.skeleton }]}
-      // @ts-expect-error web-only DOM attribute passthrough
-      dataSet={{ kind: 'video' }}>
+    <View style={[styles.frame, { aspectRatio: ratio, backgroundColor: theme.skeleton }]}>
       <video
         ref={videoRef}
-        poster={poster}
-        controls={started}
+        controls={playing}
         playsInline
         preload="none"
-        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        // `contain`, not `cover`: the frame already matches the video's aspect
+        // ratio so nothing changes inline, but fullscreen letterboxes a vertical
+        // video instead of cropping its top and bottom off.
+        style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
       />
 
-      {!started ? (
-        <Pressable
-          onPress={() => setStarted(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Play video"
-          style={styles.overlay}>
-          <View style={[styles.playButton, { backgroundColor: theme.overlay }]}>
-            <Ionicons name="play" size={26} color="#FFFFFF" />
+      {!playing ? (
+        <>
+          {/* The poster attribute can't send an Authorization header and these
+              thumbnail URLs require one, so the poster is rendered as an image
+              behind the element rather than set on it. */}
+          <View style={styles.posterLayer} pointerEvents="none">
+            <AuthedImage uri={poster} style={styles.poster} contentFit="contain" />
           </View>
-        </Pressable>
+
+          <Pressable
+            onPress={() => setPlaying(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Play video"
+            style={styles.overlay}>
+            <View style={[styles.playButton, { backgroundColor: theme.overlay }]}>
+              <Ionicons name="play" size={26} color="#FFFFFF" />
+            </View>
+          </Pressable>
+        </>
       ) : null}
 
       {error ? (
-        <View style={[styles.overlay, { backgroundColor: theme.overlay }]}>
+        <View style={[styles.overlay, { backgroundColor: theme.overlay }]} pointerEvents="none">
           <ThemedText type="small" style={{ color: '#FFFFFF' }}>
             {error}
           </ThemedText>
         </View>
       ) : null}
+
+      <DownloadButton uri={src} filename={`webyak-${asset.id}.m3u8`} label="Download video" />
     </View>
   );
 }
@@ -111,6 +134,17 @@ const styles = StyleSheet.create({
     width: '100%',
     borderRadius: Radius.md,
     overflow: 'hidden',
+  },
+  posterLayer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  poster: {
+    width: '100%',
+    height: '100%',
   },
   overlay: {
     position: 'absolute',

@@ -169,8 +169,12 @@ export interface CurrentUser {
 export interface Profile {
   id: string;
   name: string;
-  conversation_icon: ConversationIcon;
+  conversation_icon?: ConversationIcon;
   description?: string;
+  /** Unverified — sidechat.js's typedef says icons are emoji + color only, but
+   *  the same typedef has been wrong before. Probed by the profile diagnostic. */
+  icon_url?: AssetURL;
+  image_url?: AssetURL;
   index_name: string;
   analytics_name: string;
   color: string;

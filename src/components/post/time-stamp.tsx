@@ -3,16 +3,25 @@ import { Platform, Pressable } from 'react-native';
 
 import { ThemedText } from '../themed-text';
 
+import { useNow } from '@/lib/clock';
 import { absoluteTime, preciseDelta, relativeTime } from '@/lib/time';
 
 /**
- * Post age. Tap (or click) to swap to the exact timestamp and a
- * down-to-the-second delta; on web the same detail is also a native tooltip on
- * hover, so it's available without changing the layout.
+ * Post age, live.
+ *
+ * Both views tick, at the granularity they actually display: the collapsed
+ * relative age reads in minutes so 30s is plenty, while the expanded view shows
+ * seconds and would look broken frozen. The timers are shared across every
+ * timestamp on screen — see src/lib/clock.ts.
  */
+const COLLAPSED_TICK = 30_000;
+const EXPANDED_TICK = 1_000;
+
 export function TimeStamp({ iso, type = 'small' }: { iso: string; type?: 'small' | 'caption' }) {
   const [expanded, setExpanded] = useState(false);
-  const detail = `${absoluteTime(iso)} · ${preciseDelta(iso)} ago`;
+  const now = useNow(expanded ? EXPANDED_TICK : COLLAPSED_TICK);
+
+  const detail = `${absoluteTime(iso)} · ${preciseDelta(iso, now)} ago`;
 
   return (
     <Pressable
@@ -20,10 +29,9 @@ export function TimeStamp({ iso, type = 'small' }: { iso: string; type?: 'small'
       accessibilityLabel={detail}
       accessibilityHint="Shows the exact time this was posted"
       onPress={() => setExpanded((v) => !v)}
-      // react-native-web forwards `title` to the DOM node, giving a real tooltip.
       {...(Platform.OS === 'web' ? { title: detail } : null)}>
       <ThemedText type={type} themeColor="textTertiary" numberOfLines={1}>
-        {expanded ? detail : relativeTime(iso)}
+        {expanded ? detail : relativeTime(iso, now)}
       </ThemedText>
     </Pressable>
   );

@@ -53,7 +53,7 @@ Currently: nowhere. Tracked so we notice the moment it changes.
 | Read/write the Sidechat API | ✅ | CORS-open, bearer token in header |
 | Store the user's token | ✅ | localStorage; it is the user's own credential |
 | Deep links / routing | ✅ | via the `404.html` fallback above |
-| Images in posts | ✅ **verified** | Post assets come back as pre-signed R2 URLs (`X-Amz-Signature`) and load in a plain `<img>`. No proxy, no blob shim. Q2 closed. Caveat: asset-*library* URLs (`/v1/assets/library/<id>`) are **not** pre-signed — see [OFFSIDES.md](OFFSIDES.md#the-image-difference-is-worth-understanding) |
+| Images and video in posts | ✅ **verified** | Mixed: some URLs are pre-signed, some need the bearer. Both work client-side — `AuthedImage` fetches the authenticated ones to a blob. No proxy needed. [Rules](API.md#asset-urls-and-auth--corrected) |
 | Cold-load group links (`/g/<slug>`) | ✅ **verified** | Resolved natively via `/v1/groups/explore/search` — [Blocker 2 closed](API.md#blocker-2--group-slug--group_id) |
 | **Cold-load share links** (`/p/<code>`) | ❌ | The authenticated API cannot resolve a share code — [confirmed, not suspected](API.md#blocker-1--index_code--post_id). The public web client can, but has no CORS. **The one remaining case for a Worker.** |
 | Logged-out browsing | ❌ | Out of scope — webyak is auth-only |
