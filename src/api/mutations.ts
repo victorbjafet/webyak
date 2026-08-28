@@ -14,6 +14,7 @@ import {
 } from './client';
 import { joinGroupChat, sendDM, startDM } from './chats';
 import { queryKeys } from './queries';
+import { useSession } from './session';
 import type { JoinChatIdentity, PostOrComment, VoteStatus } from './types';
 import { toastError } from '@/lib/toast';
 
@@ -389,10 +390,14 @@ export function useUpdateProfile() {
  */
 export function useSendDM() {
   const client = useQueryClient();
+  // `client_id` is the device id, not a per-message key — see the note in
+  // chats.ts. offsides sends a stable hashed hardware id; ours is the random
+  // UUID minted at first launch and persisted with the session.
+  const { deviceId } = useSession();
 
   return useMutation({
     mutationFn: ({ chatId, text, anonymous }: { chatId: string; text: string; anonymous?: boolean }) =>
-      sendDM(chatId, text, anonymous),
+      sendDM(chatId, text, deviceId ?? '', anonymous),
     onError: (error) => toastError(error, "That message didn't send."),
     onSuccess: (_result, { chatId }) => {
       void client.invalidateQueries({ queryKey: queryKeys.dmThread(chatId) });
@@ -404,6 +409,7 @@ export function useSendDM() {
 /** Opens a new thread from a post or comment. */
 export function useStartDM() {
   const client = useQueryClient();
+  const { deviceId } = useSession();
 
   return useMutation({
     mutationFn: ({
@@ -414,7 +420,7 @@ export function useStartDM() {
       text: string;
       postId: string;
       anonymous?: boolean;
-    }) => startDM(text, postId, anonymous),
+    }) => startDM(text, postId, deviceId ?? '', anonymous),
     onError: (error) => toastError(error, "That message couldn't be sent."),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.dmThreads() });

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
-import { useDMThreads } from '@/api/queries';
+import { useDMThreads, useJoinedGroupChats } from '@/api/queries';
 import type { DirectThread } from '@/api/types';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -20,6 +20,10 @@ export default function ChatsScreen() {
   const router = useRouter();
   const now = useNow(TICK);
   const threads = useDMThreads();
+  // Group chats live somewhere other than /v1/chats — the lead is
+  // getUpdates().chats, unconfirmed. Shown when present so a chat joined in the
+  // official app is at least visible here rather than silently missing.
+  const joined = useJoinedGroupChats();
 
   /**
    * Requests are separated out.
@@ -53,6 +57,35 @@ export default function ChatsScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={styles.gap} />}
+          ListHeaderComponent={
+            (joined.data?.length ?? 0) > 0 ? (
+              <View style={styles.joinedBlock}>
+                <ThemedText type="smallBold" themeColor="textSecondary">
+                  Group chats
+                </ThemedText>
+                {joined.data?.map((chat) => (
+                  <View
+                    key={chat.id}
+                    style={[
+                      styles.joinedRow,
+                      { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+                    ]}>
+                    <ThemedText style={styles.joinedEmoji}>{chat.emoji || '💬'}</ThemedText>
+                    <ThemedText type="small" numberOfLines={1} style={styles.title}>
+                      {chat.name ?? 'Group chat'}
+                    </ThemedText>
+                    <ThemedText type="caption" themeColor="textTertiary">
+                      Can&rsquo;t open yet
+                    </ThemedText>
+                  </View>
+                ))}
+                <ThemedText type="caption" themeColor="textTertiary">
+                  Reading a group chat needs an endpoint that hasn&rsquo;t been found — see
+                  docs/API.md.
+                </ThemedText>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={
             <EmptyState
               icon="chatbubble-outline"
@@ -135,6 +168,22 @@ const styles = StyleSheet.create({
   },
   gap: {
     height: Spacing.two,
+  },
+  joinedBlock: {
+    gap: Spacing.two,
+    paddingBottom: Spacing.three,
+  },
+  joinedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    padding: Spacing.two,
+    borderRadius: Radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  joinedEmoji: {
+    fontSize: 16,
+    lineHeight: 22,
   },
   row: {
     flexDirection: 'row',

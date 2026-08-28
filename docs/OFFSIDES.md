@@ -233,3 +233,72 @@ the two.
 `unread` does not appear anywhere in their source — they offer hot / top /
 recent only. So the official app's unread filter is either newer than offsides
 or was never reverse-engineered, and we have to settle it ourselves.
+
+
+## Round 5 — messaging (2026-08-28)
+
+Consulted to answer three questions: do existing DMs and group chats sync, how
+are message requests handled, and how is a group chat opened. It answered one
+and confirmed the other two are unsolved everywhere.
+
+### They corrected me on `client_id`
+
+`ThreadScreen.jsx`:
+
+```js
+const id = await DeviceInfo.getAndroidId();
+const deviceID = sha256(id);
+await API.sendDM(chatID, messageDraft, deviceID);
+```
+
+**One stable value for the life of the install**, sent on every message.
+
+I had reasoned the opposite — that `client_id` was a per-message idempotency
+key, because every message in a thread carries its own — and sent a fresh UUID
+each time, on the grounds that uniqueness was safe under either reading. That
+reasoning was sound but the premise was wrong: if the server deduped on this
+value, offsides would only ever deliver one message per thread. It doesn't, so
+it isn't a dedup key. Now the session's persisted device id.
+
+### DMs do sync; the list inlines its messages
+
+`MessagesScreen.jsx` calls `getDMs()` (`GET /v1/chats`) and renders
+`item.messages[item.messages.length - 1]?.text` with `item.updated_at`. So the
+thread list is **server-side state** — a conversation started in the official
+app appears here — and the list response carries the messages, not just a
+preview. Our list reads `last_message` first and falls back to the same
+expression.
+
+### They have not solved message requests either
+
+`MessagesScreen.jsx` has **no `accept_status` handling at all** — no filtering,
+no accept, no decline. So the read-only limitation is not our gap, it is the
+state of the reverse engineering. We at least separate requests from accepted
+threads and say why they can't be actioned.
+
+### They have not solved group chats either
+
+`ThreadScreen.jsx` has no group-chat path, and `leaveChat` is a stub:
+
+```js
+const leaveChat = () => {
+  return; // Waiting for sidechat.js implementation
+};
+```
+
+So "joinable but not openable" is where the whole ecosystem is, not a shortfall
+on our side. sidechat.js wraps `getGroupChats` and `joinGroupChat` and nothing
+else.
+
+**Where joined chats live is still open.** They are not in `/v1/chats`, which is
+DMs. The standing guess is `getUpdates().chats` — a top-level key distinct from
+`groups` and `activity_items` — which costs nothing to read since we make that
+call anyway. Implemented as a lead with an empty-list fallback, and the
+messaging probe dumps the key to settle it.
+
+### Poll rate
+
+They poll an open thread every **5s** while focused. Our first pass used 12s out
+of caution about request rates; that was being careful about the wrong thing —
+12s is a noticeably laggy chat, and offsides has been polling this API at 5s for
+a long time, which makes it a measured tolerance rather than a guess. Matched.

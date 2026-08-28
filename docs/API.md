@@ -943,17 +943,17 @@ parity, not a limitation.
 `dms_disabled` on a post is the author opting out. Honoured client-side rather
 than letting the request fail.
 
-### `client_id` is per message, not per device
+### `client_id` is the device id — corrected
 
-sidechat.js's JSDoc calls it "alphanumeric device ID", but every *message*
-carries its own `client_id`, which is the shape of a client-generated
-idempotency key.
+The JSDoc says "alphanumeric device ID". I initially disbelieved it, because
+every *message* carries its own `client_id`, which is the shape of an
+idempotency key — and sent a fresh UUID per message.
 
-The two readings fail in opposite directions and only one is safe. If the server
-dedupes on this value and we sent the device id every time, **the second message
-in a thread would silently vanish**. If it really is a device id and we send
-something unique, the server almost certainly just stores it. So a fresh UUID
-per message: being wrong that way costs nothing.
+**offsides settles it**: it sends `sha256(androidId)`, one stable value for the
+life of the install, on every message. If the server deduped on this field that
+client would deliver one message per thread and no more. It doesn't. So the
+field is what it says it is, and we send the session's persisted device id
+(docs/OFFSIDES.md#round-5--messaging-2026-08-28).
 
 ### Polling, because there is nothing else
 
@@ -971,7 +971,9 @@ and the sender has no way to tell whether it arrived.
 
 Threads carry `accept_status`, and a value other than `accepted` means someone
 you don't know has written to you about your post. **Nothing writes that field**
-— sidechat.js has no method, and no candidate route has been confirmed. The
+— sidechat.js has no method, no candidate route has been confirmed, and
+**offsides doesn't handle `accept_status` at all**, so this is the state of the
+reverse engineering rather than a gap on our side. The
 thread view says so rather than rendering an accept button that does nothing;
 replying may accept it implicitly, which is untested.
 
@@ -987,3 +989,14 @@ DM threads, and no endpoint for reading a group chat's messages has been found.
 
 So Explore can join one and nothing can open it. The section says so plainly.
 The probe sweeps four candidate routes.
+
+**offsides is no further along**: it has no group-chat path, and its `leaveChat`
+is a stub marked *"Waiting for sidechat.js implementation."* The library wraps
+`getGroupChats` and `joinGroupChat` and nothing else.
+
+Where *joined* chats live is the open question. They are not in `/v1/chats`,
+which returns DM threads. The standing guess is **`getUpdates().chats`** — a
+top-level key distinct from `groups` and `activity_items` — read as a lead with
+an empty-list fallback and dumped by the probe. Any that show up are listed on
+the Chats screen, unopenable, so a chat joined in the official app is visible
+rather than silently missing.

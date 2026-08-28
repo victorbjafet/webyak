@@ -450,10 +450,16 @@ Full checklist and pre-scan findings:
 - [x] Group chat explore + join, with the school strip and "View all" on Explore
 - [x] Polling — 12s for an open thread (foreground only), 60s for the list.
       There is no websocket in this API ([docs/API.md](docs/API.md#polling-because-there-is-nothing-else))
-- [ ] ⛔ **Message requests are read-only** — `accept_status` is readable but
-      nothing writes it ([docs/API.md](docs/API.md#-message-requests-are-read-only))
-- [ ] ⛔ **Group chats can be joined but not opened** — no endpoint found for
-      their messages ([docs/API.md](docs/API.md#-group-chats-can-be-joined-but-not-opened))
+- [x] `client_id` corrected to the device id — offsides sends a stable hashed
+      hardware id, which disproves the dedup theory I'd built a UUID scheme on
+- [x] Joined group chats surfaced from `getUpdates().chats` (a lead, not a
+      confirmed shape) so a chat joined in the official app is at least visible
+- [ ] ⛔ **Message requests are read-only** — `accept_status` is readable, nothing
+      writes it, and **offsides doesn't handle it either**
+      ([docs/API.md](docs/API.md#-message-requests-are-read-only))
+- [ ] ⛔ **Group chats can be joined but not opened** — no endpoint for their
+      messages; offsides' `leaveChat` is a stub, so the whole ecosystem is stuck
+      here ([docs/API.md](docs/API.md#-group-chats-can-be-joined-but-not-opened))
 - [ ] **Verify against live data** — every shape here was read from sidechat.js's
       source, not observed. Run the *Phase 6 — DMs and group chats* probe
 

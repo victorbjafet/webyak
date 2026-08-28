@@ -1,4 +1,4 @@
-import { request } from './client';
+import { getUpdates, request } from './client';
 import type { DirectThread, GroupChat, JoinChatIdentity } from './types';
 
 /**
@@ -34,30 +34,30 @@ export async function getDMThread(chatId: string): Promise<DirectThread | null> 
 }
 
 /**
- * A fresh id per message, not the device id.
+ * `client_id` really is the device id — **corrected 2026-08-28 from offsides.**
  *
- * sidechat.js's JSDoc calls this parameter an "alphanumeric device ID", but
- * every *message* in a thread carries its own `client_id`, which is the shape
- * of a client-generated idempotency key rather than a device identifier.
+ * I had reasoned it was a per-message idempotency key, because every message in
+ * a thread carries its own `client_id`, and sent a fresh UUID each time on the
+ * grounds that uniqueness was safe under either reading.
  *
- * The two readings fail in opposite directions and only one is safe: if the
- * server dedupes on this value and we sent the device id every time, the second
- * message in a thread would silently vanish. If it really is a device id and we
- * send something unique, the server almost certainly just stores it. So unique
- * per message it is — the failure mode of being wrong that way is nothing.
+ * offsides settles it: `ThreadScreen.jsx` sends `sha256(androidId)` — one
+ * stable value for the life of the install — and their messages send fine. So
+ * the server does **not** dedupe on it, which was the whole basis for the
+ * guess, and the field is what the JSDoc says it is.
+ *
+ * Now the session's persisted device id, matching a client proven against this
+ * API rather than a plausible theory about one (docs/OFFSIDES.md).
  */
-function newClientId(): string {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  if (uuid) return uuid;
-  // Older WebViews have no randomUUID. Uniqueness is all that matters here.
-  return `webyak-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-export async function sendDM(chatId: string, text: string, anonymous = false) {
+export async function sendDM(
+  chatId: string,
+  text: string,
+  deviceId: string,
+  anonymous = false,
+) {
   return request<unknown>('/v1/chats/send', 'POST', {
     chat_id: chatId,
     text,
-    client_id: newClientId(),
+    client_id: deviceId,
     anonymous,
     assets: [],
   });
@@ -74,12 +74,13 @@ export async function sendDM(chatId: string, text: string, anonymous = false) {
 export async function startDM(
   text: string,
   postId: string,
+  deviceId: string,
   anonymous = false,
   postContext = 'feed',
 ) {
   return request<{ chat?: DirectThread }>('/v1/chats/start', 'POST', {
     text,
-    client_id: newClientId(),
+    client_id: deviceId,
     post_id: postId,
     anonymous,
     post_context: postContext,
@@ -109,4 +110,25 @@ export async function joinGroupChat(chatId: string, identity: JoinChatIdentity) 
       secondary_color: identity.secondaryColor,
     },
   });
+}
+
+/**
+ * Group chats you have already joined.
+ *
+ * **They do not come from `/v1/chats`** — that returns DM threads. offsides
+ * doesn't read them at all (its `leaveChat` is a stub marked "waiting for
+ * sidechat.js"), so this is not solved anywhere upstream.
+ *
+ * The lead is `getUpdates()`, whose top-level key list includes a `chats` entry
+ * distinct from `activity_items` and `groups` (docs/API.md#what-else-is-in-getupdates).
+ * That is the most likely home for joined chats, and it costs one call we
+ * already make.
+ *
+ * Returns an empty list rather than throwing when the key is absent, so a wrong
+ * guess degrades to "no group chats" instead of breaking the screen.
+ */
+export async function getJoinedGroupChats(): Promise<GroupChat[]> {
+  const updates = await getUpdates();
+  const chats = (updates as { chats?: unknown })?.chats;
+  return Array.isArray(chats) ? (chats as GroupChat[]) : [];
 }

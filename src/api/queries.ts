@@ -16,7 +16,7 @@ import {
 } from './client';
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
-import { getDMThread, getDMThreads, getGroupChats } from './chats';
+import { getDMThread, getDMThreads, getGroupChats, getJoinedGroupChats } from './chats';
 import { hasSeenPost, useSeenVersion } from '@/lib/seen-posts';
 import type {
   Cursor,
@@ -51,6 +51,7 @@ export const queryKeys = {
   dmThreads: () => ['chats', 'threads'] as const,
   dmThread: (id: string) => ['chats', 'thread', id] as const,
   groupChats: () => ['chats', 'explore'] as const,
+  joinedGroupChats: () => ['chats', 'joined'] as const,
 };
 
 /** Resolve a URL slug to a group. Layered — see src/api/groups.ts. */
@@ -304,8 +305,16 @@ export function useSavedPosts() {
  * list nobody is reading.
  * ------------------------------------------------------------------------ */
 
-/** How often an open thread checks for new messages. */
-const THREAD_POLL_MS = 12_000;
+/**
+ * How often an open thread checks for new messages.
+ *
+ * 5s, matching offsides — which polls this exact API at that rate and has done
+ * for a long time, so it is a measured tolerance rather than a guess. My first
+ * pass used 12s out of caution about request rates (PLAN §8); that was being
+ * careful about the wrong thing, since 12s is a noticeably laggy chat and the
+ * conservative number was not buying safety anyone had established.
+ */
+const THREAD_POLL_MS = 5_000;
 /** The list only needs to notice a new conversation, not every keystroke. */
 const THREAD_LIST_POLL_MS = 60_000;
 
@@ -326,6 +335,22 @@ export function useDMThread(chatId: string | undefined) {
     // Only while the tab is visible. Polling a background tab burns requests
     // against a private API for messages nobody is looking at.
     refetchIntervalInBackground: false,
+  });
+}
+
+/**
+ * Group chats you're already in.
+ *
+ * Read from `getUpdates().chats`, because `/v1/chats` returns DM threads only.
+ * This is a **lead, not a confirmed shape** — the key exists in the updates
+ * payload but its contents have never been inspected, so the messaging probe
+ * dumps it. Degrades to an empty list if the guess is wrong.
+ */
+export function useJoinedGroupChats() {
+  return useQuery({
+    queryKey: queryKeys.joinedGroupChats(),
+    staleTime: 1000 * 60 * 2,
+    queryFn: getJoinedGroupChats,
   });
 }
 

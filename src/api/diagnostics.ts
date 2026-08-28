@@ -1055,6 +1055,22 @@ async function probeMessaging(): Promise<ProbeResult> {
       steps.push(`/v1/chats/explore → FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
 
+    // Where do already-joined group chats live? /v1/chats is DMs only, and
+    // offsides never reads them, so getUpdates().chats is the standing guess.
+    try {
+      const updates = (await api.getUpdates('')) as Record<string, unknown>;
+      const chats = updates?.chats;
+      steps.push(
+        `\ngetUpdates().chats → ${
+          Array.isArray(chats)
+            ? `${chats.length} entries, first keys: ${Object.keys((chats[0] ?? {}) as object).join(', ')}\n${preview(chats, 600)}`
+            : `not an array (${typeof chats}) — ${preview(chats, 300)}`
+        }`,
+      );
+    } catch (e) {
+      steps.push(`getUpdates().chats → FAILED: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
     // Gap 1: reading a group chat. Joining works; opening has no known route.
     steps.push('\nGroup-chat message routes:');
     for (const path of [
