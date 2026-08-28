@@ -2,12 +2,17 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '../themed-text';
 
-import type { FeedCategory, TopPeriod } from '@/api/types';
+import type { FeedFilter, TopPeriod } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
-/** The API's categories are hot/recent/top; "New" is just the label for recent. */
-const TABS: { value: FeedCategory; label: string }[] = [
+/**
+ * The API's categories are hot/recent/top; "New" is just the label for recent.
+ * **Unread is ours** — the API rejects `type=unread` with a 400, so it is a
+ * client-side filter over hot (docs/API.md#unread-is-ours-not-theirs).
+ */
+const TABS: { value: FeedFilter; label: string }[] = [
+  { value: 'unread', label: 'Unread' },
   { value: 'hot', label: 'Hot' },
   { value: 'recent', label: 'New' },
   { value: 'top', label: 'Top' },
@@ -19,7 +24,10 @@ const TABS: { value: FeedCategory; label: string }[] = [
  * there either. Passing `categories` trims the row rather than showing a tab
  * that returns nothing useful.
  */
-export const FOR_YOU_TABS: FeedCategory[] = ['hot', 'recent'];
+export const FOR_YOU_TABS: FeedFilter[] = ['unread', 'hot', 'recent'];
+
+/** A community feed keeps the API's own three and skips unread. */
+export const GROUP_TABS: FeedFilter[] = ['hot', 'recent', 'top'];
 
 /**
  * Time window for the `top` feed. Verified 2026-08-27 against the live API:
@@ -39,15 +47,15 @@ export function SortTabs({
   onPeriodChange,
   categories,
 }: {
-  value: FeedCategory;
-  onChange: (next: FeedCategory) => void;
+  value: FeedFilter;
+  onChange: (next: FeedFilter) => void;
   period?: TopPeriod;
   onPeriodChange?: (next: TopPeriod) => void;
-  /** Restricts which tabs render. Defaults to all three. */
-  categories?: FeedCategory[];
+  /** Restricts which tabs render. Defaults to the community set. */
+  categories?: FeedFilter[];
 }) {
   const theme = useTheme();
-  const tabs = categories ? TABS.filter((t) => categories.includes(t.value)) : TABS;
+  const tabs = TABS.filter((t) => (categories ?? GROUP_TABS).includes(t.value));
 
   return (
     <View style={styles.stack}>

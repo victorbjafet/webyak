@@ -10,6 +10,15 @@ export type VoteStatus = 'upvote' | 'downvote' | 'none';
 export type FeedCategory = 'hot' | 'recent' | 'top';
 
 /**
+ * What the *UI* offers, which is not what the API accepts.
+ *
+ * `unread` is ours: the API rejects it with `400 Invalid post type: unread`, so
+ * it is a client-side filter over a real category rather than a request
+ * parameter (docs/API.md#unread-is-ours-not-theirs).
+ */
+export type FeedFilter = FeedCategory | 'unread';
+
+/**
  * Time window for the `top` feed, sent as `period`. Verified 2026-08-27: only
  * these three values are recognized — everything else silently falls back to
  * `day`, which is also the default when the param is omitted.

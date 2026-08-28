@@ -148,7 +148,8 @@ src/
 | 30 | Yakarma total + per-community | `getUpdates().karma` | ✅ with post/comment split |
 | 31 | For You feed | `Home` group, `index_name: "all"` | ✅ not a community — no top, not postable |
 | 32 | Saved posts list | `/v1/posts/saved` | ✅ read-only |
-| 33 | Upvoted posts list | — | ⛔ no endpoint found |
+| 33 | Upvoted posts list | `/v1/posts/upvoted` | ✅ a path, not a `type` |
+| 34 | Unread filter | — | ✅ client-side; the API rejects `type=unread` |
 | 25 | Save / unsave post | — | List works: `/v1/posts/saved` → `{posts, cursor}`. ⛔ Write path: 8 candidates swept, all 404 |
 | 26 | Follow / unfollow post | — | ⛔ readable, not writable; six candidate paths all 404 |
 | 27 | Notification feed | — | ✅ `/v1/activity` → `{items, cursor}` with server-rendered `text`. Ready to build |
@@ -183,11 +184,11 @@ are mostly plumbing; three need a probe before they can be estimated.
 |---|---|---|---|
 | B1 | **Live-ish score refresh** on posts and comments | No push channel has been found; this would be polling. The infrastructure is already there — TanStack Query `refetchInterval` on a visible feed, plus the existing viewability tracking so only on-screen posts refetch | Deciding a polite interval. This is a private API and the account is real, so an aggressive poll is an account-risk decision, not just a perf one (PLAN §8) |
 | B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | Nothing. Ready to build |
-| B3 | **Show removal / warning state** when a post is taken down or reported | Nothing known. No moderation field has been seen on any payload, and the account has never had a post removed, so there is no sample to look at | A probe — and realistically, a post that actually gets moderated. May not be observable until it happens |
+| B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Unblocked 2026-08-28.** `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. Finding the acknowledge endpoint needs a sweep, and testing the whole flow still needs a post that actually gets removed |
 | B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing beyond B2 |
 | B7 | **Sort your own posts/comments by top of all time** | **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
 | B6 | **Style deleted posts properly** | They come back in feeds and threads with `text` replaced by the literal `"Deleted Post"`, which we render as ordinary body text so it reads like someone typed it. Should be muted, italic, without vote or reply controls | No `deleted` flag has been found, so detection means matching that string — fragile, worth a probe first ([docs/API.md](docs/API.md#deleted-posts-render-as-bare-text)) |
-| B5 | **Yakarma over time** on the You tab, per-post and overall | The API almost certainly exposes only a *current* value — no history endpoint has been seen, and no karma field appears in any typedef, though activity text proves the server tracks it. So the history has to be **logged client-side**, sampled on app open, exactly as proposed | A probe to find where the current score lives. Then a storage decision: samples are per-device and per-browser, so this silently resets on a new device and should say so rather than look like lost data |
+| B5 | **Yakarma over time** on the You tab, per-post and overall | Karma is at `getUpdates().karma` as `{post, comment, groups}` — and the same payload also carries **`quarterly_karma`, `season_karma` and `season`**, so there may be period-scoped values to read rather than sampling a single lifetime number. Worth inspecting those before building a sampler | Inspect the three season/quarter fields. If they hold real history this gets much cheaper; if not, fall back to client-side sampling, which is per-device and should say so rather than look like lost data |
 
 Two things worth deciding before any of these start:
 
@@ -368,9 +369,11 @@ Full checklist and pre-scan findings:
       Renamed, given a glyph, denied `top`, and composing from it posts to the
       school group instead ([docs/API.md](docs/API.md#home-is-not-a-community--it-is-the-for-you-feed))
 - [x] Every post labelled with its community, on every feed, as Yik Yak does
-- [ ] ⛔ For You `unread` filter — the official app defaults to it, but the feed
-      endpoint silently ignores unknown values so a 200 proves nothing. The
-      differential probe settles it; hot/new ship until then
+- [x] For You `unread` filter — **there is no server-side one**: `type=unread`
+      returns `400 Invalid post type`. Implemented client-side with per-device
+      read tracking marked on viewport entry, and the feed auto-advances pages
+      while the filtered result is short
+      ([docs/API.md](docs/API.md#unread-is-ours-not-theirs)). Defaults to unread
 - [x] Explore sorted by member count by default
 - [ ] ⛔ Explore "newest" — no timestamp on any explore field. Shown disabled
       with a reason ([docs/API.md](docs/API.md#-explore-cannot-sort-by-newest))
@@ -383,8 +386,9 @@ Full checklist and pre-scan findings:
       row appears only for a real username. Comments keep their OP/#1/#2 aliases
       ([docs/DESIGN.md](docs/DESIGN.md#anonymity-is-shown-by-absence))
 - [x] You tab: saved posts (read-only — no save endpoint exists)
-- [ ] ⛔ You tab: upvoted posts — six candidate endpoints swept, all 404
-      ([docs/API.md](docs/API.md#-posts-you-upvoted))
+- [x] You tab: upvoted posts — **found**: `/v1/posts/upvoted` is a *path*, not a
+      `type` value, which is why earlier sweeps missed it
+      ([docs/API.md](docs/API.md#posts-you-upvoted))
 - [~] **Fix images first.** Explore is a grid of community icons and profiles
       are built around avatars, so this bites here before anything else does.
       Groundwork done 2026-08-27:

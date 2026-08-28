@@ -776,19 +776,43 @@ community's own feed, where it is strictly redundant. Copied deliberately: it is
 the parity behaviour, and it is what makes the For You feed legible when
 consecutive posts come from different places.
 
-### ⛔ Is there an `unread` filter?
+### Unread is ours, not theirs
 
-The official app's For You feed offers **unread / hot / new**, defaulting to
-unread. Neither sidechat.js nor offsides mentions it — offsides uses hot / top /
-recent — so it may postdate both.
+**Settled 2026-08-28.** `type=unread` returns:
 
-Not implemented, because it cannot be confirmed by status code: this endpoint
-**silently ignores** unrecognised parameter values (that is how the `period`
-values were pinned down), so `type=unread` returning 200 would prove nothing.
-The *For You — is there an unread filter?* probe settles it differentially, by
-comparing the returned ids against `hot` with a nonsense value as the control.
+```
+400  Invalid post type: unread
+```
 
-Until it is confirmed, For You shows **hot / new** and defaults to hot.
+There is no server-side unread filter. The official app must be tracking read
+state on the device, so we do the same: `src/lib/seen-posts.ts` records ids as
+rows reach the viewport, persists them, and the Unread tab filters `hot` by what
+is unseen.
+
+Consequences worth knowing:
+
+- **Read state is per-device.** There is nothing to sync with, so a second
+  browser starts fresh. The empty state says so rather than implying data loss.
+- **Filtering client-side can empty a page.** 24 posts you have already read
+  collapse to nothing, so `useGroupFeed` pulls further pages automatically while
+  the unread result is too short to fill a screen, bounded by `hasNextPage`.
+- Marking happens on **viewability**, not on render or on tap. Rendering would
+  mark the whole prefetched window including posts never actually shown;
+  tapping would mark almost nothing.
+
+#### ⚠️ `type` is validated; `period` is not
+
+This is worth remembering before designing the next probe. The same endpoint
+treats its two parameters differently:
+
+| Parameter | Unrecognised value |
+|---|---|
+| `type` | **400 with a message.** Cheap to probe — just ask |
+| `period` | **Silently ignored**, falls back to `day`. Needs a differential probe comparing returned ids against a control |
+
+The `unread` probe was built the expensive differential way on the assumption
+that `type` behaved like `period`. It did not, and the 400 answered it outright.
+Check for the cheap signal first.
 
 ## Yakarma
 
@@ -816,16 +840,24 @@ plus one row per community, each expanding to the post/comment split. Collapsed
 by default because the split is the interesting part and a wall of numbers is
 not.
 
-## ⛔ Posts you upvoted
+## Posts you upvoted
 
-The official app has this tab in the You section. **No endpoint has been found.**
-Swept: `/v1/posts?type=my_upvotes`, `?type=upvoted`, `?type=my_votes`,
-`/v1/posts/upvoted`, `/v1/posts/voted`, `/v1/users/upvotes`.
+**Found 2026-08-28.** `GET /v1/posts/upvoted` → **200**, `{posts, cursor}`.
 
-Note that `type=my_posts` and `my_comments` *do* work on `/v1/posts`, so the
-pattern is right and the value is wrong — if it exists, it is a value nobody has
-guessed yet. The tab renders an explanation rather than being hidden, so the gap
-is visible instead of looking forgotten.
+It resisted earlier sweeps because it is a **path, not a `type` value**:
+
+```
+/v1/posts?type=my_upvotes  → 400
+/v1/posts?type=upvoted     → 400
+/v1/posts?type=my_votes    → 400
+/v1/posts/upvoted          → 200 ✅
+/v1/posts/voted            → 404
+/v1/users/upvotes          → 404
+```
+
+Because `my_posts` and `my_comments` *are* `type` values, the assumption was that
+everything user-scoped worked that way. Saved posts were the same shape
+(`/v1/posts/saved`) and should have been the hint. sidechat.js wraps neither.
 
 ## ⛔ Explore cannot sort by newest
 
@@ -849,3 +881,42 @@ results drop straight into the feed components. Wired into the You tab.
 The asymmetry stands: there is still **no write path** — thirteen candidate
 endpoints swept, all 404 — so posts can be listed here but only saved from the
 official app. The empty state says so rather than implying the list is broken.
+
+
+## What else is in `getUpdates()`
+
+The full top-level key list, captured 2026-08-28. Recorded because this one
+response carries most of the app's state, and several of these answer questions
+filed elsewhere as blocked:
+
+```
+user, hasWrapped, hasGames, hasGamesBadge, device_tokens, token, user_properties,
+new_posts, hot_posts, user_posts, user_comments, user_chatboard_posts,
+recent_chatboard_posts, top_posts, activity_items, chats, group, groups,
+group_referrals, karma, quarterly_karma, season_karma, season,
+skip_sign_in_verification, skip_sign_in_verification_v2, waitlist_launch_form,
+unacknowledged_removed_post_ids, incoming_freshmen_enabled,
+create_group_application_enabled, community_picker_required_groups_count, flags,
+experiments, ads_settings, dynamic_feed_announcement, dynamic_chat_announcement,
+dynamic_explore_announcement, home_f_a_b_config, app_icons,
+home_announcement_config
+```
+
+Three things stand out:
+
+- **`unacknowledged_removed_post_ids`** — this is the moderation signal that
+  [B3](../PLAN.md) was blocked on. "Show a warning when your post is taken down"
+  was filed as *needs a probe, and realistically needs a post to actually get
+  removed*. It does not: the ids arrive here, and "unacknowledged" implies a
+  matching acknowledge call to find. **B3 is unblocked.**
+- **`quarterly_karma`, `season_karma`, `season`** — karma has more dimensions
+  than the lifetime total the You tab shows. Relevant to [B5](../PLAN.md)
+  (karma over time), which assumed only a current value existed; there may be
+  period-scoped values to read instead of sampling.
+- **`new_posts`, `hot_posts`, `top_posts`, `user_posts`, `user_comments`** — the
+  updates call appears to carry pre-fetched feeds. If those are usable, a cold
+  start could render without a second request. Unverified; the shapes have not
+  been inspected.
+
+Not chased now — recorded so the next session starts from the answer instead of
+the question.

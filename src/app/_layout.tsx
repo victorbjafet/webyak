@@ -11,6 +11,7 @@ import { AppShell } from '@/components/app-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ToastHost } from '@/components/toast-host';
 import { useColorScheme, useTheme } from '@/hooks/use-theme';
+import { restoreSeenPosts } from '@/lib/seen-posts';
 import { ThemePreferenceProvider } from '@/theme/theme-provider';
 
 SplashScreen.preventAutoHideAsync();
@@ -25,6 +26,12 @@ function RootNavigator() {
       void SplashScreen.hideAsync();
     }
   }, [status]);
+
+  // Read state for the unread filter. Restored once at boot; a failure here
+  // just means everything looks unread, which is the safe direction.
+  useEffect(() => {
+    void restoreSeenPosts();
+  }, []);
 
   // Map our palette onto the navigation theme so native stack transitions and
   // the web document background match the app instead of flashing white.

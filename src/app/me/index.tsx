@@ -3,7 +3,13 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { useKarma, useMyContent, useMyIdentity, useSavedPosts } from '@/api/queries';
+import {
+  useKarma,
+  useMyContent,
+  useMyIdentity,
+  useSavedPosts,
+  useUpvotedPosts,
+} from '@/api/queries';
 import { useSession } from '@/api/session';
 import { KarmaPanel } from '@/components/me/karma-panel';
 import { CommentItem } from '@/components/post/comment-item';
@@ -38,9 +44,11 @@ export default function MeScreen() {
   const isContentTab = tab === 'posts' || tab === 'comments';
   const content = useMyContent(isContentTab ? (tab as 'posts' | 'comments') : 'posts');
   const saved = useSavedPosts();
+  const upvoted = useUpvotedPosts();
 
-  const active = tab === 'saved' ? saved : content;
-  const items = tab === 'saved' ? saved.data : isContentTab ? content.data : undefined;
+  const active = tab === 'saved' ? saved : tab === 'upvotes' ? upvoted : content;
+  const items =
+    tab === 'saved' ? saved.data : tab === 'upvotes' ? upvoted.data : isContentTab ? content.data : undefined;
 
   return (
     <Screen
@@ -109,20 +117,7 @@ export default function MeScreen() {
           <Tabs value={tab} onChange={setTab} />
         </View>
 
-        {tab === 'upvotes' ? (
-          /*
-            ⛔ No endpoint found. Six candidates swept, all 404 — see
-            docs/API.md#-posts-you-upvoted. Shown rather than hidden because the
-            official app has this tab, so its absence is a gap worth naming
-            instead of a feature we appear to have forgotten.
-          */
-          <EmptyState
-            icon="arrow-up-circle-outline"
-            title="Upvotes aren't available"
-            body="The official app lists posts you've upvoted, but no endpoint for it has been found — six candidate routes all return 404. Documented in docs/API.md."
-          />
-        ) : (
-          <>
+        <>
             {active.isLoading ? <LoadingState label={`Loading your ${tab}…`} /> : null}
 
             {active.isError ? (
@@ -140,21 +135,27 @@ export default function MeScreen() {
                     ? 'chatbubble-outline'
                     : tab === 'saved'
                       ? 'bookmark-outline'
-                      : 'document-outline'
+                      : tab === 'upvotes'
+                        ? 'arrow-up-circle-outline'
+                        : 'document-outline'
                 }
                 title={
                   tab === 'comments'
                     ? 'No comments yet'
                     : tab === 'saved'
                       ? 'Nothing saved'
-                      : 'No posts yet'
+                      : tab === 'upvotes'
+                        ? 'No upvotes yet'
+                        : 'No posts yet'
                 }
                 body={
                   tab === 'comments'
                     ? 'Your replies show up here.'
                     : tab === 'saved'
                       ? "Posts you save in the official app appear here. Saving can't be done from webyak yet — the API has no write path for it."
-                      : 'Anything you post shows up here, anonymous or not.'
+                      : tab === 'upvotes'
+                        ? 'Posts you upvote show up here.'
+                        : 'Anything you post shows up here, anonymous or not.'
                 }
               />
             ) : null}
@@ -182,8 +183,7 @@ export default function MeScreen() {
                 />
               ),
             )}
-          </>
-        )}
+        </>
 
         <View
           style={[

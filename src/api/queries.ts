@@ -4,13 +4,23 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query';
+import { useEffect, useMemo } from 'react';
 
-import { api, getGroupPosts, getSavedPosts, getUpdates, getUserContent } from './client';
+import {
+  api,
+  getGroupPosts,
+  getSavedPosts,
+  getUpdates,
+  getUpvotedPosts,
+  getUserContent,
+} from './client';
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
+import { hasSeenPost, useSeenVersion } from '@/lib/seen-posts';
 import type {
   Cursor,
   FeedCategory,
+  FeedFilter,
   Group,
   Karma,
   MyIdentity,
@@ -18,6 +28,9 @@ import type {
   Profile,
   TopPeriod,
 } from './types';
+
+/** Keep pulling pages until the unread list could plausibly fill a screen. */
+const UNREAD_MIN_VISIBLE = 8;
 
 export const queryKeys = {
   groupBySlug: (slug: string) => ['group', 'slug', slug] as const,
@@ -33,6 +46,7 @@ export const queryKeys = {
   myIdentity: () => ['me', 'identity'] as const,
   karma: () => ['me', 'karma'] as const,
   saved: () => ['me', 'saved'] as const,
+  upvoted: () => ['me', 'upvoted'] as const,
 };
 
 /** Resolve a URL slug to a group. Layered — see src/api/groups.ts. */
@@ -55,9 +69,16 @@ export function useGroupBySlug(slug: string | undefined, primaryGroupId?: string
  */
 export function useGroupFeed(
   groupId: string | undefined,
-  sort: FeedCategory,
+  filter: FeedFilter,
   period: TopPeriod = 'day',
 ) {
+  // `unread` is not a category the API accepts — it rejects it outright — so it
+  // rides on `hot` and is applied here. Same underlying query key as plain hot,
+  // deliberately: both views want the same pages, and giving them separate keys
+  // would double the requests to show the same posts.
+  const unread = filter === 'unread';
+  const sort: FeedCategory = unread ? 'hot' : filter;
+
   const query = useInfiniteQuery({
     queryKey: queryKeys.feed(groupId ?? '', sort, period),
     enabled: Boolean(groupId),
@@ -73,10 +94,38 @@ export function useGroupFeed(
     },
   });
 
-  return {
-    ...query,
-    posts: query.data ? mergeFeedPages(query.data.pages) : [],
-  };
+  // Re-render when the seen set changes, so a post read on the post screen
+  // disappears from the unread list on the way back.
+  const seenVersion = useSeenVersion();
+
+  const merged = useMemo(
+    () => (query.data ? mergeFeedPages(query.data.pages) : []),
+    [query.data],
+  );
+
+  const posts = useMemo(() => {
+    if (!unread) return merged;
+    // `seenVersion` is the dependency that matters; `merged` alone would go
+    // stale the moment something is marked read.
+    void seenVersion;
+    return merged.filter((post) => !hasSeenPost(post.id));
+  }, [merged, unread, seenVersion]);
+
+  /**
+   * Filtering client-side means a page of 24 can collapse to nothing once
+   * you've read it, leaving a blank screen with more pages sitting behind it.
+   * Pull the next page automatically while the visible result is too short to
+   * fill a viewport — bounded by `hasNextPage`, so it stops at the end rather
+   * than looping.
+   */
+  useEffect(() => {
+    if (!unread) return;
+    if (posts.length >= UNREAD_MIN_VISIBLE) return;
+    if (!query.hasNextPage || query.isFetchingNextPage) return;
+    void query.fetchNextPage();
+  }, [unread, posts.length, query]);
+
+  return { ...query, posts };
 }
 
 export function useUserProfile(username: string | undefined) {
@@ -221,6 +270,14 @@ export function useKarma() {
       const updates = await getUpdates();
       return ((updates as { karma?: Karma })?.karma ?? {}) as Karma;
     },
+  });
+}
+
+/** Posts you've upvoted. `/v1/posts/upvoted` — a path, not a `type` value. */
+export function useUpvotedPosts() {
+  return useQuery({
+    queryKey: queryKeys.upvoted(),
+    queryFn: async () => sanitizePosts((await getUpvotedPosts())?.posts),
   });
 }
 

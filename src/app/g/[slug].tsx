@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { useGroupBySlug, useGroupFeed } from '@/api/queries';
 import { useSession } from '@/api/session';
-import type { FeedCategory, TopPeriod } from '@/api/types';
+import type { FeedCategory, FeedFilter, TopPeriod } from '@/api/types';
 import { FeedList } from '@/components/feed/feed-list';
 import { LeaderboardButton } from '@/components/feed/leaderboard-button';
 import { SortTabs } from '@/components/feed/sort-tabs';
@@ -39,7 +39,11 @@ export default function GroupFeedScreen() {
   const group = useGroupBySlug(slug, primaryGroup?.id);
   const feed = useGroupFeed(group.data?.id, category, window);
 
-  const setSort = useCallback((next: FeedCategory) => router.setParams({ sort: next }), [router]);
+  const setSort = useCallback(
+    // A community feed has no unread tab, so anything else lands on hot.
+    (next: FeedFilter) => router.setParams({ sort: next === 'unread' ? 'hot' : next }),
+    [router],
+  );
   const setPeriod = useCallback(
     (next: TopPeriod) => router.setParams({ period: next }),
     [router],

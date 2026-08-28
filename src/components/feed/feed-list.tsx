@@ -16,6 +16,7 @@ import { PostCard } from '../post/post-card';
 import type { PostOrComment } from '@/api/types';
 import { Layout, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { markPostsSeen } from '@/lib/seen-posts';
 
 /** How many rows either side of the viewport count as "about to be seen". */
 const PRELOAD_MARGIN = 2;
@@ -67,6 +68,15 @@ export function FeedList({
 
   const onViewableItemsChanged = useCallback(
     ({ viewableItems }: { viewableItems: ViewToken[] }) => {
+      // Reaching the viewport is what counts as read. Marking on render would
+      // mark the whole prefetched window, including posts scrolled past too fast
+      // to see; marking on tap would mark almost nothing.
+      markPostsSeen(
+        viewableItems
+          .map((v) => (v.item as PostOrComment | undefined)?.id)
+          .filter((id): id is string => Boolean(id)),
+      );
+
       const indices = viewableItems
         .map((v) => v.index)
         .filter((i): i is number => typeof i === 'number');

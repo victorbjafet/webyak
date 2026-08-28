@@ -165,6 +165,21 @@ export async function getSavedPosts(cursor?: Cursor) {
   return request<PostsAndCursor>(`/v1/posts/saved${query ? `?${query}` : ''}`);
 }
 
+/**
+ * Posts you've upvoted.
+ *
+ * Found by sweep on 2026-08-28: `/v1/posts/upvoted` answers **200** with the
+ * usual `{posts, cursor}` envelope. The `?type=` variants all return 400, which
+ * is why earlier sweeps concluded no endpoint existed — it is a path, not a
+ * type. sidechat.js has no method for it.
+ */
+export async function getUpvotedPosts(cursor?: Cursor) {
+  const params = new URLSearchParams();
+  if (cursor) params.set('cursor', cursor);
+  const query = params.toString();
+  return request<PostsAndCursor>(`/v1/posts/upvoted${query ? `?${query}` : ''}`);
+}
+
 /** The library builds `/v1/chats/explore&cacheBust=...` (missing `?`). */
 export async function getGroupChats() {
   const json = await request<{ chats: unknown[] }>('/v1/chats/explore');

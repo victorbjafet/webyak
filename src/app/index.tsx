@@ -5,7 +5,7 @@ import { View } from 'react-native';
 import { useCurrentGroup } from '@/api/current-group';
 import { groupDisplayName, isForYouFeed } from '@/api/groups';
 import { useGroupFeed } from '@/api/queries';
-import type { FeedCategory, TopPeriod } from '@/api/types';
+import type { FeedFilter, TopPeriod } from '@/api/types';
 import { FeedList } from '@/components/feed/feed-list';
 import { LeaderboardButton } from '@/components/feed/leaderboard-button';
 import { FOR_YOU_TABS, SortTabs } from '@/components/feed/sort-tabs';
@@ -17,13 +17,22 @@ import { Button } from '@/components/ui/button';
 export default function HomeScreen() {
   const router = useRouter();
   const { current } = useCurrentGroup();
-  const [sort, setSort] = useState<FeedCategory>('hot');
+  // For You defaults to unread, matching the official app. Unread is ours, not
+  // the API's — see docs/API.md#unread-is-ours-not-theirs.
+  const [sort, setSort] = useState<FeedFilter>('unread');
   const [period, setPeriod] = useState<TopPeriod>('day');
 
   const forYou = isForYouFeed(current);
-  // `top` doesn't exist on the combined feed, so a stale selection has to be
-  // corrected rather than sent — switching communities can leave it set.
-  const effectiveSort = forYou && sort === 'top' ? 'hot' : sort;
+  // Neither `top` (unsupported on the combined feed) nor `unread` (a For You
+  // affordance) survives switching to a community, so a stale selection is
+  // corrected rather than sent.
+  const effectiveSort: FeedFilter = forYou
+    ? sort === 'top'
+      ? 'unread'
+      : sort
+    : sort === 'unread'
+      ? 'hot'
+      : sort;
   const feed = useGroupFeed(current?.id, effectiveSort, period);
 
   if (!current?.id) {
@@ -71,6 +80,12 @@ export default function HomeScreen() {
         // community's own feed. Redundant there, but it is the parity behaviour
         // and it makes the For You feed legible.
         showGroup
+        emptyTitle={effectiveSort === 'unread' ? "You're all caught up" : 'Nothing here yet'}
+        emptyBody={
+          effectiveSort === 'unread'
+            ? 'Every post in your communities has been seen on this device. Switch to Hot to see them again.'
+            : 'Be the first to post.'
+        }
         posts={feed.posts}
         isLoading={feed.isLoading}
         isRefetching={feed.isRefetching}
