@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react';
 import { Platform, Pressable, Share, StyleSheet, View } from 'react-native';
 
 import { ConfirmDialog } from '../ui/confirm-dialog';
+import { MessageAuthorDialog } from './message-author-dialog';
 
 import { useDeleteContent } from '@/api/mutations';
 import type { PostOrComment } from '@/api/types';
@@ -35,6 +36,7 @@ export function PostActions({
   const router = useRouter();
   const [copied, setCopied] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [messaging, setMessaging] = useState(false);
   const remove = useDeleteContent();
 
   const url = shareUrlForPost(post);
@@ -79,6 +81,21 @@ export function PostActions({
         disabled={post.type !== 'post'}
         disabledHint="Only posts can be quoted"
       />
+      {/*
+        DMs only exist relative to a post — /v1/chats/start requires a post_id —
+        so this is the entry point, not a chats screen. `dms_disabled` is the
+        author opting out, and it is honoured rather than letting the request
+        fail server-side.
+      */}
+      {!post.authored_by_user ? (
+        <ActionButton
+          icon="mail-outline"
+          label="Message"
+          onPress={post.dms_disabled ? undefined : () => setMessaging(true)}
+          disabled={post.dms_disabled}
+          disabledHint="This poster has direct messages turned off"
+        />
+      ) : null}
       <ActionButton
         icon={copied ? 'checkmark' : 'share-outline'}
         label={copied ? 'Link copied' : 'Share'}
@@ -93,6 +110,12 @@ export function PostActions({
           danger
         />
       ) : null}
+
+      <MessageAuthorDialog
+        post={post}
+        visible={messaging}
+        onClose={() => setMessaging(false)}
+      />
 
       <ConfirmDialog
         visible={confirmingDelete}

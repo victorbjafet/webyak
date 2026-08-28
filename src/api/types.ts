@@ -277,11 +277,44 @@ export interface DirectThread {
   id: string;
   group_id: string;
   updated_at: string;
+  /**
+   * The post the conversation started from. DMs are always *about* something —
+   * there is no way to open one out of nowhere, which is why the entry point is
+   * an action on a post.
+   */
   post_id: string;
   post_context: string;
+  /**
+   * Message requests. A thread you haven't accepted is a stranger writing to
+   * you about your post, and the official app gates those behind an accept
+   * step. (observed values: `accepted`; others unconfirmed.)
+   */
   accept_status: 'accepted' | string;
   type: ContentType;
   messages: DirectMessage[];
+  /** (observed in list responses) preview text and unread state. */
+  last_message?: DirectMessage;
+  unread_count?: number;
+}
+
+/** A joinable school group chat, from `/v1/chats/explore`. */
+export interface GroupChat {
+  id: string;
+  name?: string;
+  description?: string;
+  member_count?: number;
+  emoji?: string;
+  color?: string;
+  is_member?: boolean;
+  [key: string]: unknown;
+}
+
+/** The per-chat identity a group chat is joined under. */
+export interface JoinChatIdentity {
+  displayName: string;
+  emoji: string;
+  color: string;
+  secondaryColor: string;
 }
 
 /** Response shape of POST /v1/verify_phone_number. */

@@ -12,8 +12,9 @@ import {
   type CreateCommentInput,
   type CreatePostInput,
 } from './client';
+import { joinGroupChat, sendDM, startDM } from './chats';
 import { queryKeys } from './queries';
-import type { PostOrComment, VoteStatus } from './types';
+import type { JoinChatIdentity, PostOrComment, VoteStatus } from './types';
 import { toastError } from '@/lib/toast';
 
 /* ------------------------------------------------------------------------ *
@@ -368,6 +369,69 @@ export function useUpdateProfile() {
       void client.invalidateQueries({ queryKey: queryKeys.myIdentity() });
       void client.invalidateQueries({ queryKey: ['profile'] });
       void client.invalidateQueries({ queryKey: ['me'] });
+    },
+  });
+}
+
+
+/* ------------------------------------------------------------------------ *
+ * Messaging
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Sends into an existing thread.
+ *
+ * Not optimistic. A DM that appears and then vanishes is materially worse than
+ * one that takes a moment: the sender has no way to know whether it arrived,
+ * and unlike a vote there is no visible counter to reconcile against. The
+ * thread is refetched on success instead, which is a round trip the poll would
+ * have made anyway.
+ */
+export function useSendDM() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ chatId, text, anonymous }: { chatId: string; text: string; anonymous?: boolean }) =>
+      sendDM(chatId, text, anonymous),
+    onError: (error) => toastError(error, "That message didn't send."),
+    onSuccess: (_result, { chatId }) => {
+      void client.invalidateQueries({ queryKey: queryKeys.dmThread(chatId) });
+      void client.invalidateQueries({ queryKey: queryKeys.dmThreads() });
+    },
+  });
+}
+
+/** Opens a new thread from a post or comment. */
+export function useStartDM() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      text,
+      postId,
+      anonymous,
+    }: {
+      text: string;
+      postId: string;
+      anonymous?: boolean;
+    }) => startDM(text, postId, anonymous),
+    onError: (error) => toastError(error, "That message couldn't be sent."),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.dmThreads() });
+    },
+  });
+}
+
+export function useJoinGroupChat() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ chatId, identity }: { chatId: string; identity: JoinChatIdentity }) =>
+      joinGroupChat(chatId, identity),
+    onError: (error) => toastError(error, "Couldn't join that chat."),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.groupChats() });
+      void client.invalidateQueries({ queryKey: queryKeys.dmThreads() });
     },
   });
 }

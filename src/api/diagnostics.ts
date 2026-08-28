@@ -999,6 +999,107 @@ async function probeYouTabGaps(): Promise<ProbeResult> {
   }
 }
 
+/* ------------------------------------------------------------------------ *
+ * Phase 6 — messaging
+ * ------------------------------------------------------------------------ */
+
+/**
+ * The DM and group-chat surface, and the two gaps in it.
+ *
+ * Everything in Phase 6 was built against shapes read out of sidechat.js's
+ * source rather than observed, because this account may have no threads. This
+ * reports what the endpoints actually return, and sweeps for the two routes the
+ * UI currently has to apologise for: accepting a message request, and reading a
+ * group chat's messages.
+ *
+ * Read-only — it lists and inspects, and never sends or joins.
+ */
+async function probeMessaging(): Promise<ProbeResult> {
+  const base = {
+    id: 'messaging',
+    label: 'Phase 6 — DMs and group chats',
+    question: 'What do the chat endpoints return, and do accept/read routes exist?',
+  };
+  const steps: string[] = [];
+
+  try {
+    try {
+      const dms = await request<Record<string, unknown>>('/v1/chats');
+      const list = (dms?.chats ?? []) as Record<string, unknown>[];
+      steps.push(`/v1/chats → keys ${Object.keys(dms ?? {}).join(', ')}, ${list.length} thread(s)`);
+      if (list[0]) {
+        steps.push(`  thread keys → ${Object.keys(list[0]).join(', ')}`);
+        steps.push(`  accept_status values → ${[...new Set(list.map((t) => String(t.accept_status)))].join(', ')}`);
+        const first = list[0];
+        const msgs = first.messages as Record<string, unknown>[] | undefined;
+        steps.push(
+          Array.isArray(msgs) && msgs[0]
+            ? `  message keys → ${Object.keys(msgs[0]).join(', ')}`
+            : '  no messages inlined on the list response',
+        );
+      } else {
+        steps.push('  (no threads on this account — start one to inspect the shape)');
+      }
+    } catch (e) {
+      steps.push(`/v1/chats → FAILED: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    try {
+      const explore = await request<Record<string, unknown>>('/v1/chats/explore');
+      const list = (explore?.chats ?? []) as Record<string, unknown>[];
+      steps.push(
+        `\n/v1/chats/explore → keys ${Object.keys(explore ?? {}).join(', ')}, ${list.length} chat(s)`,
+      );
+      if (list[0]) steps.push(`  chat keys → ${Object.keys(list[0]).join(', ')}`);
+    } catch (e) {
+      steps.push(`/v1/chats/explore → FAILED: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    // Gap 1: reading a group chat. Joining works; opening has no known route.
+    steps.push('\nGroup-chat message routes:');
+    for (const path of [
+      '/v1/chats/groups',
+      '/v1/chats/groups/messages',
+      '/v1/chats/group/messages',
+      '/v1/chats/messages?chat_type=group',
+    ]) {
+      try {
+        const res = await api.sendRequest(path);
+        steps.push(`  ${path} → ${res.status}${res.ok ? ' ← EXISTS' : ''}`);
+      } catch (e) {
+        steps.push(`  ${path} → threw ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    // Gap 2: accepting a message request. GET on a POST route usually answers
+    // 404 vs 405, which still distinguishes "no such route" from "wrong method".
+    steps.push('\nMessage-request routes (GET probe; 405 means it exists as POST):');
+    for (const path of [
+      '/v1/chats/accept',
+      '/v1/chats/requests',
+      '/v1/chats/request/accept',
+      '/v1/chats/decline',
+    ]) {
+      try {
+        const res = await api.sendRequest(path);
+        steps.push(`  ${path} → ${res.status}${res.status === 405 ? ' ← exists, wrong method' : ''}`);
+      } catch (e) {
+        steps.push(`  ${path} → threw ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    return {
+      ...base,
+      status: steps.some((l) => l.includes('FAILED')) ? 'partial' : 'pass',
+      detail:
+        'Confirms the thread and chat shapes the UI was written against, and whether the two missing routes exist.',
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
@@ -1013,6 +1114,7 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
     await probeKarma(),
     await probeUnreadFeed(),
     await probeYouTabGaps(),
+    await probeMessaging(),
   ];
 }
 

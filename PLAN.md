@@ -438,14 +438,24 @@ Full checklist and pre-scan findings:
 - [x] Public profile + that user's posts
 - [x] My posts / my comments, tabbed, via the URL-patched `getUserContent`
 
-### Phase 6 — messaging
-- [ ] DM list + unread state
-- [ ] ⛔ Verify a random-UUID device ID is accepted where offsides uses a hashed
-      hardware ID — [docs/API.md](docs/API.md#what-we-copy-and-one-thing-we-deliberately-dont)
-- [ ] DM thread view + send
-- [ ] Start DM from a post or comment
-- [ ] Group chat explore + join (patch the broken URL first)
-- [ ] Polling or interval refresh for new messages
+### Phase 6 — messaging — built, needs live verification
+- [x] DM list, with message requests separated from accepted threads and an
+      unread badge
+- [x] Random-UUID device ID — resolved by use: auth, posting, voting and
+      commenting all work on it, so the hashed-hardware-id question is moot
+- [x] DM thread view + send. Not optimistic: a message that appears then
+      vanishes is worse than one that takes a moment
+- [x] Start DM from a post — the only way one can start, since
+      `/v1/chats/start` requires a `post_id`. Honours `dms_disabled`
+- [x] Group chat explore + join, with the school strip and "View all" on Explore
+- [x] Polling — 12s for an open thread (foreground only), 60s for the list.
+      There is no websocket in this API ([docs/API.md](docs/API.md#polling-because-there-is-nothing-else))
+- [ ] ⛔ **Message requests are read-only** — `accept_status` is readable but
+      nothing writes it ([docs/API.md](docs/API.md#-message-requests-are-read-only))
+- [ ] ⛔ **Group chats can be joined but not opened** — no endpoint found for
+      their messages ([docs/API.md](docs/API.md#-group-chats-can-be-joined-but-not-opened))
+- [ ] **Verify against live data** — every shape here was read from sidechat.js's
+      source, not observed. Run the *Phase 6 — DMs and group chats* probe
 
 ### Phase 7 — the extras from §5
 - [ ] Keyboard shortcuts + shortcut help overlay

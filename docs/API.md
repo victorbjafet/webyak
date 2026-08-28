@@ -920,3 +920,70 @@ Three things stand out:
 
 Not chased now — recorded so the next session starts from the answer instead of
 the question.
+
+## Messaging (Phase 6)
+
+| Action | Endpoint | Envelope |
+|---|---|---|
+| List DM threads | `GET /v1/chats` | `{chats}` |
+| One thread | `GET /v1/chats/messages?chat_id=` | `{chat}` |
+| Send | `POST /v1/chats/send` | `{chat_id, text, client_id, anonymous, assets}` |
+| Start | `POST /v1/chats/start` | `{text, client_id, post_id, anonymous, post_context}` |
+| Explore group chats | `GET /v1/chats/explore` | `{chats}` — library builds this with `&` |
+| Join a group chat | `POST /v1/chats/groups/join` | `{chat_id, identity{display_name, emoji, color, secondary_color}}` |
+
+### A DM is always about a post
+
+`/v1/chats/start` **requires** `post_id`. There is no way to message a user out
+of nowhere, which is why the entry point is an action on a post rather than a
+button in the chats screen, and why every thread carries a `post_id`. It matches
+how Yik Yak works — you message someone about something they wrote — so this is
+parity, not a limitation.
+
+`dms_disabled` on a post is the author opting out. Honoured client-side rather
+than letting the request fail.
+
+### `client_id` is per message, not per device
+
+sidechat.js's JSDoc calls it "alphanumeric device ID", but every *message*
+carries its own `client_id`, which is the shape of a client-generated
+idempotency key.
+
+The two readings fail in opposite directions and only one is safe. If the server
+dedupes on this value and we sent the device id every time, **the second message
+in a thread would silently vanish**. If it really is a device id and we send
+something unique, the server almost certainly just stores it. So a fresh UUID
+per message: being wrong that way costs nothing.
+
+### Polling, because there is nothing else
+
+No websocket or push channel exists in this API, so "live" means polling. An
+open thread refreshes every 12s and only while the tab is visible; the thread
+list every 60s. Those numbers are deliberately unhurried — this is a private API
+hit with a real account, so a chatty client is an account-risk decision as much
+as a performance one (PLAN §8).
+
+Sends are **not optimistic**. A DM that appears and then vanishes is worse than
+one that takes a moment: unlike a vote there is no counter to reconcile against,
+and the sender has no way to tell whether it arrived.
+
+### ⛔ Message requests are read-only
+
+Threads carry `accept_status`, and a value other than `accepted` means someone
+you don't know has written to you about your post. **Nothing writes that field**
+— sidechat.js has no method, and no candidate route has been confirmed. The
+thread view says so rather than rendering an accept button that does nothing;
+replying may accept it implicitly, which is untested.
+
+The messaging probe sweeps `/v1/chats/accept`, `/v1/chats/requests`,
+`/v1/chats/request/accept` and `/v1/chats/decline`, using the 404-vs-405
+distinction to tell "no such route" from "exists, wrong method".
+
+### ⛔ Group chats can be joined but not opened
+
+`/v1/chats/explore` lists them and `/v1/chats/groups/join` joins them — both
+work. But a joined group chat does **not** appear in `/v1/chats`, which returns
+DM threads, and no endpoint for reading a group chat's messages has been found.
+
+So Explore can join one and nothing can open it. The section says so plainly.
+The probe sweeps four candidate routes.

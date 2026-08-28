@@ -16,6 +16,7 @@ import {
 } from './client';
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
+import { getDMThread, getDMThreads, getGroupChats } from './chats';
 import { hasSeenPost, useSeenVersion } from '@/lib/seen-posts';
 import type {
   Cursor,
@@ -47,6 +48,9 @@ export const queryKeys = {
   karma: () => ['me', 'karma'] as const,
   saved: () => ['me', 'saved'] as const,
   upvoted: () => ['me', 'upvoted'] as const,
+  dmThreads: () => ['chats', 'threads'] as const,
+  dmThread: (id: string) => ['chats', 'thread', id] as const,
+  groupChats: () => ['chats', 'explore'] as const,
 };
 
 /** Resolve a URL slug to a group. Layered — see src/api/groups.ts. */
@@ -286,5 +290,50 @@ export function useSavedPosts() {
   return useQuery({
     queryKey: queryKeys.saved(),
     queryFn: async () => sanitizePosts((await getSavedPosts())?.posts),
+  });
+}
+
+
+/* ------------------------------------------------------------------------ *
+ * Messaging (Phase 6)
+ *
+ * There is no push channel and no websocket in this API, so "live" means
+ * polling. The intervals below are deliberately unhurried: this is a private
+ * API hit with a real account, and a chatty client is an account-risk decision
+ * as much as a performance one (PLAN §8). An open thread polls faster than a
+ * list nobody is reading.
+ * ------------------------------------------------------------------------ */
+
+/** How often an open thread checks for new messages. */
+const THREAD_POLL_MS = 12_000;
+/** The list only needs to notice a new conversation, not every keystroke. */
+const THREAD_LIST_POLL_MS = 60_000;
+
+export function useDMThreads(poll = true) {
+  return useQuery({
+    queryKey: queryKeys.dmThreads(),
+    queryFn: getDMThreads,
+    refetchInterval: poll ? THREAD_LIST_POLL_MS : false,
+  });
+}
+
+export function useDMThread(chatId: string | undefined) {
+  return useQuery({
+    queryKey: queryKeys.dmThread(chatId ?? ''),
+    enabled: Boolean(chatId),
+    queryFn: () => getDMThread(chatId as string),
+    refetchInterval: THREAD_POLL_MS,
+    // Only while the tab is visible. Polling a background tab burns requests
+    // against a private API for messages nobody is looking at.
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** Joinable school group chats. Cached — the list changes slowly. */
+export function useGroupChats() {
+  return useQuery({
+    queryKey: queryKeys.groupChats(),
+    staleTime: 1000 * 60 * 10,
+    queryFn: getGroupChats,
   });
 }
