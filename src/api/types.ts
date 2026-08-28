@@ -215,7 +215,14 @@ export interface MyIdentity {
  * undocumented — the You tab renders what it gets rather than assuming a shape.
  */
 export interface KarmaGroup {
+  /**
+   * Which key carries the id is unconfirmed — the payload is undocumented and
+   * the entries observed so far carry **no name at all**, which is why the You
+   * tab resolves the label against the user's own group list rather than
+   * reading it from here. Both plausible keys are accepted.
+   */
   group_id?: string;
+  id?: string;
   name?: string;
   post?: number;
   comment?: number;

@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -42,7 +43,27 @@ export default function MeScreen() {
   const items = tab === 'saved' ? saved.data : isContentTab ? content.data : undefined;
 
   return (
-    <Screen title="You" scroll={false}>
+    <Screen
+      title="You"
+      scroll={false}
+      action={
+        // Temporary. The probes are how every API question gets answered, and
+        // they were previously reachable only by scrolling past every post on
+        // this screen. Header slot until there's a settings screen to hold it.
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel="Open diagnostics"
+          onPress={() => router.push('/diagnostics')}
+          style={({ hovered, pressed }) => [
+            styles.debug,
+            { backgroundColor: hovered || pressed ? theme.controlHover : theme.control },
+          ]}>
+          <Ionicons name="bug-outline" size={16} color={theme.textSecondary} />
+          <ThemedText type="caption" themeColor="textSecondary">
+            Probes
+          </ThemedText>
+        </Pressable>
+      }>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View
           style={[
@@ -248,6 +269,14 @@ const styles = StyleSheet.create({
   },
   tabs: {
     paddingTop: Spacing.one,
+  },
+  debug: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+    borderRadius: Radius.pill,
   },
   identityCard: {
     flexDirection: 'row',

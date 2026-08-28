@@ -340,3 +340,35 @@ post you are viewing leaves the screen showing content that no longer exists —
 the caches it reads have already dropped it — so `PostCard` takes an `onDeleted`
 callback and the post screen uses it to go back. In a feed the row simply
 vanishes, which is correct there and wrong here.
+
+
+## Anonymity is shown by absence
+
+**A post never says "Anonymous".** Anonymous is the default on Yik Yak, so
+labelling it adds a word and no information — the missing name already carries
+it, and writing it out makes the common case look like the special one.
+
+So the header of a post is the **community**, and an author row appears *only*
+when someone chose to post under a username. That holds on the post page as well
+as in a feed.
+
+**Comments are the exception.** A reply is identified relative to the thread —
+`OP`, `#1`, `#2` — or by username, and those aliases are meaningful, so comments
+keep their identity row.
+
+## The community label is a title, not a tag
+
+It sits at the top of every post card, with the community's icon beside it and
+the same colour as the body text. No chip background: a filled pill reads as
+metadata attached to the post, and this is the post's context.
+
+It shows even inside that community's own feed, where it is strictly redundant.
+That is the parity behaviour, and it is what keeps the For You feed legible when
+consecutive posts come from different places.
+
+## Numbers in a column need a fixed width
+
+`19` and `9.6k` are different widths. In a list of rows ending in a value and a
+chevron, that pushes the chevrons to different x positions and the column looks
+broken. Any right-aligned numeric column gets `minWidth` and `textAlign: right`
+— the yakarma panel is the case that surfaced it.

@@ -60,6 +60,9 @@ export default function PostDetailScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <PostCard
           post={current}
+          // Same rule as a feed: the community is the header, and an anonymous
+          // post gets no author row at all.
+          showGroup
           // Deleting the post this screen *is* leaves it showing content that
           // no longer exists — the caches it reads from have already dropped it.
           onDeleted={() => (router.canGoBack() ? router.back() : router.replace('/'))}

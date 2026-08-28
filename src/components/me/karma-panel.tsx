@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '../themed-text';
 
+import { useCurrentGroup } from '@/api/current-group';
 import { groupDisplayName } from '@/api/groups';
 import type { Karma, KarmaGroup } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
@@ -26,38 +27,47 @@ import { formatCount } from '@/lib/time';
 export function KarmaPanel({ karma }: { karma: Karma | undefined }) {
   const theme = useTheme();
   const [expanded, setExpanded] = useState<string | null>(null);
+  // Karma entries arrive with an id but **no name**, so the label has to be
+  // resolved against the communities we already hold. Without this every row
+  // read "Community".
+  const { groups: myGroups } = useCurrentGroup();
+
+  const nameFor = (entry: KarmaGroup): string => {
+    const id = entry.group_id ?? entry.id;
+    const match = id ? myGroups.find((g) => g.id === id) : undefined;
+    return groupDisplayName(match) || groupDisplayName(entry) || entry.name || 'Community';
+  };
+
+  const colorFor = (entry: KarmaGroup): string | undefined => {
+    const id = entry.group_id ?? entry.id;
+    return entry.color ?? (id ? myGroups.find((g) => g.id === id)?.color : undefined);
+  };
 
   const totalPost = karma?.post ?? 0;
   const totalComment = karma?.comment ?? 0;
-  const groups = karma?.groups ?? [];
+  const karmaGroups = karma?.groups ?? [];
 
   const toggle = (key: string) => setExpanded((current) => (current === key ? null : key));
 
   return (
     <View style={styles.wrap}>
-      <Row
-        id="total"
-        label="Total yakarma"
-        post={totalPost}
-        comment={totalComment}
-        emphasis
-      />
+      <Row id="total" label="Total Yakarma" post={totalPost} comment={totalComment} emphasis />
 
-      {groups.map((group: KarmaGroup, index) => {
-        const key = group.group_id ?? group.name ?? String(index);
+      {karmaGroups.map((group: KarmaGroup, index) => {
+        const key = group.group_id ?? group.id ?? group.name ?? String(index);
         return (
           <Row
             key={key}
             id={key}
-            label={groupDisplayName(group) || group.name || 'Community'}
+            label={nameFor(group)}
             post={group.post ?? 0}
             comment={group.comment ?? 0}
-            accent={group.color}
+            accent={colorFor(group)}
           />
         );
       })}
 
-      {groups.length === 0 ? (
+      {karmaGroups.length === 0 ? (
         <ThemedText type="caption" themeColor="textTertiary">
           No per-community breakdown came back. The total above is still accurate.
         </ThemedText>
@@ -101,7 +111,14 @@ export function KarmaPanel({ karma }: { karma: Karma | undefined }) {
           <ThemedText type={emphasis ? 'bodyBold' : 'smallBold'} style={styles.label} numberOfLines={1}>
             {label}
           </ThemedText>
-          <ThemedText type={emphasis ? 'bodyBold' : 'smallBold'} style={{ color: theme.brand }}>
+          {/*
+            Fixed width, right-aligned. "19" and "9.6k" are different widths, so
+            without this the chevrons sit at different x positions down the
+            column and the rows look misaligned.
+          */}
+          <ThemedText
+            type={emphasis ? 'bodyBold' : 'smallBold'}
+            style={[styles.value, { color: theme.brand }]}>
             {formatCount(total)}
           </ThemedText>
           <Ionicons
@@ -163,6 +180,10 @@ const styles = StyleSheet.create({
   label: {
     flex: 1,
     minWidth: 0,
+  },
+  value: {
+    minWidth: 52,
+    textAlign: 'right',
   },
   breakdown: {
     gap: Spacing.one,

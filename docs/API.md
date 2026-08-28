@@ -805,6 +805,12 @@ Until it is confirmed, For You shows **hot / new** and defaults to hot.
 One request covers both the total and the per-community split, so the You tab
 does not need a call per community.
 
+⚠️ **The per-community entries carry no name.** Observed live: every row rendered
+as the fallback label until the id was joined against the user's own group list.
+Which key holds that id is also unconfirmed, so `KarmaGroup` accepts both
+`group_id` and `id`, and `karma-panel.tsx` resolves the display name and colour
+from `useCurrentGroup().groups` rather than trusting the payload.
+
 Rendered in [karma-panel.tsx](../src/components/me/karma-panel.tsx): a total row
 plus one row per community, each expanding to the post/comment split. Collapsed
 by default because the split is the interesting part and a wall of numbers is

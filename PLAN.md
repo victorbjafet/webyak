@@ -377,7 +377,11 @@ Full checklist and pre-scan findings:
 - [x] School group-chats section on Explore — placeholder; `/v1/chats/explore`
       works, but there is nowhere to open a chat until Phase 6
 - [x] You tab: yakarma total and per-community, each expanding to the
-      post/comment split ([docs/API.md](docs/API.md#yakarma))
+      post/comment split ([docs/API.md](docs/API.md#yakarma)). Names are joined
+      from the user's own groups — the karma payload carries ids but no names
+- [x] Anonymous posts show the community, never the word "Anonymous"; an author
+      row appears only for a real username. Comments keep their OP/#1/#2 aliases
+      ([docs/DESIGN.md](docs/DESIGN.md#anonymity-is-shown-by-absence))
 - [x] You tab: saved posts (read-only — no save endpoint exists)
 - [ ] ⛔ You tab: upvoted posts — six candidate endpoints swept, all 404
       ([docs/API.md](docs/API.md#-posts-you-upvoted))

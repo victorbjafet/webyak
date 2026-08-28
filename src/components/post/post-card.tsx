@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { GroupAvatar } from '../group-avatar';
 import { ThemedText } from '../themed-text';
 import { IdentityAvatar } from './identity-avatar';
 import { PollView } from './poll-view';
@@ -61,47 +62,56 @@ export function PostCard({
   const vote = useVote();
   const pollVote = usePollVote();
 
-  const displayName = post.identity?.name || post.alias || 'Anonymous';
+  // Only a real username gets an identity row. An anonymous post shows the
+  // community and nothing else — Yik Yak never labels one "Anonymous", because
+  // the absence of a name *is* the signal. Comments are the exception and keep
+  // their alias (OP, #1, #2), which is handled in comment-item.tsx.
   const username = post.identity?.posted_with_username ? post.identity?.name : undefined;
 
   return (
     <View
       style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-      {/* Above everything, the way Yik Yak does it — the community is context
-          for the post, not a footnote on it. */}
-      {showGroup && post.group?.name ? (
-        <View style={[styles.groupChip, { backgroundColor: theme.control }]}>
-          <ThemedText type="caption" style={{ color: post.group.color || theme.controlText }}>
-            {groupDisplayName(post.group)}
-          </ThemedText>
-        </View>
-      ) : null}
+      {/*
+        The header is the community, not the author. A post with no username has
+        no author to show, so labelling it "Anonymous" adds a word and no
+        information — the missing name already says it.
 
+        No chip background: this reads as a title, not a tag, so it takes the
+        same colour as the body text with the community's icon beside it.
+      */}
       <View style={styles.header}>
-        {username ? (
-          <Pressable
-            accessibilityRole="link"
-            accessibilityLabel={`View ${username}'s profile`}
-            onPress={() => router.push({ pathname: '/u/[username]', params: { username } })}
-            style={({ hovered }) => [styles.author, hovered && styles.authorHovered]}>
-            <IdentityAvatar identity={post.identity} size={28} />
+        {showGroup && post.group?.name ? (
+          <View style={styles.groupLabel}>
+            <GroupAvatar
+              group={post.group}
+              name={groupDisplayName(post.group)}
+              iconUrl={post.group.icon_url}
+              color={post.group.color}
+              size={20}
+            />
             <ThemedText type="smallBold" numberOfLines={1}>
-              {displayName}
-            </ThemedText>
-          </Pressable>
-        ) : (
-          <View style={styles.author}>
-            <IdentityAvatar identity={post.identity} size={28} />
-            <ThemedText type="smallBold" numberOfLines={1}>
-              {displayName}
+              {groupDisplayName(post.group)}
             </ThemedText>
           </View>
-        )}
+        ) : null}
 
         <View style={styles.spacer} />
         {post.pinned ? <Ionicons name="pin" size={14} color={theme.brand} /> : null}
         <TimeStamp iso={post.created_at} />
       </View>
+
+      {username ? (
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={`View ${username}'s profile`}
+          onPress={() => router.push({ pathname: '/u/[username]', params: { username } })}
+          style={({ hovered }) => [styles.author, hovered && styles.authorHovered]}>
+          <IdentityAvatar identity={post.identity} size={24} />
+          <ThemedText type="smallBold" themeColor="textSecondary" numberOfLines={1}>
+            {username}
+          </ThemedText>
+        </Pressable>
+      ) : null}
 
       {post.text ? (
         onPress ? (
@@ -188,11 +198,12 @@ const styles = StyleSheet.create({
   textHovered: {
     opacity: 0.85,
   },
-  groupChip: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.half,
-    borderRadius: Radius.pill,
+  groupLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    flexShrink: 1,
+    minWidth: 0,
   },
   footer: {
     flexDirection: 'row',
