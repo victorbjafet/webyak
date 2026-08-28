@@ -925,12 +925,48 @@ the question.
 
 | Action | Endpoint | Envelope |
 |---|---|---|
-| List DM threads | `GET /v1/chats` | `{chats}` |
+| List DM threads | `GET /v1/chats` | `{chats: [{chat, cursor}], cursor}` |
 | One thread | `GET /v1/chats/messages?chat_id=` | `{chat}` |
 | Send | `POST /v1/chats/send` | `{chat_id, text, client_id, anonymous, assets}` |
 | Start | `POST /v1/chats/start` | `{text, client_id, post_id, anonymous, post_context}` |
 | Explore group chats | `GET /v1/chats/explore` | `{chats}` — library builds this with `&` |
 | Join a group chat | `POST /v1/chats/groups/join` | `{chat_id, identity{display_name, emoji, color, secondary_color}}` |
+
+### ⚠️ Everything in the chat API is wrapped
+
+Confirmed 2026-08-28. The list endpoints do **not** return arrays of threads:
+
+```jsonc
+// GET /v1/chats
+{ "chats": [ { "chat": { … }, "cursor": "…" } ], "cursor": "…" }
+```
+
+Each entry is an envelope holding the thread under `chat`, with its own
+per-thread cursor. `/v1/chats/explore` is the same, and `getUpdates().chats` is
+**doubly** nested — `updates.chats.chats[].chat`.
+
+Reading `chats[]` directly yields objects whose every field is `undefined`,
+which is what the first implementation did: `accept_status` came back
+`undefined` for all 19 threads, and the UI silently classified every one of them
+as a request. Nothing errored.
+
+This is the **third** place this API nests a payload one level deeper than the
+obvious reading — after `quote_post.post` and `{group}` on the profile endpoint.
+Treat a list endpoint here as wrapped until proven otherwise.
+
+**The list carries no messages.** It is metadata only, so a thread preview has
+no text to show without opening the thread. (offsides reads
+`messages[messages.length - 1]` on this list, which must predate the current
+shape.)
+
+### Joined group chats: `getUpdates().chats.chats[].chat`
+
+The guess was right, one layer deeper than expected. Observed fields: `id` (with
+a `-v2` suffix), `name`, `joinability` (e.g. `"some_groups"`),
+`joinable_group_ids`, `notification_state` (e.g. `"on"`).
+
+No `is_member` has ever been observed, so `notification_state` stands in as the
+membership signal — it appears on chats you are already in.
 
 ### A DM is always about a post
 
@@ -977,9 +1013,24 @@ reverse engineering rather than a gap on our side. The
 thread view says so rather than rendering an accept button that does nothing;
 replying may accept it implicitly, which is untested.
 
-The messaging probe sweeps `/v1/chats/accept`, `/v1/chats/requests`,
-`/v1/chats/request/accept` and `/v1/chats/decline`, using the 404-vs-405
-distinction to tell "no such route" from "exists, wrong method".
+#### ⚠️ The sweep that looked like an answer
+
+A first sweep reported `/v1/chats/accept`, `/v1/chats/requests`,
+`/v1/chats/decline` **and** `/v1/chats/groups` all answering **200** — four
+discovered endpoints. It is probably worth nothing.
+
+Every *two*-segment path in the same sweep 404'd
+(`/v1/chats/request/accept`, `/v1/chats/groups/messages`). That asymmetry is the
+signature of a catch-all matching `/v1/chats/:something`, under which a 200 on a
+single-segment path means only that the route pattern matched.
+
+**The probe had no control.** A nonsense path would have settled it in one
+request. This is the same mistake the `period` probe exists to avoid — the
+lesson had already been learned once and written down, and was not applied here.
+
+The probe now issues `/v1/chats/webyak-control-<timestamp>` first and compares
+both status **and body** against each candidate. Identical body to the control
+means the route does not exist.
 
 ### ⛔ Group chats can be joined but not opened
 

@@ -1018,87 +1018,105 @@ async function probeMessaging(): Promise<ProbeResult> {
   const base = {
     id: 'messaging',
     label: 'Phase 6 — DMs and group chats',
-    question: 'What do the chat endpoints return, and do accept/read routes exist?',
+    question: 'What is inside the chat envelopes, and which /v1/chats routes are real?',
   };
   const steps: string[] = [];
 
+  // Round 1 established the envelope: entries are `{chat, cursor}`, not threads.
+  // This unwraps before reporting, so the keys below are the real ones.
+  const inner = (entry: unknown): Record<string, unknown> => {
+    if (!entry || typeof entry !== 'object') return {};
+    const wrapper = entry as { chat?: unknown };
+    return ((wrapper.chat ?? entry) as Record<string, unknown>) ?? {};
+  };
+
   try {
     try {
-      const dms = await request<Record<string, unknown>>('/v1/chats');
-      const list = (dms?.chats ?? []) as Record<string, unknown>[];
-      steps.push(`/v1/chats → keys ${Object.keys(dms ?? {}).join(', ')}, ${list.length} thread(s)`);
+      const dms = await request<{ chats?: unknown[] }>('/v1/chats');
+      const list = dms?.chats ?? [];
+      steps.push(`/v1/chats → ${list.length} thread(s)`);
       if (list[0]) {
-        steps.push(`  thread keys → ${Object.keys(list[0]).join(', ')}`);
-        steps.push(`  accept_status values → ${[...new Set(list.map((t) => String(t.accept_status)))].join(', ')}`);
-        const first = list[0];
-        const msgs = first.messages as Record<string, unknown>[] | undefined;
+        const thread = inner(list[0]);
+        steps.push(`  UNWRAPPED thread keys → ${Object.keys(thread).join(', ')}`);
+        steps.push(`  accept_status values → ${[...new Set(list.map((t) => String(inner(t).accept_status)))].join(', ')}`);
+        const msgs = thread.messages as unknown[] | undefined;
         steps.push(
           Array.isArray(msgs) && msgs[0]
-            ? `  message keys → ${Object.keys(msgs[0]).join(', ')}`
-            : '  no messages inlined on the list response',
+            ? `  message keys → ${Object.keys(msgs[0] as object).join(', ')}`
+            : '  no messages inlined — the list is metadata only, so previews need another source',
         );
-      } else {
-        steps.push('  (no threads on this account — start one to inspect the shape)');
+        steps.push(`  sample thread → ${preview(thread, 700)}`);
       }
     } catch (e) {
       steps.push(`/v1/chats → FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
 
     try {
-      const explore = await request<Record<string, unknown>>('/v1/chats/explore');
-      const list = (explore?.chats ?? []) as Record<string, unknown>[];
-      steps.push(
-        `\n/v1/chats/explore → keys ${Object.keys(explore ?? {}).join(', ')}, ${list.length} chat(s)`,
-      );
-      if (list[0]) steps.push(`  chat keys → ${Object.keys(list[0]).join(', ')}`);
+      const explore = await request<{ chats?: unknown[] }>('/v1/chats/explore');
+      const list = explore?.chats ?? [];
+      steps.push(`\n/v1/chats/explore → ${list.length} chat(s)`);
+      if (list[0]) steps.push(`  UNWRAPPED chat keys → ${Object.keys(inner(list[0])).join(', ')}`);
     } catch (e) {
       steps.push(`/v1/chats/explore → FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    // Where do already-joined group chats live? /v1/chats is DMs only, and
-    // offsides never reads them, so getUpdates().chats is the standing guess.
     try {
-      const updates = (await api.getUpdates('')) as Record<string, unknown>;
-      const chats = updates?.chats;
-      steps.push(
-        `\ngetUpdates().chats → ${
-          Array.isArray(chats)
-            ? `${chats.length} entries, first keys: ${Object.keys((chats[0] ?? {}) as object).join(', ')}\n${preview(chats, 600)}`
-            : `not an array (${typeof chats}) — ${preview(chats, 300)}`
-        }`,
-      );
+      const updates = (await api.getUpdates('')) as { chats?: { chats?: unknown[] } };
+      const entries = Array.isArray(updates?.chats) ? updates.chats : (updates?.chats?.chats ?? []);
+      steps.push(`\ngetUpdates().chats.chats → ${entries.length} joined chat(s)`);
+      if (entries[0]) {
+        steps.push(`  UNWRAPPED keys → ${Object.keys(inner(entries[0])).join(', ')}`);
+        steps.push(`  sample → ${preview(inner(entries[0]), 500)}`);
+      }
     } catch (e) {
       steps.push(`getUpdates().chats → FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }
 
-    // Gap 1: reading a group chat. Joining works; opening has no known route.
-    steps.push('\nGroup-chat message routes:');
+    /*
+     * ⚠️ The control this probe was missing.
+     *
+     * Round 1 reported /v1/chats/accept, /v1/chats/requests, /v1/chats/decline
+     * and /v1/chats/groups all answering 200, which read as four discovered
+     * endpoints. But every *two*-segment path 404'd, which is the signature of a
+     * catch-all matching /v1/chats/:something — under which a 200 means nothing.
+     *
+     * A nonsense single-segment path settles it. Without this control the whole
+     * sweep is uninterpretable, which is the same mistake the `period` probe was
+     * built to avoid and I repeated here.
+     */
+    const controlPath = `/v1/chats/webyak-control-${Date.now()}`;
+    let controlStatus = 0;
+    let controlBody = '';
+    try {
+      const res = await api.sendRequest(controlPath);
+      controlStatus = res.status;
+      controlBody = (await res.text()).slice(0, 160);
+    } catch {
+      controlStatus = -1;
+    }
+    steps.push(
+      `\nCONTROL ${controlPath} → ${controlStatus}` +
+        (controlStatus === 200
+          ? `\n  ⚠️ 200 on a nonsense path — /v1/chats/:x is a catch-all, so every 200 below is meaningless.\n  body: ${controlBody}`
+          : '\n  ✅ a nonsense path does not 200, so a 200 below is a real route.'),
+    );
+
+    steps.push('\nRoutes (compare each against the control):');
     for (const path of [
       '/v1/chats/groups',
-      '/v1/chats/groups/messages',
-      '/v1/chats/group/messages',
-      '/v1/chats/messages?chat_type=group',
-    ]) {
-      try {
-        const res = await api.sendRequest(path);
-        steps.push(`  ${path} → ${res.status}${res.ok ? ' ← EXISTS' : ''}`);
-      } catch (e) {
-        steps.push(`  ${path} → threw ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-
-    // Gap 2: accepting a message request. GET on a POST route usually answers
-    // 404 vs 405, which still distinguishes "no such route" from "wrong method".
-    steps.push('\nMessage-request routes (GET probe; 405 means it exists as POST):');
-    for (const path of [
       '/v1/chats/accept',
       '/v1/chats/requests',
-      '/v1/chats/request/accept',
       '/v1/chats/decline',
     ]) {
       try {
         const res = await api.sendRequest(path);
-        steps.push(`  ${path} → ${res.status}${res.status === 405 ? ' ← exists, wrong method' : ''}`);
+        const body = (await res.text()).slice(0, 200);
+        steps.push(
+          `  ${path} → ${res.status}` +
+            (res.status === controlStatus && body === controlBody
+              ? '  (identical to control — not a real route)'
+              : `  body: ${body}`),
+        );
       } catch (e) {
         steps.push(`  ${path} → threw ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -1108,7 +1126,9 @@ async function probeMessaging(): Promise<ProbeResult> {
       ...base,
       status: steps.some((l) => l.includes('FAILED')) ? 'partial' : 'pass',
       detail:
-        'Confirms the thread and chat shapes the UI was written against, and whether the two missing routes exist.',
+        controlStatus === 200
+          ? 'A nonsense path also returns 200 — treat every route result here as unproven and compare the bodies.'
+          : 'Control behaved, so the route results below are real.',
       evidence: steps.join('\n'),
     };
   } catch (e) {

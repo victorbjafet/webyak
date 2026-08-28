@@ -460,8 +460,14 @@ Full checklist and pre-scan findings:
 - [ ] ⛔ **Group chats can be joined but not opened** — no endpoint for their
       messages; offsides' `leaveChat` is a stub, so the whole ecosystem is stuck
       here ([docs/API.md](docs/API.md#-group-chats-can-be-joined-but-not-opened))
-- [ ] **Verify against live data** — every shape here was read from sidechat.js's
-      source, not observed. Run the *Phase 6 — DMs and group chats* probe
+- [x] **Verified against live data — and the shapes were wrong.** Every chat
+      list endpoint wraps its entries in `{chat}`, so the first implementation
+      read `undefined` for every field on all 19 threads without erroring
+      ([docs/API.md](docs/API.md#-everything-in-the-chat-api-is-wrapped))
+- [x] Joined group chats confirmed at `getUpdates().chats.chats[].chat`
+- [ ] ⛔ Re-run the messaging probe — the first `/v1/chats/*` sweep had **no
+      control**, and its four 200s are probably a catch-all rather than four
+      endpoints. The probe now runs a nonsense path first and compares bodies
 
 ### Phase 7 — the extras from §5
 - [ ] Keyboard shortcuts + shortcut help overlay

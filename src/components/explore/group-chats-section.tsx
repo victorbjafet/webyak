@@ -91,7 +91,10 @@ export function GroupChatsSection({ schoolName }: { schoolName?: string }) {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={expanded ? styles.grid : styles.strip}>
         {shown.map((chat) => {
-          const member = chat.is_member === true;
+          // `is_member` has never been observed; `notification_state` is
+          // present on chats you're in, so it stands in until something clearer
+          // turns up (docs/API.md#group-chats).
+          const member = chat.is_member === true || Boolean(chat.notification_state);
           return (
             <View
               key={chat.id}

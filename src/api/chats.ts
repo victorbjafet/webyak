@@ -11,9 +11,22 @@ import type { DirectThread, GroupChat, JoinChatIdentity } from './types';
  *
  * Endpoints, read from the library source:
  *
+ * ## Everything here is wrapped
+ *
+ * Confirmed by probe 2026-08-28: the list endpoints do **not** return arrays of
+ * threads. They return `{chats: [{chat, cursor}], cursor}` — each entry is an
+ * envelope holding the thread under `chat`, with its own per-thread cursor
+ * (presumably for paging that conversation's messages).
+ *
+ * Reading `chats[]` directly gives objects whose every field is `undefined`,
+ * which is exactly what the first pass did: `accept_status` came back
+ * `undefined` for all 19 threads. It is the same wrapper pattern as
+ * `quote_post.post`, and it is now the third place this API nests a payload one
+ * level deeper than the obvious reading.
+ *
  * | Action | Endpoint |
  * |---|---|
- * | List threads | `GET /v1/chats` → `{chats}` |
+ * | List threads | `GET /v1/chats` → `{chats: [{chat}], cursor}` |
  * | One thread | `GET /v1/chats/messages?chat_id=` → `{chat}` |
  * | Send | `POST /v1/chats/send` |
  * | Start | `POST /v1/chats/start` |
@@ -21,9 +34,24 @@ import type { DirectThread, GroupChat, JoinChatIdentity } from './types';
  * | Join a group chat | `POST /v1/chats/groups/join` |
  */
 
+/**
+ * Pulls threads out of the `{chat}` envelopes, tolerating an unwrapped entry in
+ * case the shape ever changes back.
+ */
+function unwrapChats<T>(entries: unknown): T[] {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const wrapper = entry as { chat?: unknown };
+      return (wrapper.chat ?? entry) as T;
+    })
+    .filter((value): value is T => Boolean(value));
+}
+
 export async function getDMThreads(): Promise<DirectThread[]> {
-  const json = await request<{ chats?: DirectThread[] }>('/v1/chats');
-  return json.chats ?? [];
+  const json = await request<{ chats?: unknown }>('/v1/chats');
+  return unwrapChats<DirectThread>(json.chats);
 }
 
 export async function getDMThread(chatId: string): Promise<DirectThread | null> {
@@ -89,8 +117,8 @@ export async function startDM(
 
 /** Joinable group chats for the user's school. The library builds this URL with `&`. */
 export async function getGroupChats(): Promise<GroupChat[]> {
-  const json = await request<{ chats?: GroupChat[] }>('/v1/chats/explore');
-  return json.chats ?? [];
+  const json = await request<{ chats?: unknown }>('/v1/chats/explore');
+  return unwrapChats<GroupChat>(json.chats);
 }
 
 /**
@@ -119,16 +147,17 @@ export async function joinGroupChat(chatId: string, identity: JoinChatIdentity) 
  * doesn't read them at all (its `leaveChat` is a stub marked "waiting for
  * sidechat.js"), so this is not solved anywhere upstream.
  *
- * The lead is `getUpdates()`, whose top-level key list includes a `chats` entry
- * distinct from `activity_items` and `groups` (docs/API.md#what-else-is-in-getupdates).
- * That is the most likely home for joined chats, and it costs one call we
- * already make.
+ * **The guess was right, with one more layer than expected.** `getUpdates().chats`
+ * is not an array — it is `{chats: [{chat}]}`, so the real path is
+ * `updates.chats.chats[].chat`. Confirmed 2026-08-28 against a live account
+ * holding a chat named "Thrifters Of VT".
  *
- * Returns an empty list rather than throwing when the key is absent, so a wrong
- * guess degrades to "no group chats" instead of breaking the screen.
+ * Costs nothing: `getUpdates` is a call we already make.
  */
 export async function getJoinedGroupChats(): Promise<GroupChat[]> {
   const updates = await getUpdates();
-  const chats = (updates as { chats?: unknown })?.chats;
-  return Array.isArray(chats) ? (chats as GroupChat[]) : [];
+  const container = (updates as { chats?: { chats?: unknown } })?.chats;
+  // Tolerates both the observed `{chats: [...]}` envelope and a bare array.
+  const entries = Array.isArray(container) ? container : container?.chats;
+  return unwrapChats<GroupChat>(entries);
 }

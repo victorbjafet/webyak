@@ -297,7 +297,14 @@ export interface DirectThread {
   unread_count?: number;
 }
 
-/** A joinable school group chat, from `/v1/chats/explore`. */
+/**
+ * A group chat. From `/v1/chats/explore` (joinable) or `getUpdates().chats.chats`
+ * (already joined) — both wrap each entry in a `{chat}` envelope.
+ *
+ * Fields observed live 2026-08-28: `id` (with a `-v2` suffix), `name`,
+ * `joinability`, `joinable_group_ids`, `notification_state`. The rest are
+ * plausible but unconfirmed, so they stay optional.
+ */
 export interface GroupChat {
   id: string;
   name?: string;
@@ -306,6 +313,13 @@ export interface GroupChat {
   emoji?: string;
   color?: string;
   is_member?: boolean;
+  /** e.g. `"some_groups"` — who is allowed in. */
+  joinability?: string;
+  /** Communities whose members may join. */
+  joinable_group_ids?: string[];
+  /** e.g. `"on"`. Present on chats you're already in, so it doubles as a
+   *  membership signal until a clearer one is found. */
+  notification_state?: string;
   [key: string]: unknown;
 }
 

@@ -95,10 +95,18 @@ export default function ChatsScreen() {
           }
           renderItem={({ item }) => {
             const isRequest = Boolean(item.accept_status) && item.accept_status !== 'accepted';
+            /*
+              The list endpoint returns metadata only — no messages are inlined,
+              confirmed by probe. offsides reads
+              `messages[messages.length - 1]` here, which must be against an
+              older shape. Both are tried anyway, and the fallback says "open to
+              read" rather than "no messages yet", which would be a claim we
+              can't support.
+            */
             const preview =
               item.last_message?.text ??
               item.messages?.[item.messages.length - 1]?.text ??
-              'No messages yet';
+              'Open to read';
             const unread = (item.unread_count ?? 0) > 0;
 
             return (
@@ -125,7 +133,9 @@ export default function ChatsScreen() {
                 <View style={styles.text}>
                   <View style={styles.titleRow}>
                     <ThemedText type="smallBold" numberOfLines={1} style={styles.title}>
-                      {isRequest ? 'Message request' : 'Conversation'}
+                      {isRequest
+                        ? 'Message request'
+                        : ((item as { name?: string }).name ?? 'Conversation')}
                     </ThemedText>
                     {item.updated_at ? (
                       <ThemedText type="caption" themeColor="textTertiary">
