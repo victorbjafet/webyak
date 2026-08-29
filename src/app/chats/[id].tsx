@@ -1,11 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { useSendDM } from '@/api/mutations';
-import { useDMThread } from '@/api/queries';
-import type { DirectMessage } from '@/api/types';
+import { useDMThread, useDMThreads, usePost } from '@/api/queries';
+import { isGroupChat, type DirectMessage } from '@/api/types';
+import { QuotedPost } from '@/components/post/quoted-post';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
@@ -20,17 +21,30 @@ const TICK = 30_000;
 
 export default function ChatThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const theme = useTheme();
   const now = useNow(TICK);
   const thread = useDMThread(id);
+  // The list endpoint inlines every thread's messages, so a cached entry is a
+  // complete fallback if the per-thread fetch fails — which matters for group
+  // chats, where `/v1/chats/messages` has never been exercised.
+  const list = useDMThreads(false);
   const send = useSendDM();
 
   const [text, setText] = useState('');
   const [focused, setFocused] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  const messages = thread.data?.messages ?? [];
+  const cached = list.data?.find((t) => t.id === id);
+  const chat = thread.data ?? cached ?? null;
+  const messages = chat?.messages ?? [];
   const count = messages.length;
+  const group = chat ? isGroupChat(chat) : false;
+
+  // Every DM hangs off a post — that is what `/v1/chats/start` requires — so the
+  // thread shows what it was about. Without it a message request is a stranger
+  // saying "hello" with no context at all.
+  const source = usePost(chat?.post_id);
 
   // Newest at the bottom, so a new message should bring itself into view. Keyed
   // on the count rather than the array so a poll returning the same messages
@@ -50,7 +64,7 @@ export default function ChatThreadScreen() {
     );
   }, [canSend, send, id, trimmed]);
 
-  if (thread.isLoading) {
+  if (thread.isLoading && !cached) {
     return (
       <Screen title="Conversation" back>
         <LoadingState label="Loading messages…" />
@@ -58,7 +72,7 @@ export default function ChatThreadScreen() {
     );
   }
 
-  if (thread.isError) {
+  if (thread.isError && !cached) {
     return (
       <Screen title="Conversation" back>
         <ErrorState
@@ -70,28 +84,50 @@ export default function ChatThreadScreen() {
     );
   }
 
-  const isRequest =
-    Boolean(thread.data?.accept_status) && thread.data?.accept_status !== 'accepted';
+  const isRequest = chat?.accept_status === 'pending';
 
   return (
-    <Screen title="Conversation" back scroll={false}>
+    <Screen title={chat?.name ?? (isRequest ? 'Message request' : 'Conversation')} back scroll={false}>
       <View style={styles.frame}>
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.messages}
           showsVerticalScrollIndicator={false}>
+          {/* What the conversation is about, pinned above the messages. */}
+          {source.data ? (
+            <View style={styles.source}>
+              <ThemedText type="caption" themeColor="textTertiary">
+                {isRequest ? 'They messaged you about' : 'About'}
+              </ThemedText>
+              <QuotedPost
+                post={source.data}
+                onPress={
+                  source.data.index_code
+                    ? () =>
+                        router.push({
+                          pathname: '/p/[code]',
+                          params: { code: source.data!.index_code! },
+                        })
+                    : undefined
+                }
+              />
+            </View>
+          ) : null}
+
           {isRequest ? (
             /*
-              ⛔ No accept/decline endpoint has been found — `accept_status` is
-              readable but nothing in sidechat.js writes it, and no candidate
-              route has been swept yet. Saying so beats rendering a button that
-              does nothing. See docs/API.md#-message-requests-are-read-only.
+              ⛔ No accept/decline endpoint exists. The four candidates that
+              looked promising — /v1/chats/accept, /requests, /decline — all
+              returned 200 against a *nonsense* control path with an identical
+              empty body, so `/v1/chats/:x` is a catch-all and none of them are
+              real (docs/API.md#-message-requests-are-read-only).
             */
             <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
               <Ionicons name="mail-unread-outline" size={16} color={theme.textSecondary} />
               <ThemedText type="caption" themeColor="textSecondary" style={styles.noticeText}>
-                This is a message request. webyak can read it but can&rsquo;t accept or decline —
-                no endpoint for that has been found yet. Replying may accept it implicitly.
+                This is a message request. webyak can read and reply, but can&rsquo;t formally
+                accept or decline — no endpoint for that exists. Replying may accept it
+                implicitly.
               </ThemedText>
             </View>
           ) : null}
@@ -106,6 +142,9 @@ export default function ChatThreadScreen() {
 
           {messages.map((message: DirectMessage) => {
             const mine = message.authored_by_user;
+            // Group chats carry a per-message identity; DMs don't, because they
+            // are anonymous unless the sender chose otherwise.
+            const sender = !mine && group ? message.identity : undefined;
             return (
               <View
                 key={message.id ?? message.client_id}
@@ -118,6 +157,12 @@ export default function ChatThreadScreen() {
                       borderColor: mine ? theme.brand : theme.border,
                     },
                   ]}>
+                  {sender?.display_name ? (
+                    <ThemedText type="caption" style={{ color: sender.color || theme.brand }}>
+                      {sender.emoji ? `${sender.emoji} ` : ''}
+                      {sender.display_name}
+                    </ThemedText>
+                  ) : null}
                   <ThemedText
                     type="small"
                     style={{ color: mine ? theme.onBrand : theme.text }}>
@@ -190,6 +235,10 @@ const styles = StyleSheet.create({
   },
   noticeText: {
     flex: 1,
+  },
+  source: {
+    gap: Spacing.one,
+    paddingBottom: Spacing.two,
   },
   bubbleRow: {
     flexDirection: 'row',

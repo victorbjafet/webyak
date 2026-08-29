@@ -267,34 +267,82 @@ export interface DirectMessage {
   chat_id: string;
   created_at: string;
   client_id: string;
-  obfuscatedUserId: string;
+  /** (observed) note the snake_case — the library's typedef says `obfuscatedUserId`. */
+  obfuscated_user_id?: string;
   text: string;
   authored_by_user: boolean;
-  type: 'message';
+  type: string;
+  assets?: Asset[];
+  /**
+   * (observed) Who sent it, in a group chat: `{display_name, emoji, color,
+   * secondary_color}`. Absent in DMs, which are anonymous by default.
+   */
+  identity?: {
+    display_name?: string;
+    emoji?: string;
+    color?: string;
+    secondary_color?: string;
+  };
 }
 
+/**
+ * One conversation. **`/v1/chats` returns DMs and group chats in the same
+ * list** — 19 of each kind mixed together on the test account — so this type
+ * covers both and `isGroupChat()` tells them apart.
+ *
+ * Fields confirmed live 2026-08-29 by unwrapping the `{chat}` envelope.
+ */
 export interface DirectThread {
   id: string;
-  group_id: string;
+  /** Group chats are named; DMs are not. */
+  name?: string;
+  type?: string;
   updated_at: string;
   /**
-   * The post the conversation started from. DMs are always *about* something —
-   * there is no way to open one out of nowhere, which is why the entry point is
-   * an action on a post.
+   * When you last opened it. `updated_at > last_read_timestamp` is the unread
+   * signal — there is no `unread_count` on this payload.
    */
-  post_id: string;
-  post_context: string;
-  /**
-   * Message requests. A thread you haven't accepted is a stranger writing to
-   * you about your post, and the official app gates those behind an accept
-   * step. (observed values: `accepted`; others unconfirmed.)
-   */
-  accept_status: 'accepted' | string;
-  type: ContentType;
+  last_read_timestamp?: string;
+  /** Inlined by the list endpoint, so previews need no extra request. */
   messages: DirectMessage[];
-  /** (observed in list responses) preview text and unread state. */
-  last_message?: DirectMessage;
-  unread_count?: number;
+
+  // DM only
+  /**
+   * `accepted` or `pending`. Absent on group chats. A pending thread is someone
+   * you don't know writing about your post.
+   */
+  accept_status?: 'accepted' | 'pending' | string;
+  /** The post the conversation started from. */
+  post_id?: string;
+  post_context?: string;
+  group_id?: string;
+
+  // group chat only
+  joinability?: string;
+  joinable_group_ids?: string[];
+  notification_state?: string;
+  group_dm_state?: string;
+  icon_url?: string;
+  member_count?: number;
+  user?: unknown;
+}
+
+/**
+ * Group chats and DMs share one endpoint and one shape, so they're told apart
+ * structurally: only a group chat has members and a joinability rule.
+ *
+ * Not keyed on `name` alone — the list contains unnamed group chats, which
+ * render as "Group chat" and would otherwise be misfiled as DMs.
+ */
+export function isGroupChat(thread: DirectThread): boolean {
+  return thread.member_count !== undefined || thread.joinability !== undefined;
+}
+
+/** Unread when something arrived after you last opened it. */
+export function isUnreadThread(thread: DirectThread): boolean {
+  if (!thread.updated_at) return false;
+  if (!thread.last_read_timestamp) return true;
+  return new Date(thread.updated_at) > new Date(thread.last_read_timestamp);
 }
 
 /**

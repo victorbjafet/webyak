@@ -147,12 +147,14 @@ export async function joinGroupChat(chatId: string, identity: JoinChatIdentity) 
  * doesn't read them at all (its `leaveChat` is a stub marked "waiting for
  * sidechat.js"), so this is not solved anywhere upstream.
  *
- * **The guess was right, with one more layer than expected.** `getUpdates().chats`
- * is not an array — it is `{chats: [{chat}]}`, so the real path is
- * `updates.chats.chats[].chat`. Confirmed 2026-08-28 against a live account
- * holding a chat named "Thrifters Of VT".
+ * ⚠️ **Redundant.** Confirmed 2026-08-29: `getUpdates().chats.chats` returns the
+ * *same list* as `/v1/chats` — identical ids, identical order. Group chats were
+ * never in a separate place; `/v1/chats` was always returning both kinds, and
+ * reading the two sources into two lists is what rendered every conversation
+ * twice.
  *
- * Costs nothing: `getUpdates` is a call we already make.
+ * Kept only as a fallback for the case where `/v1/chats` fails, since the
+ * updates call is made anyway. Nothing routine should use it.
  */
 export async function getJoinedGroupChats(): Promise<GroupChat[]> {
   const updates = await getUpdates();

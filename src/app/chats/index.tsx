@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
-import { useDMThreads, useJoinedGroupChats } from '@/api/queries';
-import type { DirectThread } from '@/api/types';
+import { useDMThreads } from '@/api/queries';
+import { isGroupChat, isUnreadThread, type DirectThread } from '@/api/types';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
@@ -15,31 +16,74 @@ import { useNow } from '@/lib/clock';
 /** Thread rows show minutes, so a 30s tick is plenty. */
 const TICK = 30_000;
 
+type Filter = 'all' | 'dms' | 'groups';
+
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'dms', label: 'Chats' },
+  { value: 'groups', label: 'Group chats' },
+];
+
+/**
+ * Every conversation, in one list.
+ *
+ * `/v1/chats` returns DMs **and** group chats together — they are the same shape
+ * and only distinguishable structurally. An earlier version read group chats
+ * from `getUpdates().chats` as if that were a separate source; it returns the
+ * identical list, so every conversation rendered twice.
+ *
+ * So: one query, one list, and a filter for when you want only one kind.
+ */
 export default function ChatsScreen() {
   const theme = useTheme();
   const router = useRouter();
   const now = useNow(TICK);
   const threads = useDMThreads();
-  // Group chats live somewhere other than /v1/chats — the lead is
-  // getUpdates().chats, unconfirmed. Shown when present so a chat joined in the
-  // official app is at least visible here rather than silently missing.
-  const joined = useJoinedGroupChats();
+  const [filter, setFilter] = useState<Filter>('all');
 
-  /**
-   * Requests are separated out.
-   *
-   * A thread you haven't accepted is a stranger writing to you about one of
-   * your posts, and mixing those into the same list as ongoing conversations is
-   * how people miss both. The official app gates them the same way.
-   */
-  const all = threads.data ?? [];
-  const accepted = all.filter((t) => t.accept_status === 'accepted');
-  const requests = all.filter((t) => t.accept_status && t.accept_status !== 'accepted');
+  const ordered = useMemo(() => {
+    const all = threads.data ?? [];
+    const matching = all.filter((t) => {
+      if (filter === 'groups') return isGroupChat(t);
+      if (filter === 'dms') return !isGroupChat(t);
+      return true;
+    });
+    // Most recent message first, always. `updated_at` moves with the last
+    // message, so this is recency of conversation rather than of creation.
+    return [...matching].sort(
+      (a, b) => new Date(b.updated_at ?? 0).getTime() - new Date(a.updated_at ?? 0).getTime(),
+    );
+  }, [threads.data, filter]);
 
-  const ordered = [...requests, ...accepted];
+  const tabs = (
+    <View style={[styles.filters, { backgroundColor: theme.control }]}>
+      {FILTERS.map(({ value, label }) => {
+        const selected = value === filter;
+        return (
+          <Pressable
+            key={value}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            onPress={() => setFilter(value)}
+            style={({ hovered }) => [
+              styles.filter,
+              selected && { backgroundColor: theme.backgroundSelected },
+              !selected && hovered ? { backgroundColor: theme.controlHover } : null,
+            ]}>
+            <ThemedText
+              type="smallBold"
+              numberOfLines={1}
+              style={{ color: selected ? theme.brand : theme.controlText }}>
+              {label}
+            </ThemedText>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 
   return (
-    <Screen title="Chats" scroll={false}>
+    <Screen title="Chats" headerBelow={tabs} scroll={false}>
       {threads.isLoading ? <LoadingState label="Loading conversations…" /> : null}
 
       {threads.isError ? (
@@ -57,62 +101,29 @@ export default function ChatsScreen() {
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={styles.gap} />}
-          ListHeaderComponent={
-            (joined.data?.length ?? 0) > 0 ? (
-              <View style={styles.joinedBlock}>
-                <ThemedText type="smallBold" themeColor="textSecondary">
-                  Group chats
-                </ThemedText>
-                {joined.data?.map((chat) => (
-                  <View
-                    key={chat.id}
-                    style={[
-                      styles.joinedRow,
-                      { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-                    ]}>
-                    <ThemedText style={styles.joinedEmoji}>{chat.emoji || '💬'}</ThemedText>
-                    <ThemedText type="small" numberOfLines={1} style={styles.title}>
-                      {chat.name ?? 'Group chat'}
-                    </ThemedText>
-                    <ThemedText type="caption" themeColor="textTertiary">
-                      Can&rsquo;t open yet
-                    </ThemedText>
-                  </View>
-                ))}
-                <ThemedText type="caption" themeColor="textTertiary">
-                  Reading a group chat needs an endpoint that hasn&rsquo;t been found — see
-                  docs/API.md.
-                </ThemedText>
-              </View>
-            ) : null
-          }
           ListEmptyComponent={
             <EmptyState
               icon="chatbubble-outline"
-              title="No messages"
-              body="Direct messages start from a post — open one and use the message action. There's no way to message someone out of nowhere."
+              title={filter === 'groups' ? 'No group chats' : 'No messages'}
+              body={
+                filter === 'groups'
+                  ? 'Join one from Explore.'
+                  : "Direct messages start from a post — open one and use the message action. There's no way to message someone out of nowhere."
+              }
             />
           }
           renderItem={({ item }) => {
-            const isRequest = Boolean(item.accept_status) && item.accept_status !== 'accepted';
-            /*
-              The list endpoint returns metadata only — no messages are inlined,
-              confirmed by probe. offsides reads
-              `messages[messages.length - 1]` here, which must be against an
-              older shape. Both are tried anyway, and the fallback says "open to
-              read" rather than "no messages yet", which would be a claim we
-              can't support.
-            */
-            const preview =
-              item.last_message?.text ??
-              item.messages?.[item.messages.length - 1]?.text ??
-              'Open to read';
-            const unread = (item.unread_count ?? 0) > 0;
+            const group = isGroupChat(item);
+            const pending = item.accept_status === 'pending';
+            const unread = isUnreadThread(item);
+            // Messages are inlined on the list, so the preview is real text.
+            const last = item.messages?.[item.messages.length - 1];
+            const sender = last?.identity?.display_name;
 
             return (
               <Pressable
                 accessibilityRole="link"
-                accessibilityLabel={`Open conversation`}
+                accessibilityLabel={`Open ${item.name ?? 'conversation'}`}
                 onPress={() => router.push({ pathname: '/chats/[id]', params: { id: item.id } })}
                 style={({ hovered, pressed }) => [
                   styles.row,
@@ -124,7 +135,13 @@ export default function ChatsScreen() {
                 ]}>
                 <View style={[styles.avatar, { backgroundColor: theme.control }]}>
                   <Ionicons
-                    name={isRequest ? 'mail-unread-outline' : 'chatbubble-ellipses-outline'}
+                    name={
+                      pending
+                        ? 'mail-unread-outline'
+                        : group
+                          ? 'people-outline'
+                          : 'chatbubble-ellipses-outline'
+                    }
                     size={18}
                     color={unread ? theme.brand : theme.textSecondary}
                   />
@@ -133,10 +150,15 @@ export default function ChatsScreen() {
                 <View style={styles.text}>
                   <View style={styles.titleRow}>
                     <ThemedText type="smallBold" numberOfLines={1} style={styles.title}>
-                      {isRequest
-                        ? 'Message request'
-                        : ((item as { name?: string }).name ?? 'Conversation')}
+                      {item.name ?? (pending ? 'Message request' : 'Conversation')}
                     </ThemedText>
+                    {pending ? (
+                      <View style={[styles.pill, { backgroundColor: theme.control }]}>
+                        <ThemedText type="caption" themeColor="textSecondary">
+                          Request
+                        </ThemedText>
+                      </View>
+                    ) : null}
                     {item.updated_at ? (
                       <ThemedText type="caption" themeColor="textTertiary">
                         {relativeTime(item.updated_at, now)}
@@ -147,17 +169,11 @@ export default function ChatsScreen() {
                     type="small"
                     themeColor={unread ? 'text' : 'textSecondary'}
                     numberOfLines={2}>
-                    {preview}
+                    {last?.text ? (sender ? `${sender}: ${last.text}` : last.text) : 'No messages yet'}
                   </ThemedText>
                 </View>
 
-                {unread ? (
-                  <View style={[styles.badge, { backgroundColor: theme.notification }]}>
-                    <ThemedText type="caption" style={{ color: '#FFFFFF' }}>
-                      {item.unread_count}
-                    </ThemedText>
-                  </View>
-                ) : null}
+                {unread ? <View style={[styles.dot, { backgroundColor: theme.brand }]} /> : null}
               </Pressable>
             );
           }}
@@ -176,24 +192,23 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.three,
     paddingBottom: Spacing.five,
   },
+  filters: {
+    flexDirection: 'row',
+    padding: Spacing.half,
+    borderRadius: Radius.pill,
+    gap: Spacing.half,
+    width: '100%',
+    maxWidth: Layout.feedMaxWidth,
+    alignSelf: 'center',
+  },
+  filter: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: Spacing.one,
+    borderRadius: Radius.pill,
+  },
   gap: {
     height: Spacing.two,
-  },
-  joinedBlock: {
-    gap: Spacing.two,
-    paddingBottom: Spacing.three,
-  },
-  joinedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.two,
-    padding: Spacing.two,
-    borderRadius: Radius.md,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  joinedEmoji: {
-    fontSize: 16,
-    lineHeight: 22,
   },
   row: {
     flexDirection: 'row',
@@ -224,12 +239,14 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
   },
-  badge: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: Spacing.one,
+  pill: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: 1,
+    borderRadius: Radius.pill,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

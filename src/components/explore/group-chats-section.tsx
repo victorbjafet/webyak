@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -142,20 +141,6 @@ export function GroupChatsSection({ schoolName }: { schoolName?: string }) {
         })}
       </ScrollView>
 
-      {/*
-        ⛔ There is no chat *screen* for these yet. `/v1/chats/explore` lists
-        them and `/v1/chats/groups/join` joins them, but a joined group chat does
-        not appear in `/v1/chats` (which returns DM threads), and no endpoint for
-        reading group-chat messages has been found. Joining works; opening does
-        not. See docs/API.md#-group-chats-can-be-joined-but-not-opened.
-      */}
-      <View style={styles.note}>
-        <Ionicons name="information-circle-outline" size={13} color={theme.textTertiary} />
-        <ThemedText type="caption" themeColor="textTertiary" style={styles.noteText}>
-          You can join from here, but reading a group chat isn&rsquo;t possible yet — no endpoint
-          for its messages has been found.
-        </ThemedText>
-      </View>
     </View>
   );
 }
@@ -221,13 +206,5 @@ const styles = StyleSheet.create({
   },
   pending: {
     opacity: 0.5,
-  },
-  note: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: Spacing.one,
-  },
-  noteText: {
-    flex: 1,
   },
 });

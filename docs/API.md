@@ -954,19 +954,42 @@ This is the **third** place this API nests a payload one level deeper than the
 obvious reading — after `quote_post.post` and `{group}` on the profile endpoint.
 Treat a list endpoint here as wrapped until proven otherwise.
 
-**The list carries no messages.** It is metadata only, so a thread preview has
-no text to show without opening the thread. (offsides reads
-`messages[messages.length - 1]` on this list, which must predate the current
-shape.)
+**The list does inline messages** — that was only invisible while reading the
+wrapper. Unwrapped, each thread carries its full `messages` array, so previews
+and even a whole conversation need no extra request.
 
-### Joined group chats: `getUpdates().chats.chats[].chat`
+### DMs and group chats are one list
 
-The guess was right, one layer deeper than expected. Observed fields: `id` (with
-a `-v2` suffix), `name`, `joinability` (e.g. `"some_groups"`),
-`joinable_group_ids`, `notification_state` (e.g. `"on"`).
+`/v1/chats` returns **both kinds together** — 19 mixed threads on the test
+account — in one shape:
 
-No `is_member` has ever been observed, so `notification_state` stands in as the
-membership signal — it appears on chats you are already in.
+```
+id, name, type, updated_at, last_read_timestamp, messages,
+joinability, joinable_group_ids, notification_state, group_dm_state,
+icon_url, member_count, user, accept_status
+```
+
+Only some fields are populated per kind, so they are told apart structurally:
+**a group chat has `member_count` or `joinability`**, a DM has `accept_status`
+(`accepted` / `pending`) and a `post_id`. Not by `name` alone — the list
+contains unnamed group chats, which would be misfiled as DMs.
+
+`getUpdates().chats.chats` returns **the same list**, identical ids and order.
+Group chats were never stored separately; reading both sources into two lists is
+what rendered every conversation twice. `/v1/chats` is the source; the updates
+copy is a fallback only.
+
+Consequences:
+
+- **Group chats are readable.** Their messages arrive inlined, so the earlier
+  "joinable but not openable" limitation was an artefact of the wrapper, not a
+  missing endpoint.
+- **Unread state is `updated_at > last_read_timestamp`.** There is no
+  `unread_count` on this payload.
+- **Group-chat messages carry an `identity`** — `{display_name, emoji, color,
+  secondary_color}` — so senders are attributable. DM messages don't, being
+  anonymous unless the sender chose otherwise.
+- Sorting is by `updated_at`, which moves with the last message.
 
 ### A DM is always about a post
 
@@ -1013,41 +1036,41 @@ reverse engineering rather than a gap on our side. The
 thread view says so rather than rendering an accept button that does nothing;
 replying may accept it implicitly, which is untested.
 
-#### ⚠️ The sweep that looked like an answer
+#### The sweep that looked like an answer, and wasn't
 
 A first sweep reported `/v1/chats/accept`, `/v1/chats/requests`,
 `/v1/chats/decline` **and** `/v1/chats/groups` all answering **200** — four
-discovered endpoints. It is probably worth nothing.
+discovered endpoints, enough to close both messaging gaps.
 
-Every *two*-segment path in the same sweep 404'd
-(`/v1/chats/request/accept`, `/v1/chats/groups/messages`). That asymmetry is the
-signature of a catch-all matching `/v1/chats/:something`, under which a 200 on a
-single-segment path means only that the route pattern matched.
+**All four were false.** Re-run with a control, 2026-08-29:
 
-**The probe had no control.** A nonsense path would have settled it in one
-request. This is the same mistake the `period` probe exists to avoid — the
-lesson had already been learned once and written down, and was not applied here.
+```
+CONTROL /v1/chats/webyak-control-1788018081666 → 200, empty body
+  /v1/chats/groups   → 200  identical to control
+  /v1/chats/accept   → 200  identical to control
+  /v1/chats/requests → 200  identical to control
+  /v1/chats/decline  → 200  identical to control
+```
 
-The probe now issues `/v1/chats/webyak-control-<timestamp>` first and compares
-both status **and body** against each candidate. Identical body to the control
-means the route does not exist.
+`/v1/chats/:anything` is a catch-all returning 200 with an empty body. The
+single-vs-two-segment asymmetry in the first sweep (`/v1/chats/request/accept`
+404'd) was the tell.
 
-### ⛔ Group chats can be joined but not opened
+**The first probe had no control**, which is the same mistake the `period` probe
+exists to prevent — a lesson already learned, written down, and then not applied.
+Any sweep that concludes "this route exists" from a status code needs a nonsense
+path in the same run.
+
+### Group chats: joinable *and* openable
 
 `/v1/chats/explore` lists them and `/v1/chats/groups/join` joins them — both
 work. But a joined group chat does **not** appear in `/v1/chats`, which returns
 DM threads, and no endpoint for reading a group chat's messages has been found.
 
-So Explore can join one and nothing can open it. The section says so plainly.
-The probe sweeps four candidate routes.
+**Resolved 2026-08-29 — they were never separate.** Joined group chats are in
+`/v1/chats` alongside DMs, with their messages inlined, so they open like any
+other conversation. The limitation was a misreading of the envelope, not a
+missing endpoint.
 
-**offsides is no further along**: it has no group-chat path, and its `leaveChat`
-is a stub marked *"Waiting for sidechat.js implementation."* The library wraps
-`getGroupChats` and `joinGroupChat` and nothing else.
-
-Where *joined* chats live is the open question. They are not in `/v1/chats`,
-which returns DM threads. The standing guess is **`getUpdates().chats`** — a
-top-level key distinct from `groups` and `activity_items` — read as a lead with
-an empty-list fallback and dumped by the probe. Any that show up are listed on
-the Chats screen, unopenable, so a chat joined in the official app is visible
-rather than silently missing.
+offsides never got here: it has no group-chat path and its `leaveChat` is a stub
+marked *"Waiting for sidechat.js implementation."*
