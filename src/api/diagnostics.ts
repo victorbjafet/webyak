@@ -1046,6 +1046,17 @@ async function probeMessaging(): Promise<ProbeResult> {
             : '  no messages inlined — the list is metadata only, so previews need another source',
         );
         steps.push(`  sample thread → ${preview(thread, 700)}`);
+
+        // The system-message heuristic (X left the chat) matches on text
+        // because these values have never been dumped. With them it can key on
+        // the field instead — see isSystemMessage in types.ts.
+        const allTypes = new Set<string>();
+        for (const entry of list) {
+          for (const m of (inner(entry).messages as { type?: string }[] | undefined) ?? []) {
+            if (m?.type) allTypes.add(m.type);
+          }
+        }
+        steps.push(`  distinct message.type values → ${[...allTypes].join(', ') || '(none)'}`);
       }
     } catch (e) {
       steps.push(`/v1/chats → FAILED: ${e instanceof Error ? e.message : String(e)}`);
@@ -1136,6 +1147,98 @@ async function probeMessaging(): Promise<ProbeResult> {
   }
 }
 
+/**
+ * Can a share code be resolved to a post? (Blocker 1, re-attacked.)
+ *
+ * `/p/<code>` only works today for posts already in the query cache, because
+ * the API is UUID-keyed and nothing was found that accepts an `index_code`. That
+ * sweep predated two things worth applying: **always include a control**, and
+ * the discovery that this API has catch-all routes returning 200 with empty
+ * bodies.
+ *
+ * offsides cannot help here — it is a native app with no URLs at all and no
+ * deep-link handling, so it never needed to resolve a code (docs/OFFSIDES.md).
+ *
+ * Differential by construction: every candidate is tried with a **real** code
+ * pulled from the live feed *and* a well-formed fake one. A route only counts if
+ * it returns the real post for the real code and something different for the
+ * fake. A 200 for both means a catch-all; a failure for both means no route.
+ */
+async function probeShareCode(): Promise<ProbeResult> {
+  const base = {
+    id: 'share-code',
+    label: 'Blocker 1 — share code → post',
+    question: 'Does any endpoint resolve an index_code, or is the worker still required?',
+  };
+  const steps: string[] = [];
+
+  try {
+    const page = (await api.getGroupPosts(SAMPLE_GROUP_ID, 'hot')) as unknown as {
+      posts?: PostOrComment[];
+    };
+    const sample = page.posts?.find((p) => p.index_code);
+    if (!sample?.index_code) {
+      return { ...base, status: 'partial', detail: 'No post with an index_code in the feed to test with.' };
+    }
+
+    const real = sample.index_code;
+    // Same alphabet and length, so a route that validates the *format* still
+    // accepts it and answers "not found" rather than "bad request".
+    const fake = 'Zz9Qx7Lm'.slice(0, real.length);
+    steps.push(`real code → ${real} (expect it to resolve to post ${sample.id.slice(0, 8)}…)`);
+    steps.push(`fake code → ${fake} (expect not-found)`);
+
+    const candidates = [
+      (c: string) => `/v1/posts?index_code=${c}`,
+      (c: string) => `/v1/posts/${c}`,
+      (c: string) => `/v1/posts/get?index_code=${c}`,
+      (c: string) => `/v1/posts/by_code?code=${c}`,
+      (c: string) => `/v1/posts/share/${c}`,
+      (c: string) => `/v1/posts?share_code=${c}`,
+      (c: string) => `/v1/share/${c}`,
+    ];
+
+    for (const build of candidates) {
+      const path = build(real);
+      try {
+        const [realRes, fakeRes] = await Promise.all([
+          api.sendRequest(build(real)),
+          api.sendRequest(build(fake)),
+        ]);
+        const realBody = (await realRes.text()).slice(0, 240);
+        const fakeBody = (await fakeRes.text()).slice(0, 120);
+
+        const identical = realRes.status === fakeRes.status && realBody.slice(0, 120) === fakeBody;
+        const resolves = realRes.ok && realBody.includes(sample.id);
+
+        steps.push(
+          `\n${path.replace(real, '<code>')}` +
+            `\n  real → ${realRes.status}   fake → ${fakeRes.status}` +
+            (resolves
+              ? '\n  ✅ RESOLVES — the real code returned the real post id. Blocker 1 is closed.'
+              : identical
+                ? '\n  ✗ identical for both codes — catch-all or a fixed response, not a lookup'
+                : `\n  ~ differs but no post id in the body: ${realBody}`),
+        );
+      } catch (e) {
+        steps.push(`\n${path.replace(real, '<code>')} → threw ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    const solved = steps.some((l) => l.includes('RESOLVES'));
+    return {
+      ...base,
+      status: solved ? 'pass' : 'fail',
+      detail: solved
+        ? 'A route resolves share codes — the worker is not needed for this after all.'
+        : 'No route resolves a share code. Cold-loading /p/<code> still needs the worker.',
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
@@ -1151,6 +1254,7 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
     await probeUnreadFeed(),
     await probeYouTabGaps(),
     await probeMessaging(),
+    await probeShareCode(),
   ];
 }
 

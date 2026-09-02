@@ -338,6 +338,41 @@ export function isGroupChat(thread: DirectThread): boolean {
   return thread.member_count !== undefined || thread.joinability !== undefined;
 }
 
+/**
+ * Group chats carry membership events in the message stream — "X left the
+ * chat", "Y rejoined the chat", "Ghost Spirit is now Purple Dagger". They are
+ * not messages anyone sent and must not render as bubbles.
+ *
+ * ⚠️ **Heuristic.** `DirectMessage.type` exists but its values have never been
+ * dumped, so the only reliable signals available are: no `identity`, not
+ * authored by the user, and text matching the event phrasings exactly. Anchored
+ * to the whole string so an ordinary message that happens to contain "left the
+ * chat" is not swallowed.
+ *
+ * The messaging probe now reports the distinct `type` values; once those are
+ * known this should be keyed on the field and the pattern dropped.
+ */
+const SYSTEM_MESSAGE_TYPES = new Set(['system', 'event', 'chat_event', 'notification']);
+const SYSTEM_TEXT = /^.{1,60} (?:joined|left|rejoined) the chat$|^.{1,40} is now .{1,40}$/i;
+
+export function isSystemMessage(message: DirectMessage): boolean {
+  if (message.type && SYSTEM_MESSAGE_TYPES.has(message.type)) return true;
+  // A named sender or your own message is always a real message.
+  if (message.identity?.display_name || message.authored_by_user) return false;
+  return SYSTEM_TEXT.test((message.text ?? '').trim());
+}
+
+/**
+ * A comment is not a post, and `/p/<code>` only understands posts.
+ *
+ * A DM started from a *reply* carries that reply's id, so opening it directly
+ * renders a comment as though it were a top-level post — with its own empty
+ * comments section, which is what it looked like in practice.
+ */
+export function isComment(item: { type?: string; parent_post_id?: string }): boolean {
+  return item.type === 'comment' || Boolean(item.parent_post_id);
+}
+
 /** Unread when something arrived after you last opened it. */
 export function isUnreadThread(thread: DirectThread): boolean {
   if (!thread.updated_at) return false;

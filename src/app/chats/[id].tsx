@@ -5,7 +5,7 @@ import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { useSendDM } from '@/api/mutations';
 import { useDMThread, useDMThreads, usePost } from '@/api/queries';
-import { isGroupChat, type DirectMessage } from '@/api/types';
+import { isComment, isGroupChat, isSystemMessage, type DirectMessage } from '@/api/types';
 import { QuotedPost } from '@/components/post/quoted-post';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -45,6 +45,16 @@ export default function ChatThreadScreen() {
   // thread shows what it was about. Without it a message request is a stranger
   // saying "hello" with no context at all.
   const source = usePost(chat?.post_id);
+
+  /*
+    That id can be a **comment**, when the conversation started from a reply.
+    `/p/<code>` only understands posts, so opening the comment's own code
+    rendered a reply as a top-level post with its own empty comment section.
+    Fetch the parent so the link goes where the reply actually lives.
+  */
+  const sourceIsComment = source.data ? isComment(source.data) : false;
+  const parent = usePost(sourceIsComment ? source.data?.parent_post_id : undefined);
+  const openTarget = sourceIsComment ? parent.data : source.data;
 
   // Newest at the bottom, so a new message should bring itself into view. Keyed
   // on the count rather than the array so a poll returning the same messages
@@ -98,15 +108,16 @@ export default function ChatThreadScreen() {
             <View style={styles.source}>
               <ThemedText type="caption" themeColor="textTertiary">
                 {isRequest ? 'They messaged you about' : 'About'}
+                {sourceIsComment ? ' (a reply)' : ''}
               </ThemedText>
               <QuotedPost
                 post={source.data}
                 onPress={
-                  source.data.index_code
+                  openTarget?.index_code
                     ? () =>
                         router.push({
                           pathname: '/p/[code]',
-                          params: { code: source.data!.index_code! },
+                          params: { code: openTarget.index_code! },
                         })
                     : undefined
                 }
@@ -141,6 +152,19 @@ export default function ChatThreadScreen() {
           ) : null}
 
           {messages.map((message: DirectMessage) => {
+            // Membership events are not messages anyone sent, so they get no
+            // bubble and no side — just a quiet centred line, the way every
+            // chat app renders them.
+            if (isSystemMessage(message)) {
+              return (
+                <View key={message.id ?? message.client_id} style={styles.systemRow}>
+                  <ThemedText type="caption" themeColor="textTertiary" style={styles.systemText}>
+                    {message.text}
+                  </ThemedText>
+                </View>
+              );
+            }
+
             const mine = message.authored_by_user;
             // Group chats carry a per-message identity; DMs don't, because they
             // are anonymous unless the sender chose otherwise.
@@ -157,10 +181,23 @@ export default function ChatThreadScreen() {
                       borderColor: mine ? theme.brand : theme.border,
                     },
                   ]}>
-                  {sender?.display_name ? (
-                    <ThemedText type="caption" style={{ color: sender.color || theme.brand }}>
-                      {sender.emoji ? `${sender.emoji} ` : ''}
-                      {sender.display_name}
+                  {/*
+                    In a group chat every message gets an attribution line. An
+                    identity-less one is genuinely anonymous, and saying so beats
+                    an unlabelled bubble that looks like it belongs to whoever
+                    spoke last.
+                  */}
+                  {!mine && group ? (
+                    <ThemedText
+                      type="caption"
+                      style={{
+                        color: sender?.display_name
+                          ? sender.color || theme.brand
+                          : theme.textTertiary,
+                      }}>
+                      {sender?.display_name
+                        ? `${sender.emoji ? `${sender.emoji} ` : ''}${sender.display_name}`
+                        : 'Anonymous'}
                     </ThemedText>
                   ) : null}
                   <ThemedText
@@ -239,6 +276,13 @@ const styles = StyleSheet.create({
   source: {
     gap: Spacing.one,
     paddingBottom: Spacing.two,
+  },
+  systemRow: {
+    alignItems: 'center',
+    paddingVertical: Spacing.half,
+  },
+  systemText: {
+    textAlign: 'center',
   },
   bubbleRow: {
     flexDirection: 'row',

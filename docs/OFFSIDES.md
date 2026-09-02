@@ -302,3 +302,21 @@ They poll an open thread every **5s** while focused. Our first pass used 12s out
 of caution about request rates; that was being careful about the wrong thing —
 12s is a noticeably laggy chat, and offsides has been polling this API at 5s for
 a long time, which makes it a measured tolerance rather than a guess. Matched.
+
+
+## Round 6 — share codes: they cannot help (2026-08-29)
+
+Checked `App.jsx` for deep links, universal links, URL schemes, or any
+share-code resolution. **There is none, and there could not be.**
+
+offsides is a native Android app. It has no URLs, so it never had a
+`/p/<code>` to cold-load, and never needed to turn a share code into a post.
+Its navigation is stack-based between named screens.
+
+This is the one class of problem where the reference client is structurally
+unable to help: **share codes are a web problem, and offsides is not a web
+client.** Anything URL-shaped — deep links, cold-loading a shared link, SEO —
+has to be solved here from first principles or by the worker.
+
+Worth remembering before the next "check offsides first": they are ahead on API
+shapes and behaviours, and blank on everything the web adds.

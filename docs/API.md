@@ -991,7 +991,35 @@ Consequences:
   anonymous unless the sender chose otherwise.
 - Sorting is by `updated_at`, which moves with the last message.
 
-### A DM is always about a post
+### A DM's `post_id` can point at a *comment*
+
+Conversations start from replies as often as from posts, and `/v1/chats/start`
+stores whatever id it was given. So a thread's `post_id` may resolve to a
+comment — and `/p/<code>` only understands posts, so opening the comment's own
+`index_code` renders a reply as a top-level post, complete with its own empty
+comment section.
+
+The thread header detects this (`type === 'comment'`, or a `parent_post_id` is
+present) and links to the **parent** post instead, labelling the quoted block as
+a reply.
+
+### Group chats carry membership events in the message stream
+
+"X left the chat", "Y rejoined the chat", "Ghost Spirit is now Purple Dagger"
+arrive as ordinary entries in `messages`. They are not messages anyone sent and
+render as centred grey lines rather than bubbles.
+
+⚠️ **Detected heuristically.** `DirectMessage.type` exists but its values have
+never been dumped, so the current test is: no `identity`, not authored by the
+user, and the whole text matching an event phrasing. The messaging probe now
+reports the distinct `type` values; once known, this should key on the field and
+drop the pattern.
+
+A group-chat message with no `identity` is genuinely anonymous and is labelled
+**Anonymous**, rather than left unattributed — an unlabelled bubble reads as
+belonging to whoever spoke last.
+
+### A DM is always about a post or comment
 
 `/v1/chats/start` **requires** `post_id`. There is no way to message a user out
 of nowhere, which is why the entry point is an action on a post rather than a
