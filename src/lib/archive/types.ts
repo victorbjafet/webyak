@@ -52,11 +52,56 @@ export interface ArchivedContent {
   /** When this client first recorded it, and when it last saw it. */
   first_seen_at: number;
   last_seen_at: number;
+
+  /**
+   * Noticed gone. Set the first time the API returns this post as a tombstone
+   * after we had already archived it — so the archive records *that* a post was
+   * removed, and roughly when, without losing what it said.
+   *
+   * `0 | 1` rather than a boolean so it can be indexed (IndexedDB drops boolean
+   * keys), which makes "show me everything that got deleted" a lookup.
+   */
+  deleted: 0 | 1;
+  deleted_at?: number;
+
+  /**
+   * Lowercased word list, used by the `tokens` multiEntry index — IndexedDB's
+   * native inverted index. Stored rather than derived at query time because
+   * scanning every record to match text is what makes search slow at scale.
+   */
+  tokens: string[];
+}
+
+/**
+ * Words to index, from the text and the author.
+ *
+ * Deliberately simple: lowercase, split on anything non-alphanumeric, drop
+ * single characters, dedupe. No stemming and no stopword list — people search a
+ * corpus like this for exactly the odd, short, specific words a stopword list
+ * would throw away, and stemming would surprise more than it helps.
+ */
+const MAX_TOKENS = 120;
+
+export function tokenize(...sources: (string | undefined)[]): string[] {
+  const seen = new Set<string>();
+  for (const source of sources) {
+    if (!source) continue;
+    for (const raw of source.toLowerCase().split(/[^a-z0-9]+/)) {
+      if (raw.length < 2) continue;
+      seen.add(raw);
+      // A cap keeps one pathological post from bloating the index. 120 distinct
+      // words is far past a 300-character post.
+      if (seen.size >= MAX_TOKENS) return [...seen];
+    }
+  }
+  return [...seen];
 }
 
 export interface ArchiveStats {
   posts: number;
   comments: number;
+  /** Archived, then later seen removed. */
+  deleted: number;
   withMedia: number;
   mediaPending: number;
   mediaCached: number;
@@ -67,13 +112,27 @@ export interface ArchiveStats {
   newest?: string;
 }
 
-/** Where a community's crawl got to, so it can resume rather than restart. */
+/**
+ * Where a community's crawl got to.
+ *
+ * **Two frontiers, not one.** A single resume cursor only ever walks backwards,
+ * so a community crawled last week would archive older history forever and
+ * never see anything posted since. A run therefore does two things:
+ *
+ * - **catch up** from the newest post until it reaches content already held
+ * - **backfill** onward from `tail_cursor`, deeper into history
+ *
+ * `tail_cursor` is the only durable frontier; the head is found by starting at
+ * the top each time, which is correct by construction — whatever is newest now
+ * is where catching up has to begin.
+ */
 export interface CrawlState {
   group_id: string;
   group_name?: string;
-  cursor?: string;
-  /** Set when the feed runs out — no point restarting from the top. */
-  exhausted?: boolean;
+  /** How deep into history the backfill has walked. */
+  tail_cursor?: string;
+  /** Set when the backfill reaches the beginning of the feed. */
+  tail_exhausted?: boolean;
   pages: number;
   archived: number;
   updated_at: number;
@@ -119,6 +178,8 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
     media_pending: media.length > 0 ? 1 : 0,
     first_seen_at: seenAt,
     last_seen_at: seenAt,
+    deleted: 0,
+    tokens: tokenize(item.text, item.identity?.name, item.alias),
   };
 }
 
@@ -127,10 +188,12 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
  *
  * Two rules that matter more than they look:
  *
- * 1. **A deletion never erases the archive.** Once a post is removed the API
- *    returns its text as the literal string "Deleted Post". Writing that over a
- *    record would destroy the thing the archive exists to keep — so the original
- *    text is held and the removal is noted in `last_seen_at` instead.
+ * 1. **A deletion never erases the archive, but it is recorded.** Once a post is
+ *    removed the API returns its text as the literal string "Deleted Post".
+ *    Writing that over a record would destroy the thing the archive exists to
+ *    keep — so the original text and score are held, and the removal is noted
+ *    separately in `deleted` / `deleted_at`. The archive then answers both
+ *    "what did this say" and "was it taken down afterwards".
  * 2. **Cached media survives.** Re-seeing a post must not reset `cached` flags
  *    and orphan blobs we already hold.
  */
@@ -156,10 +219,17 @@ export function mergeArchived(
     text: incomingIsTombstone ? existing.text : incoming.text,
     // A tombstone has no votes; keep the last real count.
     vote_total: incomingIsTombstone ? existing.vote_total : incoming.vote_total,
+    // Tokens follow the text that is kept, or a deletion would make the post
+    // unfindable by the words it actually contained.
+    tokens: incomingIsTombstone ? existing.tokens : incoming.tokens,
     media,
     has_media: media.length > 0 ? 1 : 0,
     media_pending: media.some((m) => !m.cached) ? 1 : 0,
     first_seen_at: existing.first_seen_at,
     last_seen_at: incoming.last_seen_at,
+    // Record the removal once. `deleted_at` is when we *noticed*, not when it
+    // happened — the API gives no removal timestamp — so it is an upper bound.
+    deleted: incomingIsTombstone || existing.deleted ? 1 : 0,
+    deleted_at: existing.deleted_at ?? (incomingIsTombstone ? incoming.last_seen_at : undefined),
   };
 }

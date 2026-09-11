@@ -47,9 +47,10 @@ export default function SettingsScreen() {
   const [progress, setProgress] = useState<CrawlProgress | null>(null);
   const [exporting, setExporting] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
+  const [stopped, setStopped] = useState(false);
 
   const handle = useRef<CrawlHandle | null>(null);
-  const running = Boolean(handle.current) && !progress?.finished && !progress?.error;
+  const running = Boolean(handle.current) && !stopped && !progress?.finished && !progress?.error;
 
   const refresh = useCallback(async () => {
     if (!archiveAvailable) return;
@@ -81,7 +82,8 @@ export default function SettingsScreen() {
     (group: Group) => {
       handle.current?.stop();
       setTarget(group);
-      setProgress({ pages: 0, archived: 0, duplicates: 0 });
+      setStopped(false);
+      setProgress({ phase: 'catching-up', pages: 0, archived: 0, duplicates: 0 });
       handle.current = startCrawl(group.id, group.name, (next) => {
         setProgress(next);
         if (next.finished || next.error) void refresh();
@@ -93,7 +95,9 @@ export default function SettingsScreen() {
   const stop = useCallback(() => {
     handle.current?.stop();
     handle.current = null;
-    setProgress((current) => (current ? { ...current, finished: 'all-duplicates' } : current));
+    // `stopped` rather than a `finished` reason: the run didn't reach an end,
+    // and saying it did would misreport what was archived.
+    setStopped(true);
     void refresh();
   }, [refresh]);
 
@@ -132,6 +136,7 @@ export default function SettingsScreen() {
               <View style={styles.statGrid}>
                 <Stat label="Posts" value={formatCount(stats?.posts ?? 0)} />
                 <Stat label="Comments" value={formatCount(stats?.comments ?? 0)} />
+                <Stat label="Since deleted" value={formatCount(stats?.deleted ?? 0)} />
                 <Stat label="With media" value={formatCount(stats?.withMedia ?? 0)} />
                 <Stat label="Media saved" value={formatCount(stats?.mediaCached ?? 0)} />
               </View>
@@ -190,6 +195,11 @@ export default function SettingsScreen() {
               of posts. It resumes where it left off and skips anything already held.
             </ThemedText>
             <ThemedText type="caption" themeColor="textTertiary">
+              Runs in two passes: first it catches up on anything posted since the last run, then
+              it keeps digging backwards into history. Without the first pass a resumed crawl would
+              only ever go deeper and never see new posts.
+            </ThemedText>
+            <ThemedText type="caption" themeColor="textTertiary">
               Paced deliberately slowly — about a page every 1.5s, with a longer wait after any
               error and a hard stop if the API rate-limits. This is a private API and a real
               account; an impatient crawler is what gets one flagged.
@@ -222,8 +232,8 @@ export default function SettingsScreen() {
                     </ThemedText>
                     <ThemedText type="caption" themeColor="textTertiary">
                       {saved
-                        ? saved.exhausted
-                          ? `done · ${formatCount(saved.archived)} saved`
+                        ? saved.tail_exhausted
+                          ? `all history · ${formatCount(saved.archived)} saved`
                           : `${formatCount(saved.archived)} saved · resumable`
                         : 'not started'}
                     </ThemedText>
@@ -235,20 +245,32 @@ export default function SettingsScreen() {
             {progress ? (
               <View style={[styles.progress, { backgroundColor: theme.background }]}>
                 <ThemedText type="small">
-                  {target ? groupDisplayName(target) : 'Crawl'} — {formatCount(progress.pages)} pages,{' '}
-                  {formatCount(progress.archived)} new, {formatCount(progress.duplicates)} already
-                  held
+                  {target ? groupDisplayName(target) : 'Crawl'} —{' '}
+                  {progress.phase === 'catching-up'
+                    ? 'catching up on new posts'
+                    : 'backfilling history'}
+                </ThemedText>
+                <ThemedText type="caption" themeColor="textSecondary">
+                  {formatCount(progress.pages)} pages · {formatCount(progress.archived)} new ·{' '}
+                  {formatCount(progress.duplicates)} already held
                 </ThemedText>
                 {progress.error ? (
                   <ThemedText type="caption" style={{ color: theme.danger }}>
                     {progress.error}
                   </ThemedText>
                 ) : null}
-                {progress.finished ? (
+                {stopped ? (
                   <ThemedText type="caption" themeColor="textTertiary">
-                    {progress.finished === 'exhausted'
-                      ? 'Reached the end of the feed.'
-                      : 'Stopped — recent pages were already archived.'}
+                    Stopped. Progress is saved — running again resumes from here.
+                  </ThemedText>
+                ) : progress.finished === 'exhausted' ? (
+                  <ThemedText type="caption" themeColor="textTertiary">
+                    Reached the beginning of this community&rsquo;s feed. Nothing left to backfill —
+                    future runs only catch up on new posts.
+                  </ThemedText>
+                ) : progress.finished === 'caught-up' ? (
+                  <ThemedText type="caption" themeColor="textTertiary">
+                    Caught up — everything from here back is already archived.
                   </ThemedText>
                 ) : null}
                 {running ? (

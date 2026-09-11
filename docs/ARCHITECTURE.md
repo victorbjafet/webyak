@@ -313,13 +313,79 @@ query cache ever held.
 - **Media is flagged before it is fetched.** Bytes are not downloaded yet; every
   attachment is recorded with `cached: 0`, so a later back-fill knows exactly
   what to fetch without re-walking any feed.
-- **A deletion never erases a record.** Once a post is removed the API returns
-  its text as the literal `"Deleted Post"`; `mergeArchived` keeps the original
-  text and the last real vote count. An archive that lets the server overwrite
-  history is not an archive.
+- **A deletion never erases a record — and is recorded.** Once a post is removed
+  the API returns its text as the literal `"Deleted Post"`; `mergeArchived` keeps
+  the original text, tokens and last real vote count, and sets `deleted: 1` with
+  a `deleted_at`. So the archive answers both *what did this say* and *was it
+  taken down afterwards*, which is a question only an archive can answer at all.
+  `deleted_at` is when we **noticed**, not when it happened — the API gives no
+  removal timestamp — so treat it as an upper bound.
 
 ### Writes are fire-and-forget
 
 Archiving happens inside the feed, post and comment `queryFn`s, with the promise
 deliberately unawaited and its errors swallowed. A record-keeping side effect
 must never fail a feed load or make the user wait for a disk write.
+
+
+## Archive search: an index at write time, not a scan at query time
+
+The choice was between scanning every record when a query runs, or maintaining a
+token index as records are written.
+
+**Scanning loses badly at the size this is built for.** It is O(n) per query, and
+IndexedDB must deserialize each record into a JS object before a single character
+can be compared. At the hundreds of thousands of records this is meant to hold,
+that is seconds per keystroke — and it degrades exactly as the archive becomes
+worth searching.
+
+**The index is nearly free.** Tokenizing a 300-character post is microseconds, on
+a write that is already happening, and the tokens cost roughly the size of the
+text again on disk — nothing next to the media they sit beside.
+
+No dependency was needed, because **IndexedDB's `multiEntry` index is an inverted
+index**: one index entry per array element means `tokens` maps word → records
+natively.
+
+### Query shape
+
+1. Each term resolves through the `tokens` index with **`getAllKeys`** — ids
+   only, no records.
+2. Those id sets are intersected in memory (AND across terms). An impossible
+   query gives up before reading a single row.
+3. Only the surviving ids are read as full records.
+
+Deserialization is the expensive part of IndexedDB, so this pays it once for the
+answer rather than once per term for everything matching any term.
+
+Terms match as **prefixes** — `hokie` finds `hokies` — via a bounded key range.
+That is the one piece of stemming that surprises nobody. There is no stopword
+list and no stemmer: people search a corpus like this for exactly the odd, short,
+specific words a stopword list discards.
+
+Results come back **newest first**. Relevance ranking over prefix-matched tokens
+would be mostly noise for social posts, where recency is what people mean.
+
+## Crawling has two frontiers
+
+A crawler that only resumes from a saved cursor walks *backwards forever*. Run it
+today, stop, run it next week, and it politely continues digging into old history
+while everything posted in the intervening week is never seen — the gap between
+newest-archived and newest-posted only grows.
+
+So a run does two passes:
+
+1. **Catch up** — start at the top with no cursor, walk back until several
+   consecutive pages are entirely duplicates. That signal means already-archived
+   content has been reached, which closes the gap since the last run.
+2. **Backfill** — resume from `tail_cursor` and keep going deeper.
+
+Head first on purpose: recent posts are the ones most likely to disappear before
+the next run, so they are the ones worth securing first. Only `tail_cursor` is
+persisted — the head is found by starting at the top each time, which is correct
+by construction.
+
+The duplicate thresholds differ, and the asymmetry is deliberate: **3 pages** for
+catch-up, where meeting known content is the expected ending, and **15** for
+backfill, where everything past the tail cursor should be unseen and a low
+threshold would abort a legitimate run that crosses a previously-archived stretch.

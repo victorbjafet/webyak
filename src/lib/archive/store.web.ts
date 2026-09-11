@@ -1,6 +1,7 @@
 import {
   mergeArchived,
   toArchived,
+  tokenize,
   type ArchiveStats,
   type ArchivedContent,
   type CrawlState,
@@ -23,7 +24,7 @@ import type { PostOrComment } from '@/api/types';
  */
 
 const DB_NAME = 'webyak-archive';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const CONTENT = 'content';
 const MEDIA = 'media';
@@ -42,8 +43,10 @@ function openDb(): Promise<IDBDatabase> {
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
+      const upgrade = request.transaction;
+      const from = (event as IDBVersionChangeEvent).oldVersion;
 
       if (!db.objectStoreNames.contains(CONTENT)) {
         const store = db.createObjectStore(CONTENT, { keyPath: 'id' });
@@ -61,6 +64,11 @@ function openDb(): Promise<IDBDatabase> {
         store.createIndex('index_code', 'index_code');
         store.createIndex('media_pending', 'media_pending');
         store.createIndex('author', 'author');
+        store.createIndex('deleted', 'deleted');
+        // A `multiEntry` index puts **one entry per array element**, which is
+        // exactly an inverted index — and it is native, so search costs no
+        // dependency and no separate table. See `searchArchive`.
+        store.createIndex('tokens', 'tokens', { multiEntry: true });
       }
 
       if (!db.objectStoreNames.contains(MEDIA)) {
@@ -69,6 +77,43 @@ function openDb(): Promise<IDBDatabase> {
 
       if (!db.objectStoreNames.contains(META)) {
         db.createObjectStore(META, { keyPath: 'key' });
+      }
+
+      /*
+        v1 → v2: search and deletion tracking.
+
+        Records written under v1 have no `tokens` and no `deleted`, so they would
+        be invisible to both the search index and the deleted filter — silently,
+        which is the worst kind of missing. They are rewritten here rather than
+        left to be fixed the next time each post happens to be seen again.
+
+        Safe to do inline: an upgrade transaction blocks all other access, and
+        the archive is days old, so this is a small walk. A migration on a large
+        store would need a background pass instead.
+      */
+      if (from > 0 && from < 2 && upgrade) {
+        const store = upgrade.objectStore(CONTENT);
+        if (!store.indexNames.contains('tokens')) {
+          store.createIndex('tokens', 'tokens', { multiEntry: true });
+        }
+        if (!store.indexNames.contains('deleted')) {
+          store.createIndex('deleted', 'deleted');
+        }
+
+        const cursorRequest = store.openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const record = cursor.value as ArchivedContent;
+          if (!record.tokens || record.deleted === undefined) {
+            cursor.update({
+              ...record,
+              deleted: record.deleted ?? 0,
+              tokens: record.tokens ?? tokenize(record.text, record.author, record.alias),
+            });
+          }
+          cursor.continue();
+        };
       }
     };
 
@@ -148,9 +193,10 @@ export async function getArchiveStats(): Promise<ArchiveStats> {
   const content = transaction.objectStore(CONTENT);
   const media = transaction.objectStore(MEDIA);
 
-  const [posts, comments, withMedia, mediaPending, mediaCached] = await Promise.all([
+  const [posts, comments, deleted, withMedia, mediaPending, mediaCached] = await Promise.all([
     asPromise(content.index('type').count(IDBKeyRange.only('post'))),
     asPromise(content.index('type').count(IDBKeyRange.only('comment'))),
+    asPromise(content.index('deleted').count(IDBKeyRange.only(1))),
     asPromise(content.index('has_media').count(IDBKeyRange.only(1))),
     asPromise(content.index('media_pending').count(IDBKeyRange.only(1))),
     asPromise(media.count()),
@@ -173,7 +219,18 @@ export async function getArchiveStats(): Promise<ArchiveStats> {
     /* not supported, or blocked — the counts above are the useful part anyway */
   }
 
-  return { posts, comments, withMedia, mediaPending, mediaCached, bytes, quota, oldest, newest };
+  return {
+    posts,
+    comments,
+    deleted,
+    withMedia,
+    mediaPending,
+    mediaCached,
+    bytes,
+    quota,
+    oldest,
+    newest,
+  };
 }
 
 /** Crawl progress, per community, so a run resumes instead of restarting. */
@@ -280,4 +337,124 @@ export async function findArchivedById(id: string): Promise<ArchivedContent | un
   const db = await openDb();
   const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
   return (await asPromise(store.get(id))) as ArchivedContent | undefined;
+}
+
+/* ------------------------------------------------------------------------ *
+ * Search
+ * ------------------------------------------------------------------------ */
+
+export interface SearchOptions {
+  groupId?: string;
+  /** `post`, `comment`, or both when omitted. */
+  type?: 'post' | 'comment';
+  author?: string;
+  includeDeleted?: boolean;
+  limit?: number;
+}
+
+/**
+ * Keyword search over the whole archive.
+ *
+ * ## Why an index and not a scan
+ *
+ * The two options were scanning every record at query time, or building a token
+ * index at write time. Scanning costs nothing to write and is O(n) per query —
+ * and n here is intended to reach hundreds of thousands of records, each of
+ * which IndexedDB must deserialize into a JS object before a single character
+ * can be compared. That is seconds per keystroke, and it gets worse exactly as
+ * the archive becomes worth searching.
+ *
+ * The index costs a tokenize per post — microseconds, on a write already
+ * happening — and roughly the size of the text again on disk, which is nothing
+ * beside the media it sits next to. In exchange a query touches only matching
+ * records.
+ *
+ * No dependency was needed: **IndexedDB's `multiEntry` index is an inverted
+ * index.** One index entry per array element means `tokens` maps word → records
+ * natively.
+ *
+ * ## Why keys first, then records
+ *
+ * Each term is resolved with `getAllKeys` — ids only. Those sets are intersected
+ * in memory, and only the surviving ids are read as full records. Deserializing
+ * is the expensive part of IndexedDB, so this pays it once for the answer rather
+ * than once per term for everything that matched any term.
+ *
+ * Terms are matched as **prefixes** (`hokie` finds `hokies`) via a bounded key
+ * range, which is the one piece of stemming that surprises nobody.
+ */
+export async function searchArchive(
+  query: string,
+  options: SearchOptions = {},
+): Promise<ArchivedContent[]> {
+  const terms = tokenize(query);
+  const limit = options.limit ?? 200;
+
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+
+  let ids: string[] | null = null;
+
+  if (terms.length > 0) {
+    const tokenIndex = store.index('tokens');
+
+    for (const term of terms) {
+      // Prefix range: everything from `term` up to `term￿`.
+      const range = IDBKeyRange.bound(term, `${term}￿`, false, false);
+      const keys = (await asPromise(tokenIndex.getAllKeys(range))) as string[];
+
+      if (ids === null) {
+        ids = [...new Set(keys)];
+      } else {
+        // AND across terms, and each intersection can only shrink the set —
+        // so an impossible query gives up immediately rather than reading rows.
+        const next = new Set(keys);
+        ids = ids.filter((id) => next.has(id));
+      }
+      if (ids.length === 0) return [];
+    }
+  }
+
+  // No terms: fall back to filtering by the structured options alone, which is
+  // a legitimate query ("everything deleted in this community").
+  const records: ArchivedContent[] = [];
+
+  if (ids === null) {
+    const source = options.groupId
+      ? store.index('group_id').openCursor(IDBKeyRange.only(options.groupId), 'prev')
+      : store.index('created_at').openCursor(null, 'prev');
+
+    await new Promise<void>((resolve, reject) => {
+      const request = source;
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor || records.length >= limit) {
+          resolve();
+          return;
+        }
+        const record = cursor.value as ArchivedContent;
+        if (matches(record, options)) records.push(record);
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  } else {
+    for (const id of ids) {
+      const record = (await asPromise(store.get(id))) as ArchivedContent | undefined;
+      if (record && matches(record, options)) records.push(record);
+      if (records.length >= limit) break;
+    }
+  }
+
+  // Newest first — for a corpus of social posts that is the order people expect,
+  // and relevance ranking over prefix-matched tokens would be mostly noise.
+  return records.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+}
+
+function matches(record: ArchivedContent, options: SearchOptions): boolean {
+  if (options.groupId && record.group_id !== options.groupId) return false;
+  if (options.type && record.type !== options.type) return false;
+  if (options.author && record.author?.toLowerCase() !== options.author.toLowerCase()) return false;
+  if (!options.includeDeleted && record.deleted) return false;
+  return true;
 }

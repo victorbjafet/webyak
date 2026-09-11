@@ -535,11 +535,17 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/API.md](docs/API.md#crawling-politely))
 - [ ] **Media back-fill** — download the bytes for flagged attachments. The
       schema and flags exist; the fetching does not
-- [ ] **Search over the archive**, surfaced in Explore — keyword search across
-      every archived post and comment. The indexes it needs (`author`,
-      `created_at`, `group_id`) are already in place; full-text is not, and
-      IndexedDB has no native text search, so this needs a decision between
-      scanning with a cursor and building a token index at write time
+- [x] **Search over the archive** — a `multiEntry` token index built at write
+      time, which is IndexedDB's native inverted index. Terms resolve to ids,
+      intersect, and only survivors are deserialized
+      ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#archive-search-an-index-at-write-time-not-a-scan-at-query-time))
+- [x] Deletions are **recorded, not just survived** — `deleted` / `deleted_at`
+      mark a post that was archived and later found removed
+- [x] The crawler catches up on new posts **before** backfilling history — a
+      single resume cursor only ever walks backwards, so anything posted since
+      the last run would never be seen
+- [ ] **Wire search into Explore** — the query layer exists and is untested
+      against a large archive; the UI does not
 - [ ] Import an exported archive back in — makes the export a real backup rather
       than a one-way dump
 
