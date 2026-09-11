@@ -59,7 +59,7 @@ schedule as identifying.
 | # | Finding | Resolution |
 |---|---|---|
 | 1 | `LICENSE` was Expo's boilerplate — `Copyright (c) 2015-present 650 Industries, Inc.` | Replaced with MIT under the real copyright holder. |
-| 2 | A third party's handle hardcoded as a fixture — `SAMPLE_PROFILE = 'snoopyvt'` | **Kept**, by the owner's decision. It is a public username on a public profile, and it is the only account known to have a profile photo, which makes it the one usable regression case for [the image bug](API.md#-images-that-dont-render--unresolved). |
+| 2 | A third party's handle hardcoded as a fixture — `SAMPLE_PROFILE = 'snoopyvt'` | Kept by the owner's decision at the time, then **removed on 2026-09-11** when the profile probe that used it was retired — profile photos work, so the fixture had no remaining caller. `/u/snoopyvt` survives in `docs/API.md` as a manual verification URL, which needs no constant. |
 | 3 | `.gitignore` did not cover plain `.env` | Widened to `.env` / `.env.*` with a `!.env.example` escape. Confirmed nothing was already tracked. |
 | 4 | Virginia Tech group UUID hardcoded | **Kept.** A public community identifier, not personal data. |
 | 5 | Expo template assets and `scripts/reset-project.js` still tracked | Deleted — all verified unreferenced by `src/` and `app.json` first. |

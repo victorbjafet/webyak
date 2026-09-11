@@ -15,13 +15,16 @@ import { useTheme } from '@/hooks/use-theme';
  * — which is the default, since `conversation_icon` only appears when someone
  * posts under a username.
  *
- * The photo branch is new. This component previously rendered *only* emoji and
- * glyphs, following sidechat.js's typedef, which says an icon is emoji + color.
- * That made "profile photos don't render" partly a self-inflicted wound: there
- * was no code path that could have shown one even with a correct URL. The field
- * that carries it is still unidentified — `photoUrl` is threaded through so
- * that the moment the probe names it, one call site changes. See
- * docs/API.md#-images-that-dont-render--unresolved.
+ * This component once rendered *only* emoji and glyphs, following sidechat.js's
+ * typedef, which says an icon is emoji + color. That made "profile photos don't
+ * render" partly a self-inflicted wound: there was no code path that could have
+ * shown one even with a correct URL.
+ *
+ * The field turned out to be `icon_url`, and the profile screen passes it. Feed
+ * cards still don't: a post's `identity` carries no photo URL, so avatars in a
+ * feed would need a profile lookup per distinct author. `photoUrl` is threaded
+ * through for whenever that is worth doing.
+ * See docs/API.md#profile-photos-icon_url-and-the-bearer-was-breaking-it.
  */
 export function IdentityAvatar({
   identity,

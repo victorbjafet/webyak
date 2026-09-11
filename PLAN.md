@@ -202,6 +202,21 @@ Two things worth deciding before any of these start:
 
 ---
 
+### Probe hygiene
+
+`/diagnostics` holds **five** read-only probes plus the upload one, down from
+eighteen. A probe earns its place by being able to change a decision; once its
+question is answered and written into `docs/API.md`, re-running it buries the
+results that still matter. Twelve were retired on 2026-09-11 — the table of what
+they answered is in
+[docs/API.md](docs/API.md#probes-what-is-still-asked-and-what-was-retired).
+
+The write round-trip probes went with them. They posted real content to a real
+community on every run, which was worth it while writing was unproven and a
+liability afterwards.
+
+---
+
 ## 6. Roadmap
 
 ### Phase 0 — base ✅
@@ -399,7 +414,9 @@ Full checklist and pre-scan findings:
   - [x] `IdentityAvatar` gained the photo branch it never had; `GroupAvatar`'s
         initials are a real fallback rather than an else-branch
   - [x] Three probes added: which endpoint carries `icon_url`, whether the
-        poster fetch works with the bearer, and what actually failed on screen
+        poster fetch works with the bearer, and what actually failed on screen.
+        The first was retired once icons shipped
+        ([docs/API.md](docs/API.md#probes-what-is-still-asked-and-what-was-retired))
   - [x] **Probed 2026-08-27 — two of three solved.** Community icons: the
         endpoints the app reads omit `icon_url` entirely for some groups, so
         `useGroupIcon` looks it up via search and matches on id. Profile photos:

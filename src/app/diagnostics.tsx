@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import {
   runAllProbes,
-  runWriteProbes,
+  runUploadProbe,
   type ProbeResult,
   type ProbeStatus,
 } from '@/api/diagnostics';
@@ -27,7 +27,7 @@ export default function DiagnosticsScreen() {
   const [results, setResults] = useState<ProbeResult[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [confirmingWrites, setConfirmingWrites] = useState(false);
+  const [confirmingUpload, setConfirmingWrites] = useState(false);
 
   const statusColor: Record<ProbeStatus, string> = {
     pass: theme.success,
@@ -46,12 +46,12 @@ export default function DiagnosticsScreen() {
     }
   }, []);
 
-  const runWrites = useCallback(async () => {
+  const runUploadProbeNow = useCallback(async () => {
     setConfirmingWrites(false);
     setBusy(true);
     setCopied(false);
     try {
-      setResults(await runWriteProbes());
+      setResults(await runUploadProbe());
     } finally {
       setBusy(false);
     }
@@ -76,12 +76,17 @@ export default function DiagnosticsScreen() {
   }, [results]);
 
   return (
-    <Screen title="Diagnostics" subtitle="Answers the open blockers against the live API">
+    <Screen title="Diagnostics" subtitle="Open questions, asked against the live API">
       <View
         style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <ThemedText type="small" themeColor="textSecondary">
-          Read-only probes. They settle the two Phase 3 blockers and the image question — see
-          docs/API.md. Run this once after signing in, then paste the report back.
+          Read-only. Five probes, each on a question that is still open: share-code resolution
+          (Blocker 1), the chat message types, video thumbnails, and whatever failed to render
+          this page load. Settled questions were retired — their answers are in docs/API.md.
+        </ThemedText>
+        <ThemedText type="caption" themeColor="textTertiary">
+          For the image probes, browse a feed and a profile first — the failure log is per page
+          load. Then run this and paste the report back.
         </ThemedText>
         <View style={styles.actions}>
           <Button label={results ? 'Run again' : 'Run probes'} onPress={run} loading={busy} />
@@ -97,16 +102,17 @@ export default function DiagnosticsScreen() {
 
       <View
         style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <ThemedText type="bodyBold">Phase 4 — write probes</ThemedText>
+        <ThemedText type="bodyBold">Image upload</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
-          These are not read-only. They create a real post, a real comment and a real poll in the
-          sample community, vote on them, then delete them. Nothing should survive the run — if a
-          probe reports a leftover id, that content is live and needs deleting by hand.
+          Separated because it isn&rsquo;t read-only: it asks the API for an upload URL and tries a
+          1×1 PNG against it. Nothing is posted and nothing becomes visible to anyone. The
+          write round-trip probes that did post were retired once writing was verified against
+          the official app.
         </ThemedText>
         <View style={styles.actions}>
           <Button
-            label="Run write probes"
-            variant="danger"
+            label="Run upload probe"
+            variant="secondary"
             onPress={() => setConfirmingWrites(true)}
             disabled={busy}
           />
@@ -114,13 +120,12 @@ export default function DiagnosticsScreen() {
       </View>
 
       <ConfirmDialog
-        visible={confirmingWrites}
-        title="Post to a real community?"
-        body="This creates a post, a comment and a poll in the sample group and then deletes them. They will be briefly visible to other people."
-        confirmLabel="Run writes"
-        destructive
+        visible={confirmingUpload}
+        title="Run the upload probe?"
+        body="This requests an upload URL and PUTs a 1×1 PNG to it. Nothing is posted and nobody else sees anything — it's separated only because it isn't a plain read."
+        confirmLabel="Run it"
         onCancel={() => setConfirmingWrites(false)}
-        onConfirm={runWrites}
+        onConfirm={runUploadProbeNow}
       />
 
       {results?.map((r) => (

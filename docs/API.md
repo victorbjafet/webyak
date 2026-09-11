@@ -1102,3 +1102,42 @@ missing endpoint.
 
 offsides never got here: it has no group-chat path and its `leaveChat` is a stub
 marked *"Waiting for sidechat.js implementation."*
+
+
+## Probes: what is still asked, and what was retired
+
+`/diagnostics` is deliberately short. A probe earns its place by being able to
+**change a decision**; once its question is answered and the answer is written
+down here, re-running it produces output nobody reads and buries the one or two
+results that still matter.
+
+Twelve probes were retired on 2026-09-11. Their answers are all above:
+
+| Retired | Answer, and where it lives |
+|---|---|
+| Communities — switcher source | `getUpdates().groups`, distinct ids, selection by id is sound |
+| Profile — icon fields | [`icon_url`, and the bearer was breaking it](#profile-photos-icon_url-and-the-bearer-was-breaking-it) |
+| Video — asset shape | [Video](#video) — merged into the poster probe, which needed the same search |
+| Gaps — saved posts and activity | `/v1/posts/saved` and `/v1/activity`, shapes recorded above |
+| Feed — offsides filters | Never once found junk; the filters stay regardless, so the result changed nothing |
+| Images — community icons | [Community icons](#community-icons-the-field-is-missing-not-the-image) |
+| You — yakarma shape | [Yakarma](#yakarma) |
+| For You — unread filter | [`type=unread` is a 400](#unread-is-ours-not-theirs) |
+| You / Explore — upvotes and sort fields | [`/v1/posts/upvoted`](#posts-you-upvoted); explore has no date field |
+| Phase 4 — write round trip | Writes verified, and confirmed to sync both ways with the official app |
+| Phase 4 — polls | Poll creation and `view_results` both confirmed |
+| Phase 5 — quote-repost shape | [`quote_post.post`](#quote-reposts), from offsides |
+
+**The write round-trip probes are gone on purpose.** They created a real post, a
+real comment and a real poll in a real community on every run. That was worth it
+while writing was unproven; once it was verified *and* observed syncing with the
+official app, a probe that posts to Virginia Tech every time someone opens the
+diagnostics screen is a liability rather than evidence.
+
+### The poster probe searched too narrowly
+
+Worth recording because it produced a false negative for weeks. *Images — video
+thumbnail fetch* looked at **one group's hot feed** and kept reporting "no video
+post to test with" — in the same run where the shape probe, searching four
+groups across two rankings, found one. Videos are rare enough in any single feed
+that a narrow search mostly measures luck. The broader search is now shared.
