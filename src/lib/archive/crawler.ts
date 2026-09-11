@@ -66,15 +66,44 @@ const HEAD_DUPLICATE_PAGES = 3;
  */
 const TAIL_DUPLICATE_PAGES = 15;
 
+/**
+ * Consecutive pages that fail to reach further back in time before concluding
+ * the feed's window has ended. Three, because a single page of pinned or
+ * out-of-order posts is normal and should not end a run.
+ */
+const STALLED_PAGES_BEFORE_STOP = 3;
+
 export type CrawlPhase = 'catching-up' | 'backfilling';
+
+/**
+ * Why a pass ended.
+ *
+ * `duplicates` used to be the only non-exhausted ending, and it was reported as
+ * "caught up — everything from here back is already archived". That claim was
+ * not supportable: a run that fetches the same pages repeatedly also produces
+ * nothing but duplicates, and looks identical from the outside. The endings
+ * below distinguish the cases instead of assuming the flattering one.
+ */
+export type CrawlEnding =
+  /** The feed returned no cursor or no posts. Genuinely the end. */
+  | 'exhausted'
+  /** Consecutive pages added nothing, while still moving backwards in time. */
+  | 'duplicates'
+  /** The server handed back a cursor it had already given us. */
+  | 'looping'
+  /** Pages kept arriving but stopped getting older — the feed's window ends. */
+  | 'stalled'
+  | 'stopped'
+  | 'error';
 
 export interface CrawlProgress {
   phase: CrawlPhase;
   pages: number;
   archived: number;
   duplicates: number;
-  /** Set when the run ends by itself rather than being stopped. */
-  finished?: 'exhausted' | 'caught-up';
+  /** Oldest `created_at` this run has reached — the real measure of progress. */
+  oldestReached?: string;
+  finished?: CrawlEnding;
   error?: string;
 }
 
@@ -122,9 +151,21 @@ export function startCrawl(
         start: Cursor | undefined,
         duplicateLimit: number,
         onPage: (cursor: Cursor | undefined) => Promise<void>,
-      ): Promise<'exhausted' | 'duplicates' | 'stopped' | 'error'> => {
+      ): Promise<CrawlEnding> => {
         let cursor = start;
         let duplicatePages = 0;
+        /*
+          The only honest measure of backfill progress.
+
+          Duplicate counting cannot tell "I have already archived this stretch"
+          apart from "the server keeps serving me the same stretch" — both look
+          like pages that add nothing. Whether the oldest post on each page keeps
+          getting *older* can tell them apart, and it is also what answers the
+          question the user actually has: how far back does this feed go?
+        */
+        let oldestOnPreviousPage: string | undefined;
+        let stalledPages = 0;
+        const seenCursors = new Set<string>();
 
         while (!stopped) {
           let page;
@@ -159,6 +200,23 @@ export function startCrawl(
           progress.duplicates += posts.length - added;
           progress.error = undefined;
 
+          // Oldest post on this page, and the oldest reached overall.
+          const oldestOnPage = posts.reduce<string | undefined>(
+            (oldest, post) =>
+              post.created_at && (!oldest || post.created_at < oldest) ? post.created_at : oldest,
+            undefined,
+          );
+          if (oldestOnPage && (!progress.oldestReached || oldestOnPage < progress.oldestReached)) {
+            progress.oldestReached = oldestOnPage;
+          }
+
+          // Not going further back is a different failure from not finding
+          // anything new, and it is the one that means "the feed ends here".
+          const movedBackwards =
+            !oldestOnPreviousPage || (oldestOnPage ? oldestOnPage < oldestOnPreviousPage : false);
+          stalledPages = movedBackwards ? 0 : stalledPages + 1;
+          oldestOnPreviousPage = oldestOnPage ?? oldestOnPreviousPage;
+
           duplicatePages = added === 0 ? duplicatePages + 1 : 0;
           cursor = page?.cursor;
 
@@ -166,6 +224,11 @@ export function startCrawl(
           onProgress({ ...progress });
 
           if (!cursor) return 'exhausted';
+          // A cursor we have already followed means the server is cycling us
+          // through the same window; continuing cannot produce anything new.
+          if (seenCursors.has(cursor)) return 'looping';
+          seenCursors.add(cursor);
+          if (stalledPages >= STALLED_PAGES_BEFORE_STOP) return 'stalled';
           if (duplicatePages >= duplicateLimit) return 'duplicates';
 
           await sleep(PAGE_DELAY_MS + Math.random() * JITTER_MS);
@@ -197,6 +260,11 @@ export function startCrawl(
           await save();
         });
         if (outcome === 'error' || outcome === 'stopped') return;
+        if (outcome === 'looping' || outcome === 'stalled') {
+          progress.finished = outcome;
+          onProgress({ ...progress });
+          return;
+        }
         if (outcome === 'exhausted') {
           // The whole feed fits inside the catch-up pass; nothing left to dig.
           progress.finished = 'exhausted';
@@ -208,7 +276,7 @@ export function startCrawl(
 
       /* ---- phase 2: backfill deeper ------------------------------------- */
       if (saved?.tail_exhausted) {
-        progress.finished = 'caught-up';
+        progress.finished = 'exhausted';
         onProgress({ ...progress });
         return;
       }
@@ -226,8 +294,11 @@ export function startCrawl(
         progress.finished = 'exhausted';
         await save({ tail_cursor: undefined, tail_exhausted: true });
         onProgress({ ...progress });
-      } else if (outcome === 'duplicates') {
-        progress.finished = 'caught-up';
+      } else if (outcome !== 'stopped' && outcome !== 'error') {
+        progress.finished = outcome;
+        // Not marked exhausted: a loop or a stalled window is the *server's*
+        // limit right now, not proof that history ends there. The cursor is kept
+        // so a later run can try again from the same place.
         await save({ tail_cursor: tail, tail_exhausted: false });
         onProgress({ ...progress });
       }

@@ -253,6 +253,9 @@ export default function SettingsScreen() {
                 <ThemedText type="caption" themeColor="textSecondary">
                   {formatCount(progress.pages)} pages · {formatCount(progress.archived)} new ·{' '}
                   {formatCount(progress.duplicates)} already held
+                  {progress.oldestReached
+                    ? ` · back to ${progress.oldestReached.slice(0, 10)}`
+                    : ''}
                 </ThemedText>
                 {progress.error ? (
                   <ThemedText type="caption" style={{ color: theme.danger }}>
@@ -263,14 +266,22 @@ export default function SettingsScreen() {
                   <ThemedText type="caption" themeColor="textTertiary">
                     Stopped. Progress is saved — running again resumes from here.
                   </ThemedText>
-                ) : progress.finished === 'exhausted' ? (
+                ) : progress.finished ? (
                   <ThemedText type="caption" themeColor="textTertiary">
-                    Reached the beginning of this community&rsquo;s feed. Nothing left to backfill —
-                    future runs only catch up on new posts.
-                  </ThemedText>
-                ) : progress.finished === 'caught-up' ? (
-                  <ThemedText type="caption" themeColor="textTertiary">
-                    Caught up — everything from here back is already archived.
+                    {
+                      {
+                        exhausted:
+                          'Reached the beginning of this community’s feed. Future runs only catch up on new posts.',
+                        duplicates:
+                          'Everything from here back was already archived, and the feed was still moving backwards — so there is probably more history to get. Run again to continue.',
+                        looping:
+                          'The feed started handing back a page it had already given. That is the server cycling, not the end of history — running again later may get further.',
+                        stalled:
+                          'Pages kept arriving but stopped getting any older. That is how far back this feed will page right now, not how far back the posts go — Yik Yak appears to cap the window.',
+                        stopped: 'Stopped.',
+                        error: 'Stopped after an error.',
+                      }[progress.finished]
+                    }
                   </ThemedText>
                 ) : null}
                 {running ? (

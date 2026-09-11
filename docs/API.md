@@ -1262,3 +1262,43 @@ The cursor is persisted per community after **every** page, so a run that is
 stopped, reloaded or interrupted resumes rather than restarting. A community
 whose feed has been exhausted is marked, so a later run starts from the newest
 posts instead of immediately hitting the end again.
+
+
+## ⚠️ How far back does the `recent` feed page?
+
+**Open question, raised by a real backfill 2026-09-11.** A crawl of Virginia
+Tech archived ~3,500 posts over 203 pages and then stopped producing anything
+new — with the archive spanning **only 2026-09-05 to 2026-09-11, six days**,
+against posts known to exist that are older.
+
+203 pages at ~24 posts is ~4,900 slots for ~3,900 distinct posts, so the feed was
+already repeating content *within* a single run.
+
+Three explanations fit, and the first crawler could not tell them apart because
+all three look like "pages that add nothing":
+
+| Possibility | What it would mean |
+|---|---|
+| The feed has a **time window** | `recent` only pages back N days, and older posts are simply unreachable this way |
+| The cursor **cycles** | The server eventually re-issues an earlier cursor, looping us through the same window |
+| The stretch really **was** archived | Benign, and the original "caught up" message would have been right |
+
+The crawler now distinguishes them, because guessing the flattering one is how
+this went unnoticed:
+
+- **Cursor identity** — a cursor already followed in this run ends the pass as
+  `looping`.
+- **Time progress** — the oldest `created_at` per page is tracked. Three
+  consecutive pages that fail to reach further back end the pass as `stalled`,
+  which is the signature of a windowed feed.
+- **`oldestReached`** is reported throughout, so the answer to "how far back does
+  this go" is visible rather than inferred.
+
+The UI no longer claims "everything from here back is already archived" for any
+of these — that was a conclusion the evidence did not support.
+
+**If it turns out to be a window**, backfilling beyond it needs a different
+route, and the ones worth trying are the user-scoped endpoints that are already
+known to return older content: `/v1/posts?type=my_posts`, `/v1/posts/saved`,
+`/v1/posts/upvoted` and `getUserPosts(username)` — a profile feed was showing
+posts older than the crawl reached, which is what raised the question.

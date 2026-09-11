@@ -546,6 +546,12 @@ and comment it sees** — effectively a Yik Yak downloader
       the last run would never be seen
 - [ ] **Wire search into Explore** — the query layer exists and is untested
       against a large archive; the UI does not
+- [ ] ⛔ **How far back does `recent` page?** A VT backfill reached only six days
+      (2026-09-05 → 09-11, ~3.5k posts) despite older posts demonstrably
+      existing, and was repeating content within a single run. The crawler now
+      tells a windowed feed, a cycling cursor and a genuinely-archived stretch
+      apart instead of reporting all three as "caught up"
+      ([docs/API.md](docs/API.md#-how-far-back-does-the-recent-feed-page))
 - [ ] Import an exported archive back in — makes the export a real backup rather
       than a one-way dump
 
