@@ -21,17 +21,19 @@ export default function PostDetailScreen() {
   /*
     `/p/<id>` takes either a post **id** or a share **code**.
 
-    An id is what our own share links carry, and it works cold — `getPost` is
-    UUID-keyed, so nothing has to be resolved. A code is what a yikyak.com link
-    carries, and the API cannot resolve one (docs/API.md#blocker-1), so those
-    only open if the post is already cached.
+    An id works cold — `getPost` is UUID-keyed, so nothing has to be resolved. A
+    share code cannot be resolved by the API at all (docs/API.md#blocker-1), so
+    those only open if the post is already cached.
 
-    That asymmetry is the whole reason share links switched to ids: the code was
-    never required, it was a URL-shape choice that happened to be unresolvable.
+    **The param is handed straight to `getPost` rather than format-checked
+    first.** A previous version gated on a UUID regex and refused anything that
+    didn't match — which rejected a real id in practice and showed the
+    share-code error for a link that would have loaded fine. Asking the server
+    is cheaper and more reliable than predicting what it accepts: a share code
+    just fails the request, and that failure is a case already handled.
   */
-  const direct = isPostId(code) ? code : undefined;
-  const cached = useCachedPostByCode(direct ? '' : code);
-  const postId = direct ?? cached?.id;
+  const cached = useCachedPostByCode(code);
+  const postId = cached?.id ?? code ?? undefined;
 
   const post = usePost(postId);
   const comments = useComments(postId);
@@ -39,18 +41,6 @@ export default function PostDetailScreen() {
 
   const startReply = useCallback((comment: PostOrComment) => setReplyTo(comment), []);
   const cancelReply = useCallback(() => setReplyTo(null), []);
-
-  if (!postId) {
-    return (
-      <Screen title="Post" back>
-        <EmptyState
-          icon="link-outline"
-          title="Can't open this share code"
-          body="This is a Yik Yak share code, and their API has no way to look a post up by one — so it only opens if the post is already loaded somewhere in the app. Links shared from webyak carry the post id instead and always work."
-        />
-      </Screen>
-    );
-  }
 
   if (post.isLoading && !cached) {
     return (
@@ -61,14 +51,25 @@ export default function PostDetailScreen() {
   }
 
   const current = post.data ?? cached;
+
   if (!current) {
+    // Only now is the format worth mentioning — and only to explain *why* it
+    // failed, never to decide whether to try.
     return (
       <Screen title="Post" back>
-        <ErrorState
-          error={post.error}
-          onRetry={() => post.refetch()}
-          title="Couldn't load this post"
-        />
+        {isPostId(postId) ? (
+          <ErrorState
+            error={post.error}
+            onRetry={() => post.refetch()}
+            title="Couldn't load this post"
+          />
+        ) : (
+          <EmptyState
+            icon="link-outline"
+            title="Can't open this share code"
+            body="This looks like a Yik Yak share code, and their API has no way to look a post up by one — so it only opens if the post is already loaded somewhere in the app. Links shared from webyak carry the post id instead and open anywhere."
+          />
+        )}
       </Screen>
     );
   }

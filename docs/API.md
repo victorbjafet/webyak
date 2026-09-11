@@ -1188,6 +1188,14 @@ So `/p/` now accepts **either**:
 and `shareUrlForPost` emits the id. Longer links, and they work — which was the
 entire point of having them.
 
+**The route does not format-check the parameter.** A first version gated on a
+UUID regex and refused anything that didn't match; it rejected a real id in
+practice and showed the share-code error for a link that would have loaded fine.
+The param now goes straight to `getPost` — asking the server is cheaper and more
+reliable than predicting what it accepts, and a share code simply fails the
+request, which is a case already handled. The format is checked only afterwards,
+to word the error, never to decide whether to try.
+
 A yikyak.com code still opens exactly as well as it did before, so nothing
 regressed. If the worker is ever built, share links can move back to the short
 form with no route change.
