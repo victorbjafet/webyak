@@ -44,6 +44,21 @@ obstacles are CORS and an encoding — exactly what a worker is for.
 One required route and one optional one, both the same shape: fetch a SvelteKit
 `__data.json`, rehydrate it, re-serve as clean JSON with CORS headers.
 
+> ⚠️ **This route's justification weakened on 2026-09-11, twice over.**
+>
+> 1. **Share links no longer need it.** webyak links carry the post id, which
+>    `getPost` resolves cold. The route now only serves *yikyak.com* codes
+>    pasted in from elsewhere — a real feature, but a much smaller one than
+>    "shared links are broken"
+>    ([API.md](API.md#blocker-1-resolved--by-changing-the-url-not-the-api)).
+> 2. **It may not work for the posts that matter.** The public client returned
+>    "couldn't find that post" for a Virginia Tech code. If it only serves
+>    publicly visible communities, this route cannot resolve a school-community
+>    post no matter how it is built. **Verify against a public-community code
+>    before building it.**
+>
+> `POST /upload` and `GET /asset` are unaffected and remain required.
+
 ### `GET /post/:code`
 
 ```

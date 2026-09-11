@@ -129,6 +129,11 @@ Probed unauthenticated, then again with a live token on 2026-08-26. Both are now
 
 ### Blocker 1 — `index_code` → `post_id` — ❌ no native endpoint
 
+> ✅ **No longer blocking, as of 2026-09-11.** Everything below still holds —
+> the API genuinely cannot resolve a share code — but it stopped mattering once
+> share links started carrying the post id instead. See
+> [Blocker 1 resolved](#blocker-1-resolved--by-changing-the-url-not-the-api).
+
 `/p/0ESz5N3t` carries the post's `index_code` (the short share code). Every
 post-fetch path in sidechat.js takes the UUID `post_id`.
 
@@ -726,8 +731,9 @@ that would avoid the problem. The probe reports signature parameters **by name
 only** — a pre-signed URL is a credential.
 
 **This is the first thing that genuinely requires the Worker** rather than merely
-benefiting from it. Share-code resolution (Blocker 1) is a missing convenience;
-this is a feature that cannot work from a static origin at all. See
+benefiting from it. Share-code resolution (Blocker 1) was a missing convenience
+and is now not even that — webyak links carry the post id and open cold on their
+own. This is a feature that cannot work from a static origin at all. See
 [docs/WORKER.md](WORKER.md).
 
 ### Untested: a poll and an image on the same post
@@ -1141,3 +1147,78 @@ thumbnail fetch* looked at **one group's hot feed** and kept reporting "no video
 post to test with" — in the same run where the shape probe, searching four
 groups across two rankings, found one. Videos are rare enough in any single feed
 that a narrow search mostly measures luck. The broader search is now shared.
+
+
+## Blocker 1 resolved — by changing the URL, not the API
+
+**2026-09-11.** Shared links open cold now. The API did not change; the link did.
+
+### The API still cannot resolve a share code
+
+Re-swept with a proper differential design — every candidate tried with a **real**
+`index_code` from the live feed *and* a well-formed fake, so "resolves",
+"catch-all" and "no route" are distinguishable:
+
+```
+/v1/posts?index_code=   real 400  fake 400      identical
+/v1/posts/<code>        real 404  fake 404      identical
+/v1/posts/get?index_code= real 500 fake 500     identical
+/v1/posts/by_code?code=  real 404  fake 404     identical
+/v1/posts/share/<code>   real 404  fake 404     identical
+/v1/posts?share_code=    real 400  fake 400     identical
+/v1/share/<code>         real 404  fake 404     identical
+```
+
+Not one behaves differently for a code that exists. That is settled.
+
+### The realisation
+
+The share code was never a requirement. **It was a URL-shape choice**, copied
+from yikyak.com early on — and it happened to be the single identifier this API
+cannot look up. Posts are UUID-keyed and `getPost` resolves a UUID cold, with no
+cache, no worker and no auth trickery.
+
+So `/p/` now accepts **either**:
+
+| In the URL | Resolution | Works cold? |
+|---|---|---|
+| post id (UUID) | `getPost` directly | ✅ always |
+| share code | cache scan only | only if already loaded |
+
+and `shareUrlForPost` emits the id. Longer links, and they work — which was the
+entire point of having them.
+
+A yikyak.com code still opens exactly as well as it did before, so nothing
+regressed. If the worker is ever built, share links can move back to the short
+form with no route change.
+
+### The cache scan was also broken
+
+Independently of the above: a post visible on a profile could not be opened from
+that profile. `findCachedPostByCode` searched only `['feed']` and `['post']`,
+while the profile preview renders from `['profile', user, 'posts']` — a cache it
+never touched. Saved posts, upvotes, your own content and comment threads had
+the same hole. It now searches every cache that holds posts, including nested
+replies.
+
+### What the public web client actually does
+
+Tested directly 2026-09-11, because the worker plan rests on it:
+
+- **The URL shape works.** `web.yikyak.com/cy/x/comments/<code>/x/__data.json`
+  returns `200` with SvelteKit JSON, and the group slug in the path is ignored —
+  `x` and the real slug behave identically.
+- **It returns no CORS header at all.** Zero `access-control-*` on the response,
+  so a browser can never read it. Confirms the worker is the only way to use it.
+- ⚠️ **It could not find a Virginia Tech post.** A known-good code from a school
+  community answers `{"error":{"message":"Sorry, we couldn't find that post"},
+  "status":404}`. The likely explanation is that an unauthenticated client only
+  sees publicly visible communities — untested against a public-community code,
+  so treat it as a strong hypothesis rather than a fact.
+
+**That last point matters more than it looks.** If the public client cannot serve
+school-community posts, the worker's `/post/:code` route cannot either — which
+would make it useless for exactly the posts this account shares. It should be
+verified against a public-community code before any worker work starts, because
+it could remove the route's justification entirely. The worker's other two jobs —
+image upload and video thumbnails — are unaffected.

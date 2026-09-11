@@ -90,7 +90,7 @@ Currently: nowhere. Tracked so we notice the moment it changes.
 | Deep links / routing | ✅ | via the `404.html` fallback above |
 | Images and video in posts | ✅ **verified** | Mixed: some URLs are pre-signed, some need the bearer. Both work client-side — `AuthedImage` fetches the authenticated ones to a blob. No proxy needed. [Rules](API.md#asset-urls-and-auth--corrected) |
 | Cold-load group links (`/g/<slug>`) | ✅ **verified** | Resolved natively via `/v1/groups/explore/search` — [Blocker 2 closed](API.md#blocker-2--group-slug--group_id) |
-| **Cold-load share links** (`/p/<code>`) | ❌ | The authenticated API cannot resolve a share code — [confirmed, not suspected](API.md#blocker-1--index_code--post_id). The public web client can, but has no CORS. **The one remaining case for a Worker.** |
+| **Cold-load share links** (`/p/<id>`) | ✅ | Solved without a server: webyak links carry the post **id**, which `getPost` resolves cold. The share *code* is still unresolvable, but nothing of ours depends on it any more ([API.md](API.md#blocker-1-resolved--by-changing-the-url-not-the-api)). |
 | Logged-out browsing | ❌ | Out of scope — webyak is auth-only |
 | Push notifications | ❌ | Needs a server to hold subscriptions. Out of scope; polling only |
 | Hiding a secret | ❌ | We have none. If that ever changes, it needs a worker |
@@ -139,7 +139,8 @@ already.
 | `/explore` | Group discovery | `src/app/explore.tsx` |
 | `/g/<slug>` | Group feed | `src/app/g/[slug].tsx` |
 | `/g/<slug>?sort=hot\|new\|top` | Group feed, sorted | ” |
-| `/p/<code>` | Post + comments | `src/app/p/[code].tsx` |
+| `/p/<id>` | Post + comments — **the id form our share links use; opens cold** | `src/app/p/[code].tsx` |
+| `/p/<code>` | Same screen, yikyak.com share code — resolvable only from cache | ” |
 | `/u/<username>` | Public profile | `src/app/u/[username].tsx` |
 | `/me` | Your profile and content | `src/app/me/index.tsx` |
 | `/chats` | DM list | `src/app/chats/index.tsx` |

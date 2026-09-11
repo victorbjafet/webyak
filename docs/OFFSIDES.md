@@ -142,7 +142,9 @@ filter for yikyak.com**. offsides never opens a shared web link, and
 feed.
 
 So they never had to resolve a share code, and there is no prior art here for
-[Blocker 1](API.md#blocker-1--index_code--post_id). That one is ours to solve.
+[Blocker 1](API.md#blocker-1--index_code--post_id). That one was ours to solve —
+and the answer turned out not to be an endpoint at all
+([API.md](API.md#blocker-1-resolved--by-changing-the-url-not-the-api)).
 
 
 ## Round 3 — what they told us about images and reposts (2026-08-27)
@@ -304,19 +306,29 @@ of caution about request rates; that was being careful about the wrong thing —
 a long time, which makes it a measured tolerance rather than a guess. Matched.
 
 
-## Round 6 — share codes: they cannot help (2026-08-29)
+## Round 6 — share codes: not a gap in their work, an absence of the problem
 
-Checked `App.jsx` for deep links, universal links, URL schemes, or any
-share-code resolution. **There is none, and there could not be.**
+Checked `App.jsx` for deep links, universal links, URL schemes, or share-code
+resolution. There is none — and the distinction worth drawing is **why**.
 
-offsides is a native Android app. It has no URLs, so it never had a
-`/p/<code>` to cold-load, and never needed to turn a share code into a post.
-Its navigation is stack-based between named screens.
+They are not stuck on this. **They never encounter it.**
 
-This is the one class of problem where the reference client is structurally
-unable to help: **share codes are a web problem, and offsides is not a web
-client.** Anything URL-shaped — deep links, cold-loading a shared link, SEO —
-has to be solved here from first principles or by the worker.
+A native app navigates by pushing a screen with the object already in hand. Tap
+a post in a feed and offsides passes that post — it never holds a bare string and
+asks "which post is this?". There is no cold start, no pasted URL, no address
+bar. The question simply does not arise, so there is no workaround to copy, no
+clever endpoint they found, and no evidence of them failing at it either.
 
-Worth remembering before the next "check offsides first": they are ahead on API
-shapes and behaviours, and blank on everything the web adds.
+That is different from the other rounds, where they had hit the same wall first
+and solved it (`quote_post.post`, the `client_id` device id, group icons as a
+plain URI). Here there is nothing to find.
+
+**The general rule:** offsides is ahead on anything about *the API's shape and
+behaviour*, and silent on anything the web adds — URLs, cold loads, CORS,
+preflights, redirects. Three of this project's hardest problems (image upload,
+video thumbnails, share codes) are in that second category, which is why they
+kept coming back unsolved from a source that had answered everything else.
+
+The resolution, when it came, was not an endpoint: the share code was a URL-shape
+choice we had made ourselves, and post ids were resolvable all along
+([API.md](API.md#blocker-1-resolved--by-changing-the-url-not-the-api)).

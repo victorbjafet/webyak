@@ -167,29 +167,67 @@ export function useComments(postId: string | undefined) {
   });
 }
 
+/** Post ids are UUIDs; share codes are short base62. Telling them apart is trivial. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isPostId(value: string | undefined): boolean {
+  return Boolean(value && UUID.test(value));
+}
+
 /**
- * Find a post's UUID from its share code by scanning what's already cached.
+ * Find a post by share code in whatever is already cached.
  *
- * The API cannot resolve a share code (docs/API.md#blocker-1), so `/p/<code>`
- * relies on the post having been seen in a feed. This is what makes in-app
- * navigation work; a cold-loaded shared link finds nothing and the screen says
- * so rather than spinning.
+ * The API cannot resolve a share code — seven candidate routes, each tried with
+ * a real code and a fake one, all answered identically
+ * (docs/API.md#blocker-1). So a bare code only opens if the post is already in
+ * memory.
+ *
+ * **Every cache holding posts has to be searched.** An earlier version looked
+ * only at feeds and single posts, which meant a post visible on a profile could
+ * not be opened from that profile — the preview rendered from
+ * `['profile', user, 'posts']`, a cache the scan never touched. Saved posts,
+ * upvotes, your own content and comment threads had the same hole.
  */
 export function findCachedPostByCode(client: QueryClient, code: string): PostOrComment | null {
   if (!code) return null;
 
+  const matches = (post: PostOrComment | undefined) =>
+    post?.index_code === code || post?.id === code;
+
+  // Infinite feeds: pages of posts.
   for (const [, data] of client.getQueriesData({ queryKey: ['feed'] })) {
     const pages = (data as { pages?: { posts?: PostOrComment[] }[] } | undefined)?.pages;
-    if (!pages) continue;
-    for (const page of pages) {
-      const hit = page.posts?.find((p) => p.index_code === code);
+    for (const page of pages ?? []) {
+      const hit = page.posts?.find(matches);
       if (hit) return hit;
     }
   }
 
+  // Single posts.
   for (const [, data] of client.getQueriesData({ queryKey: ['post'] })) {
     const post = data as PostOrComment | undefined;
-    if (post?.index_code === code) return post;
+    if (matches(post)) return post as PostOrComment;
+  }
+
+  // Flat arrays: profile posts, your posts/comments/saved/upvotes, and comment
+  // threads — which nest replies, so those are searched too.
+  const search = (list: PostOrComment[]): PostOrComment | null => {
+    for (const item of list) {
+      if (matches(item)) return item;
+      if (item?.replies?.length) {
+        const nested = search(item.replies);
+        if (nested) return nested;
+      }
+    }
+    return null;
+  };
+
+  for (const key of [['profile'], ['me'], ['comments']]) {
+    for (const [, data] of client.getQueriesData({ queryKey: key })) {
+      if (!Array.isArray(data)) continue;
+      const hit = search(data as PostOrComment[]);
+      if (hit) return hit;
+    }
   }
 
   return null;

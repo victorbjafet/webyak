@@ -11,16 +11,23 @@ export const BASE_URL = process.env.EXPO_PUBLIC_BASE_URL ?? 'https://webyak.vbjf
 /**
  * The URL we hand to other people.
  *
- * Points at webyak, not yikyak.com. An earlier version shared a yikyak.com link
- * on the reasoning that `/p/<code>` can't be opened cold — but the public web
- * client has no auth, so a yikyak.com link to a school-community post is
- * useless to whoever receives it. A webyak link at least works for anyone signed
- * in who reached the post through a feed, and becomes fully cold-loadable once
- * the Worker lands (docs/WORKER.md).
+ * **Carries the post id, not the share code.** The code was a URL-shape choice
+ * copied from yikyak.com, and it is the one identifier their API cannot resolve
+ * — so a `/p/<code>` link could only ever open if the recipient already had the
+ * post cached, which is nearly never for a link someone was just sent.
+ *
+ * The id has no such problem: `getPost` is UUID-keyed, so an id link opens cold
+ * for anyone signed in. That turns the flagship symptom of Blocker 1 — "shared
+ * links don't work" — from a worker dependency into a choice we were making
+ * ourselves (docs/API.md#blocker-1).
+ *
+ * Uglier, and worth it. `/p/` still accepts a code, so yikyak.com codes keep
+ * working exactly as well as they did; and if the worker is ever built, share
+ * links can move back to the short form with no route change.
  */
 export function shareUrlForPost(post: PostOrComment): string | null {
-  if (!post.index_code) return null;
-  return `${BASE_URL}/p/${encodeURIComponent(post.index_code)}`;
+  if (!post.id) return null;
+  return `${BASE_URL}/p/${encodeURIComponent(post.id)}`;
 }
 
 /** Canonical link to a community feed. */

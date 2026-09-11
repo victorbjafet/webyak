@@ -251,8 +251,10 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 - [x] Q2 **closed** — assets are pre-signed R2 URLs, plain `<img>` works
 - [x] Q6 **closed** — the URL slug is a group's `index_name`
 - [x] Q1 **closed** — `cy` is a hardcoded literal, not a region
-- [x] Blocker 1 **answered: no native endpoint exists.** Confirmed by a DynamoDB
-      key error, not inferred — [docs/API.md](docs/API.md#blocker-1--index_code--post_id)
+- [x] Blocker 1 **answered: no native endpoint exists**, confirmed by a DynamoDB
+      key error and later by a seven-route differential sweep. **Closed
+      2026-09-11 by changing the link, not the lookup** — share URLs carry the
+      post id ([docs/API.md](docs/API.md#blocker-1-resolved--by-changing-the-url-not-the-api))
 - [x] Blocker 2 layered resolver implemented (`src/api/groups.ts`)
 - [x] Feed defences ported from offsides (`src/api/feed.ts`)
 - [x] Round-2 probes run — every resolver layer missed; direct slug lookup
@@ -267,9 +269,11 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 
 ### Phase 3 — read ✅ (one deferred bug, see below)
 
-> Blocker 2 is **closed** — `/g/<slug>` resolves for any group. Blocker 1 has no
-> client-side fix and is parked on the deferred Worker; it only affects pasted
-> post links.
+> Both ID blockers are **closed**. Blocker 2: `/g/<slug>` resolves for any group.
+> Blocker 1: the API still cannot resolve a share code, but share links carry the
+> post **id** now, so they open cold — only *pasted yikyak.com codes* are still
+> unresolvable
+> ([docs/API.md](docs/API.md#blocker-1-resolved--by-changing-the-url-not-the-api)).
 > Read [docs/API.md](docs/API.md#two-id-resolution-blockers) before starting.
 > The feed helpers in `src/api/feed.ts` are **not optional** — see
 > [docs/OFFSIDES.md](docs/OFFSIDES.md#the-feed-needs-two-defensive-filters-not-one).
@@ -548,7 +552,9 @@ Resolved ones are kept with their answer so they don't get re-asked.
 - **⛔ Fully-serverless is no longer strictly true.** **Two** features need a proxy, both for the
   same reason — a browser request carrying an `Authorization` header cannot follow a redirect:
   image upload and video thumbnails. Everything else works from a static origin
-  ([docs/WORKER.md](docs/WORKER.md)).
+  ([docs/WORKER.md](docs/WORKER.md)). Share links used to be a third; they are not, since webyak
+  links now carry the post id
+  ([docs/API.md](docs/API.md#blocker-1-resolved--by-changing-the-url-not-the-api)).
 - **Private API.** sidechat.js is reverse-engineered and unofficial. Endpoints can change or break
   without notice, and this likely runs against Yik Yak's ToS.
 - **Publishing this repo.** It goes open source; the release audit passed 2026-08-27 and found
