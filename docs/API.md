@@ -996,6 +996,11 @@ Consequences:
   secondary_color}` — so senders are attributable. DM messages don't, being
   anonymous unless the sender chose otherwise.
 - Sorting is by `updated_at`, which moves with the last message.
+- **The list is paged.** It carries a top-level `cursor`, ignored by the first
+  implementation, which capped the screen at one page (19 threads on the test
+  account) — a plausible cause of conversations present in the official app and
+  missing here. Followed now, bounded to five pages since this runs on a poll.
+- Messages carry an `assets` array, like posts. Rendered, capped short.
 
 ### A DM's `post_id` can point at a *comment*
 
@@ -1015,11 +1020,14 @@ a reply.
 arrive as ordinary entries in `messages`. They are not messages anyone sent and
 render as centred grey lines rather than bubbles.
 
-⚠️ **Detected heuristically.** `DirectMessage.type` exists but its values have
-never been dumped, so the current test is: no `identity`, not authored by the
-user, and the whole text matching an event phrasing. The messaging probe now
-reports the distinct `type` values; once known, this should key on the field and
-drop the pattern.
+**`type: "status"`.** Confirmed 2026-09-11 — the only two values across 19 live
+threads are `message` and `status`.
+
+This replaced a text-matching heuristic that shipped while the field's values
+were unknown. It worked, but it was guessing at English: a real message reading
+"Purple Dagger left the chat" would have been swallowed, and any phrasing the
+server added later would have been missed. Worth the round trip to replace a
+pattern with a field.
 
 A group-chat message with no `identity` is genuinely anonymous and is labelled
 **Anonymous**, rather than left unattributed — an unlabelled bubble reads as

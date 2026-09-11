@@ -271,8 +271,15 @@ export interface DirectMessage {
   obfuscated_user_id?: string;
   text: string;
   authored_by_user: boolean;
+  /** `message` or `status` — see `isSystemMessage`. */
   type: string;
   assets?: Asset[];
+  /**
+   * (observed) Present on group-chat messages. Presumably whether this sender
+   * can be DMed — untested, and `/v1/chats/start` requires a `post_id`, so it is
+   * unclear what a DM from a chat would even hang off. Recorded as a lead.
+   */
+  can_start_dm?: boolean;
   /**
    * (observed) Who sent it, in a group chat: `{display_name, emoji, color,
    * secondary_color}`. Absent in DMs, which are anonymous by default.
@@ -343,23 +350,17 @@ export function isGroupChat(thread: DirectThread): boolean {
  * chat", "Y rejoined the chat", "Ghost Spirit is now Purple Dagger". They are
  * not messages anyone sent and must not render as bubbles.
  *
- * ⚠️ **Heuristic.** `DirectMessage.type` exists but its values have never been
- * dumped, so the only reliable signals available are: no `identity`, not
- * authored by the user, and text matching the event phrasings exactly. Anchored
- * to the whole string so an ordinary message that happens to contain "left the
- * chat" is not swallowed.
+ * **`type: "status"`**, confirmed 2026-09-11. The only two values across 19
+ * live threads are `message` and `status`.
  *
- * The messaging probe now reports the distinct `type` values; once those are
- * known this should be keyed on the field and the pattern dropped.
+ * This replaces a text-matching heuristic — no identity, not mine, and the whole
+ * string matching an event phrasing — that shipped because the field's values
+ * had never been dumped. It worked, but it was guessing at English: a real
+ * message reading "Purple Dagger left the chat" would have been swallowed, and
+ * any phrasing the server adds later would have been missed. A field is a fact.
  */
-const SYSTEM_MESSAGE_TYPES = new Set(['system', 'event', 'chat_event', 'notification']);
-const SYSTEM_TEXT = /^.{1,60} (?:joined|left|rejoined) the chat$|^.{1,40} is now .{1,40}$/i;
-
 export function isSystemMessage(message: DirectMessage): boolean {
-  if (message.type && SYSTEM_MESSAGE_TYPES.has(message.type)) return true;
-  // A named sender or your own message is always a real message.
-  if (message.identity?.display_name || message.authored_by_user) return false;
-  return SYSTEM_TEXT.test((message.text ?? '').trim());
+  return message.type === 'status';
 }
 
 /**

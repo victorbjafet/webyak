@@ -49,9 +49,44 @@ function unwrapChats<T>(entries: unknown): T[] {
     .filter((value): value is T => Boolean(value));
 }
 
+/**
+ * Every conversation, following the cursor.
+ *
+ * The list response carries a top-level `cursor` that the first implementation
+ * ignored, which capped the screen at whatever one page returns (19 on the test
+ * account) — a plausible explanation for conversations that exist in the
+ * official app but not here.
+ *
+ * Bounded: this runs at app start and on a 60s poll, so it must not walk an
+ * unbounded history. It stops on a missing cursor, an empty page, a repeated
+ * cursor (which would otherwise loop forever), or the page cap.
+ */
+const MAX_THREAD_PAGES = 5;
+
 export async function getDMThreads(): Promise<DirectThread[]> {
-  const json = await request<{ chats?: unknown }>('/v1/chats');
-  return unwrapChats<DirectThread>(json.chats);
+  const threads: DirectThread[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  for (let page = 0; page < MAX_THREAD_PAGES; page += 1) {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    const json = await request<{ chats?: unknown; cursor?: string }>(`/v1/chats${query}`);
+    const batch = unwrapChats<DirectThread>(json.chats);
+    threads.push(...batch);
+
+    const next = json.cursor;
+    if (!next || batch.length === 0 || seenCursors.has(next)) break;
+    seenCursors.add(next);
+    cursor = next;
+  }
+
+  // A repeated thread across pages would render twice; ids are the only
+  // reliable key here.
+  const byId = new Map<string, DirectThread>();
+  for (const thread of threads) {
+    if (thread?.id && !byId.has(thread.id)) byId.set(thread.id, thread);
+  }
+  return [...byId.values()];
 }
 
 export async function getDMThread(chatId: string): Promise<DirectThread | null> {

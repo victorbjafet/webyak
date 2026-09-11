@@ -459,36 +459,52 @@ Full checklist and pre-scan findings:
 - [x] Public profile + that user's posts
 - [x] My posts / my comments, tabbed, via the URL-patched `getUserContent`
 
-### Phase 6 — messaging — built, needs live verification
-- [x] DM list, with message requests separated from accepted threads and an
-      unread badge
-- [x] Random-UUID device ID — resolved by use: auth, posting, voting and
-      commenting all work on it, so the hashed-hardware-id question is moot
-- [x] DM thread view + send. Not optimistic: a message that appears then
-      vanishes is worse than one that takes a moment
-- [x] Start DM from a post — the only way one can start, since
-      `/v1/chats/start` requires a `post_id`. Honours `dms_disabled`
-- [x] Group chat explore + join, with the school strip and "View all" on Explore
-- [x] Polling — 12s for an open thread (foreground only), 60s for the list.
-      There is no websocket in this API ([docs/API.md](docs/API.md#polling-because-there-is-nothing-else))
-- [x] `client_id` corrected to the device id — offsides sends a stable hashed
-      hardware id, which disproves the dedup theory I'd built a UUID scheme on
-- [x] Joined group chats surfaced from `getUpdates().chats` (a lead, not a
-      confirmed shape) so a chat joined in the official app is at least visible
-- [ ] ⛔ **Message requests are read-only** — `accept_status` is readable, nothing
-      writes it, and **offsides doesn't handle it either**
+### Phase 6 — messaging ✅ (two API gaps, neither ours)
+
+Verified against live data, which overturned the first implementation twice —
+every list endpoint wraps its entries in `{chat}`, and DMs and group chats are
+one list rather than two sources
+([docs/API.md](docs/API.md#-everything-in-the-chat-api-is-wrapped)).
+
+- [x] One list of every conversation, All / Chats / Group chats filters, sorted
+      by most recent message
+- [x] Unread from `updated_at > last_read_timestamp` — there is no `unread_count`
+- [x] Thread view, send, and group chats readable (their messages arrive inlined)
+- [x] Group-chat messages show their sender; identity-less ones say Anonymous
+- [x] Membership events render as centred status lines — keyed on
+      `type === "status"`, which replaced a text-matching heuristic once the
+      field's values were dumped
+- [x] Images attached to messages render, capped short
+- [x] A DM shows the post it started from, and links to the **parent** when that
+      post is really a reply
+- [x] Start DM from a post — the only way one can start; honours `dms_disabled`
+- [x] Group chat explore + join, school strip with "View all" on Explore
+- [x] Polling at 5s for an open foreground thread, 60s for the list — matching
+      offsides, which has polled this API at that rate for a long time
+- [x] `client_id` is the device id, corrected from offsides against a theory of
+      mine that their working client disproved
+- [x] Thread list follows its `cursor`, bounded to 5 pages — the first version
+      ignored it and capped at one page, a plausible cause of conversations
+      missing versus the official app
+
+**Not ours to fix:**
+
+- [ ] ⛔ **Message requests are read-only.** `accept_status` is readable; nothing
+      writes it. All four candidate routes matched a nonsense control byte for
+      byte, so `/v1/chats/:x` is a catch-all and none exist. offsides has no
+      `accept_status` handling either
       ([docs/API.md](docs/API.md#-message-requests-are-read-only))
-- [ ] ⛔ **Group chats can be joined but not opened** — no endpoint for their
-      messages; offsides' `leaveChat` is a stub, so the whole ecosystem is stuck
-      here ([docs/API.md](docs/API.md#-group-chats-can-be-joined-but-not-opened))
-- [x] **Verified against live data — and the shapes were wrong.** Every chat
-      list endpoint wraps its entries in `{chat}`, so the first implementation
-      read `undefined` for every field on all 19 threads without erroring
-      ([docs/API.md](docs/API.md#-everything-in-the-chat-api-is-wrapped))
-- [x] Joined group chats confirmed at `getUpdates().chats.chats[].chat`
-- [ ] ⛔ Re-run the messaging probe — the first `/v1/chats/*` sweep had **no
-      control**, and its four 200s are probably a catch-all rather than four
-      endpoints. The probe now runs a nonsense path first and compares bodies
+- [ ] ⛔ **Leaving a group chat.** No endpoint; offsides' `leaveChat` is a stub
+      marked *"Waiting for sidechat.js implementation"*
+
+**Open leads, none blocking:**
+
+- [ ] Marking a thread read — `last_read_timestamp` drives the unread dot but
+      nothing updates it. Opening a thread may do it server-side; unverified
+- [ ] `can_start_dm` on group-chat messages — presumably "you may DM this
+      sender", but `/v1/chats/start` needs a `post_id`, so what such a DM would
+      hang off is unclear
+- [ ] Sending into a group chat uses the same `/v1/chats/send`; untested
 
 ### Phase 7 — the extras from §5
 - [ ] Keyboard shortcuts + shortcut help overlay

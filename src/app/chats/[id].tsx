@@ -6,6 +6,7 @@ import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSendDM } from '@/api/mutations';
 import { useDMThread, useDMThreads, usePost } from '@/api/queries';
 import { isComment, isGroupChat, isSystemMessage, type DirectMessage } from '@/api/types';
+import { AuthedImage } from '@/components/authed-image';
 import { QuotedPost } from '@/components/post/quoted-post';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
@@ -13,6 +14,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
 import { Layout, Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { bestAssetUrl } from '@/lib/asset-url';
 import { useNow } from '@/lib/clock';
 import { absoluteTime, relativeTime } from '@/lib/time';
 
@@ -200,11 +202,40 @@ export default function ChatThreadScreen() {
                         : 'Anonymous'}
                     </ThemedText>
                   ) : null}
-                  <ThemedText
-                    type="small"
-                    style={{ color: mine ? theme.onBrand : theme.text }}>
-                    {message.text}
-                  </ThemedText>
+                  {message.text ? (
+                    <ThemedText
+                      type="small"
+                      style={{ color: mine ? theme.onBrand : theme.text }}>
+                      {message.text}
+                    </ThemedText>
+                  ) : null}
+
+                  {/*
+                    Messages carry an `assets` array like posts do. Capped
+                    tightly — a bubble is not a feed row, and a full-height image
+                    inside one pushes the rest of the conversation off screen.
+                  */}
+                  {message.assets?.map((asset) => {
+                    const uri = bestAssetUrl(asset);
+                    if (!uri) return null;
+                    return (
+                      <AuthedImage
+                        key={asset.id}
+                        uri={uri}
+                        context="chat-message"
+                        style={[
+                          styles.messageImage,
+                          {
+                            aspectRatio:
+                              asset.width && asset.height ? asset.width / asset.height : 1,
+                            backgroundColor: theme.skeleton,
+                          },
+                        ]}
+                        contentFit="cover"
+                        transition={100}
+                      />
+                    );
+                  })}
                   {message.created_at ? (
                     <ThemedText
                       type="caption"
@@ -276,6 +307,11 @@ const styles = StyleSheet.create({
   source: {
     gap: Spacing.one,
     paddingBottom: Spacing.two,
+  },
+  messageImage: {
+    width: '100%',
+    maxHeight: 220,
+    borderRadius: Radius.md,
   },
   systemRow: {
     alignItems: 'center',
