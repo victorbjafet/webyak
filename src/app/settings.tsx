@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { CrawlMonitor } from '@/components/settings/crawl-monitor';
 import { startCrawl, type CrawlHandle, type CrawlProgress } from '@/lib/archive/crawler';
 import {
   archiveAvailable,
@@ -83,7 +84,21 @@ export default function SettingsScreen() {
       handle.current?.stop();
       setTarget(group);
       setStopped(false);
-      setProgress({ phase: 'catching-up', pages: 0, archived: 0, duplicates: 0 });
+      setProgress({
+        phase: 'catching-up',
+        run: {
+          startedAt: Date.now(),
+          pages: 0,
+          requests: 0,
+          archived: 0,
+          duplicates: 0,
+          withMedia: 0,
+          errors: 0,
+        },
+        total: { pages: 0, archived: 0 },
+        idlePages: 0,
+        nextDelayMs: 1500,
+      });
       handle.current = startCrawl(group.id, group.name, (next) => {
         setProgress(next);
         if (next.finished || next.error) void refresh();
@@ -248,44 +263,19 @@ export default function SettingsScreen() {
             </View>
 
             {progress ? (
-              <View style={[styles.progress, { backgroundColor: theme.background }]}>
-                <ThemedText type="small">
-                  {target ? groupDisplayName(target) : 'Crawl'} —{' '}
-                  {progress.phase === 'catching-up'
-                    ? 'catching up on new posts'
-                    : 'backfilling history'}
-                </ThemedText>
-                <ThemedText type="caption" themeColor="textSecondary">
-                  {formatCount(progress.pages)} pages · {formatCount(progress.archived)} new ·{' '}
-                  {formatCount(progress.duplicates)} already held
-                  {progress.oldestReached
-                    ? ` · back to ${progress.oldestReached.slice(0, 10)}`
-                    : ''}
-                </ThemedText>
+              <>
+                <CrawlMonitor
+                  progress={progress}
+                  groupName={target ? groupDisplayName(target) : undefined}
+                  stopped={stopped}
+                />
 
-                {progress.target && !progress.finished ? (
-                  <ThemedText
-                    type="caption"
-                    style={{
-                      color: progress.intoNewHistory ? theme.brand : theme.textTertiary,
-                    }}>
-                    {progress.intoNewHistory
-                      ? `Past ${progress.target.slice(0, 10)} — into history that wasn’t archived before.`
-                      : `Working back toward ${progress.target.slice(0, 10)}, the oldest post already held.`}
-                  </ThemedText>
-                ) : null}
-
-                {progress.recovering ? (
-                  <ThemedText type="caption" themeColor="textTertiary">
-                    The feed stopped giving new pages for a moment — waiting a little longer and
-                    carrying on rather than stopping.
-                  </ThemedText>
-                ) : null}
                 {progress.error ? (
                   <ThemedText type="caption" style={{ color: theme.danger }}>
                     {progress.error}
                   </ThemedText>
                 ) : null}
+
                 {stopped ? (
                   <ThemedText type="caption" themeColor="textTertiary">
                     Stopped. Progress is saved — running again resumes from here.
@@ -296,8 +286,7 @@ export default function SettingsScreen() {
                       {
                         exhausted:
                           'Reached the beginning of this community’s feed. Future runs only catch up on new posts.',
-                        duplicates:
-                          'Caught up on everything posted since the last run.',
+                        duplicates: 'Caught up on everything posted since the last run.',
                         stalled:
                           'Gave up after a long stretch with no new posts and no movement further back, even after waiting it out. Something is off — worth trying again later, and worth looking at if it keeps happening.',
                         stopped: 'Stopped.',
@@ -306,10 +295,9 @@ export default function SettingsScreen() {
                     }
                   </ThemedText>
                 ) : null}
-                {running ? (
-                  <Button label="Stop" variant="danger" onPress={stop} />
-                ) : null}
-              </View>
+
+                {running ? <Button label="Stop" variant="danger" onPress={stop} /> : null}
+              </>
             ) : null}
           </Card>
         ) : null}
@@ -423,10 +411,5 @@ const styles = StyleSheet.create({
   },
   dim: {
     opacity: 0.4,
-  },
-  progress: {
-    gap: Spacing.one,
-    padding: Spacing.three,
-    borderRadius: Radius.md,
   },
 });

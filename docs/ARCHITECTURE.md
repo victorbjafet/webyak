@@ -414,3 +414,38 @@ is precisely how it knows the gap since the last run is closed.
 
 `getOldestArchived` is a single cursor step on a compound `[group_id,
 created_at]` index, so reading the target stays free as the archive grows.
+
+
+## Crawl metrics: run figures and lifetime figures are separate
+
+The backfill panel reports two scopes and never mixes them, because mixing them
+actively misled.
+
+An earlier version seeded `pages` and `archived` from saved state while
+`duplicates` started at zero, so one line — *"203 pages · 3.5k new · 432 held"* —
+described three different time spans at once. A run that had archived nothing new
+still showed thousands, which is precisely the case where an honest number
+matters.
+
+`CrawlProgress.run` is always this session; `CrawlProgress.total` is the
+community across every run.
+
+### What the panel shows, and why
+
+During a crawl the useful question is rarely "how many posts" — it is **"is this
+still getting anywhere, and how fast"**. So the monitor leads with movement:
+
+| Metric | Answers |
+|---|---|
+| Pages / min, posts / min | Is it running at the intended pace, or being throttled? |
+| Requests vs pages | How many attempts failed and were retried |
+| **Idle pages** | Consecutive pages that neither archived anything nor reached further back — the budget that decides whether the run continues |
+| **Time since last page** | The clearest early stall signal, because it moves every second |
+| Walked range + days spanned | How deep this run has actually gone |
+| Target | The oldest post already held, and whether the run has passed it |
+| Cursor (truncated) | Whether paging is advancing at all |
+
+The progress bar measures the span walked against the distance to the target.
+Past the target it stops pretending to be a percentage: there is no known floor
+to measure against, so inventing a denominator would be a made-up number on a
+screen full of real ones.

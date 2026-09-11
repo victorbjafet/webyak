@@ -100,19 +100,53 @@ export type CrawlEnding =
   | 'stopped'
   | 'error';
 
+/**
+ * What this run has done, and what the community has accumulated.
+ *
+ * **Split deliberately.** An earlier version seeded `pages` and `archived` from
+ * the saved state while `duplicates` started at zero, so the panel mixed
+ * lifetime and per-run figures in one row — "203 pages · 3.5k new · 432 held"
+ * described three different time spans at once and made a stuck run look
+ * productive. `run` is always this session; `total` is the community's history.
+ */
+export interface CrawlRunStats {
+  startedAt: number;
+  /** Pages successfully fetched and archived. */
+  pages: number;
+  /** HTTP requests, including retries — diverges from `pages` when things fail. */
+  requests: number;
+  /** Rows the archive had never seen. */
+  archived: number;
+  /** Rows already held, and re-seen (so scores and deletions refresh). */
+  duplicates: number;
+  /** Posts on this run carrying images or video, flagged for later download. */
+  withMedia: number;
+  /** Failed requests that were retried rather than fatal. */
+  errors: number;
+  /** Newest and oldest `created_at` this run has touched. */
+  newestReached?: string;
+  oldestReached?: string;
+  /** When the last page landed, for a live rate. */
+  lastPageAt?: number;
+}
+
 export interface CrawlProgress {
   phase: CrawlPhase;
-  pages: number;
-  archived: number;
-  duplicates: number;
-  /** Oldest `created_at` this run has reached — the real measure of progress. */
-  oldestReached?: string;
+  run: CrawlRunStats;
+  /** Cumulative for this community, across every run. */
+  total: { pages: number; archived: number };
   /** Oldest post already held when the run began. Crossing it means new history. */
   target?: string;
-  /** True once `oldestReached` passes `target`. */
+  /** True once the run reaches past `target`. */
   intoNewHistory?: boolean;
   /** Set while pushing through an unproductive stretch rather than giving up. */
   recovering?: boolean;
+  /** Consecutive pages that neither archived anything nor reached further back. */
+  idlePages: number;
+  /** The wait before the next request, so the pacing is visible rather than felt. */
+  nextDelayMs: number;
+  /** Truncated, for eyeballing whether paging is actually advancing. */
+  cursor?: string;
   finished?: CrawlEnding;
   error?: string;
 }
@@ -140,15 +174,23 @@ export function startCrawl(
   void (async () => {
     const progress: CrawlProgress = {
       phase: 'catching-up',
-      pages: 0,
-      archived: 0,
-      duplicates: 0,
+      run: {
+        startedAt: Date.now(),
+        pages: 0,
+        requests: 0,
+        archived: 0,
+        duplicates: 0,
+        withMedia: 0,
+        errors: 0,
+      },
+      total: { pages: 0, archived: 0 },
+      idlePages: 0,
+      nextDelayMs: PAGE_DELAY_MS,
     };
 
     try {
       const saved = await getCrawlState(groupId);
-      progress.pages = saved?.pages ?? 0;
-      progress.archived = saved?.archived ?? 0;
+      progress.total = { pages: saved?.pages ?? 0, archived: saved?.archived ?? 0 };
       // The line between "history we already hold" and "history we don't".
       // Duplicates above it are expected; below it they would be surprising.
       progress.target = await getOldestArchived(groupId);
@@ -185,10 +227,12 @@ export function startCrawl(
 
         while (!stopped) {
           let page;
+          progress.run.requests += 1;
           try {
             page = await getGroupPosts(groupId, 'recent', cursor);
             backoff = BACKOFF_START_MS;
           } catch (error) {
+            progress.run.errors += 1;
             const status = (error as { status?: number })?.status;
             if (status === 401 || status === 429) {
               progress.error =
@@ -211,9 +255,13 @@ export function startCrawl(
           if (posts.length === 0) return 'exhausted';
 
           const { added } = await archiveContent(posts);
-          progress.pages += 1;
-          progress.archived += added;
-          progress.duplicates += posts.length - added;
+          progress.run.pages += 1;
+          progress.run.archived += added;
+          progress.run.duplicates += posts.length - added;
+          progress.run.withMedia += posts.filter((post) => post.assets?.length).length;
+          progress.run.lastPageAt = Date.now();
+          progress.total.pages += 1;
+          progress.total.archived += added;
           progress.error = undefined;
 
           const oldestOnPage = posts.reduce<string | undefined>(
@@ -221,10 +269,22 @@ export function startCrawl(
               post.created_at && (!oldest || post.created_at < oldest) ? post.created_at : oldest,
             undefined,
           );
-          if (oldestOnPage && (!progress.oldestReached || oldestOnPage < progress.oldestReached)) {
-            progress.oldestReached = oldestOnPage;
+          const newestOnPage = posts.reduce<string | undefined>(
+            (newest, post) =>
+              post.created_at && (!newest || post.created_at > newest) ? post.created_at : newest,
+            undefined,
+          );
+          if (oldestOnPage && (!progress.run.oldestReached || oldestOnPage < progress.run.oldestReached)) {
+            progress.run.oldestReached = oldestOnPage;
           }
-          if (progress.target && progress.oldestReached && progress.oldestReached < progress.target) {
+          if (newestOnPage && (!progress.run.newestReached || newestOnPage > progress.run.newestReached)) {
+            progress.run.newestReached = newestOnPage;
+          }
+          if (
+            progress.target &&
+            progress.run.oldestReached &&
+            progress.run.oldestReached < progress.target
+          ) {
             progress.intoNewHistory = true;
           }
 
@@ -243,9 +303,13 @@ export function startCrawl(
           } else {
             pagesWithoutProgress += 1;
           }
+          progress.idlePages = pagesWithoutProgress;
 
           duplicatePages = added === 0 ? duplicatePages + 1 : 0;
           cursor = page?.cursor;
+          // Enough to see it changing without putting an opaque token on screen.
+          progress.cursor = cursor ? `${cursor.slice(0, 18)}…` : undefined;
+          progress.nextDelayMs = PAGE_DELAY_MS;
 
           await onPage(cursor);
           onProgress({ ...progress });
@@ -271,6 +335,7 @@ export function startCrawl(
 
           if (looping || pagesWithoutProgress >= PAGES_WITHOUT_PROGRESS_BEFORE_PAUSE) {
             progress.recovering = true;
+            progress.nextDelayMs = stuckPause;
             onProgress({ ...progress });
             await sleep(stuckPause);
             stuckPause = Math.min(stuckPause * 2, STUCK_PAUSE_MAX_MS);
@@ -289,8 +354,8 @@ export function startCrawl(
           tail_cursor: saved?.tail_cursor,
           tail_exhausted: saved?.tail_exhausted,
           ...patch,
-          pages: progress.pages,
-          archived: progress.archived,
+          pages: progress.total.pages,
+          archived: progress.total.archived,
           updated_at: Date.now(),
         });
 
