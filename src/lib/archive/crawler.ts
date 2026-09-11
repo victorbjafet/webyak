@@ -1,6 +1,13 @@
-import { archiveContent, getCrawlState, getOldestArchived, setCrawlState } from './store';
+import {
+  archiveContent,
+  getCrawlState,
+  getOldestArchived,
+  listPostsNeedingComments,
+  markCommentsFetched,
+  setCrawlState,
+} from './store';
 
-import { getGroupPosts } from '@/api/client';
+import { api, getGroupPosts } from '@/api/client';
 import type { Cursor } from '@/api/types';
 
 /**
@@ -417,6 +424,142 @@ export function startCrawl(
       }
     } catch (error) {
       progress.error = error instanceof Error ? error.message : String(error);
+      onProgress({ ...progress });
+    }
+  })();
+
+  return {
+    stop() {
+      stopped = true;
+    },
+  };
+}
+
+/* ------------------------------------------------------------------------ *
+ * Comments
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Fetches comment threads for archived posts.
+ *
+ * **A separate pass, because it is a different shape of job.** The feed crawler
+ * pages a community: one request yields ~24 posts. Comments are per-post, so
+ * collecting them is one request each — at 157k archived posts that is 157k
+ * requests where the feed crawl took a few hundred. Running it inside the feed
+ * crawl would have turned a twenty-minute job into a multi-day one, silently.
+ *
+ * So it is opt-in, separately paced, and works off the archive rather than the
+ * network: it asks for posts flagged `needs_comments` (those with replies, not
+ * yet collected), which keeps it resumable for free — a post is only cleared
+ * once its thread is stored, so an interrupted run simply finds the same work
+ * waiting.
+ *
+ * Posts with no replies are never requested at all, which removes most of the
+ * corpus from the job before it starts.
+ */
+const COMMENT_DELAY_MS = 1200;
+const COMMENT_JITTER_MS = 500;
+/** How many outstanding posts to pull from the archive at a time. */
+const COMMENT_BATCH = 250;
+
+export interface CommentCrawlProgress {
+  startedAt: number;
+  /** Threads fetched this run. */
+  threads: number;
+  /** Comments archived this run (new rows only). */
+  archived: number;
+  duplicates: number;
+  errors: number;
+  /** Posts still flagged as needing a thread, at the last batch boundary. */
+  remaining?: number;
+  lastAt?: number;
+  finished?: 'done' | 'stopped' | 'error';
+  error?: string;
+}
+
+export function startCommentCrawl(
+  onProgress: (progress: CommentCrawlProgress) => void,
+): CrawlHandle {
+  let stopped = false;
+
+  void (async () => {
+    const progress: CommentCrawlProgress = {
+      startedAt: Date.now(),
+      threads: 0,
+      archived: 0,
+      duplicates: 0,
+      errors: 0,
+    };
+    let backoff = BACKOFF_START_MS;
+
+    try {
+      while (!stopped) {
+        const batch = await listPostsNeedingComments(COMMENT_BATCH);
+        progress.remaining = batch.length;
+        onProgress({ ...progress });
+
+        if (batch.length === 0) {
+          progress.finished = 'done';
+          onProgress({ ...progress });
+          return;
+        }
+
+        for (const post of batch) {
+          if (stopped) {
+            progress.finished = 'stopped';
+            onProgress({ ...progress });
+            return;
+          }
+
+          try {
+            const comments = (await api.getPostComments(post.id)) as unknown as {
+              id?: string;
+            }[];
+            const { added, updated } = await archiveContent(
+              comments as Parameters<typeof archiveContent>[0],
+            );
+            // Cleared even when the thread came back empty: the post claimed
+            // replies and the server disagrees, and asking again every run
+            // would loop on it forever.
+            await markCommentsFetched(post.id, post.comment_count);
+
+            progress.threads += 1;
+            progress.archived += added;
+            progress.duplicates += updated;
+            progress.lastAt = Date.now();
+            progress.error = undefined;
+            backoff = BACKOFF_START_MS;
+          } catch (error) {
+            const status = (error as { status?: number })?.status;
+            if (status === 401 || status === 429) {
+              progress.error =
+                status === 401
+                  ? 'Session expired — sign in again before resuming.'
+                  : 'Rate limited. Stopping rather than pushing harder.';
+              progress.finished = 'error';
+              onProgress({ ...progress });
+              return;
+            }
+            // A single unreadable thread — deleted, or private — must not end a
+            // run over a hundred thousand posts. Note it and move on; the post
+            // stays flagged and will be retried on a later run.
+            progress.errors += 1;
+            progress.error = error instanceof Error ? error.message : String(error);
+            onProgress({ ...progress });
+            await sleep(backoff);
+            backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
+            continue;
+          }
+
+          onProgress({ ...progress });
+          await sleep(COMMENT_DELAY_MS + Math.random() * COMMENT_JITTER_MS);
+        }
+      }
+      progress.finished = 'stopped';
+      onProgress({ ...progress });
+    } catch (error) {
+      progress.error = error instanceof Error ? error.message : String(error);
+      progress.finished = 'error';
       onProgress({ ...progress });
     }
   })();

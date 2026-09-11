@@ -12,7 +12,13 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { CrawlMonitor } from '@/components/settings/crawl-monitor';
-import { startCrawl, type CrawlHandle, type CrawlProgress } from '@/lib/archive/crawler';
+import {
+  startCommentCrawl,
+  startCrawl,
+  type CommentCrawlProgress,
+  type CrawlHandle,
+  type CrawlProgress,
+} from '@/lib/archive/crawler';
 import {
   archiveAvailable,
   clearArchive,
@@ -49,6 +55,9 @@ export default function SettingsScreen() {
   const [exporting, setExporting] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [stopped, setStopped] = useState(false);
+  const [comments, setComments] = useState<CommentCrawlProgress | null>(null);
+  const commentHandle = useRef<CrawlHandle | null>(null);
+  const commentsRunning = Boolean(commentHandle.current) && !comments?.finished;
 
   const handle = useRef<CrawlHandle | null>(null);
   const running = Boolean(handle.current) && !stopped && !progress?.finished && !progress?.error;
@@ -72,8 +81,27 @@ export default function SettingsScreen() {
   // the screen goes away — otherwise it keeps issuing requests against a private
   // API with nothing on screen to show for it.
   useEffect(() => {
-    return () => handle.current?.stop();
+    return () => {
+      handle.current?.stop();
+      commentHandle.current?.stop();
+    };
   }, []);
+
+  const beginComments = useCallback(() => {
+    commentHandle.current?.stop();
+    setComments({ startedAt: Date.now(), threads: 0, archived: 0, duplicates: 0, errors: 0 });
+    commentHandle.current = startCommentCrawl((next) => {
+      setComments(next);
+      if (next.finished) void refresh();
+    });
+  }, [refresh]);
+
+  const stopComments = useCallback(() => {
+    commentHandle.current?.stop();
+    commentHandle.current = null;
+    setComments((current) => (current ? { ...current, finished: 'stopped' } : current));
+    void refresh();
+  }, [refresh]);
 
   // Crawlable communities only: For You is a combined view, not a feed with its
   // own cursor to walk.
@@ -303,6 +331,61 @@ export default function SettingsScreen() {
         ) : null}
 
         {/* ---------------------------------------------------------------- */}
+        {archiveAvailable ? (
+          <Card>
+            <ThemedText type="bodyBold">Collect comments</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              The feed crawl archives posts only — comments come one request per thread, so they
+              are a separate job. This walks archived posts that have replies and fetches each
+              thread.
+            </ThemedText>
+            <ThemedText type="caption" themeColor="textTertiary">
+              Far longer than a feed crawl: a community page yields ~24 posts per request, while a
+              thread costs one request each. Posts with no replies are skipped entirely. It
+              resumes on its own — a post is only cleared once its thread is stored.
+            </ThemedText>
+
+            <View style={styles.statGrid}>
+              <Stat label="Threads to fetch" value={formatCount(stats?.needsComments ?? 0)} />
+              <Stat label="Comments held" value={formatCount(stats?.comments ?? 0)} />
+            </View>
+
+            {comments ? (
+              <View style={[styles.commentProgress, { backgroundColor: theme.background }]}>
+                <ThemedText type="small">
+                  {formatCount(comments.threads)} threads · {formatCount(comments.archived)} new
+                  comments · {formatCount(comments.duplicates)} re-seen
+                  {comments.errors > 0 ? ` · ${formatCount(comments.errors)} failed` : ''}
+                </ThemedText>
+                {comments.error ? (
+                  <ThemedText type="caption" style={{ color: theme.danger }}>
+                    {comments.error}
+                  </ThemedText>
+                ) : null}
+                {comments.finished === 'done' ? (
+                  <ThemedText type="caption" themeColor="textTertiary">
+                    Every archived post with replies has had its thread collected.
+                  </ThemedText>
+                ) : null}
+              </View>
+            ) : null}
+
+            <View style={styles.actions}>
+              {commentsRunning ? (
+                <Button label="Stop" variant="danger" onPress={stopComments} />
+              ) : (
+                <Button
+                  label="Collect comments"
+                  variant="secondary"
+                  onPress={beginComments}
+                  disabled={!stats || stats.needsComments === 0 || running}
+                />
+              )}
+            </View>
+          </Card>
+        ) : null}
+
+        {/* ---------------------------------------------------------------- */}
         <Card>
           <ThemedText type="bodyBold">Diagnostics</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
@@ -411,5 +494,10 @@ const styles = StyleSheet.create({
   },
   dim: {
     opacity: 0.4,
+  },
+  commentProgress: {
+    gap: Spacing.one,
+    padding: Spacing.three,
+    borderRadius: Radius.md,
   },
 });

@@ -24,7 +24,15 @@ export async function archiveContent(
 }
 
 export async function getArchiveStats(): Promise<ArchiveStats> {
-  return { posts: 0, comments: 0, deleted: 0, withMedia: 0, mediaPending: 0, mediaCached: 0 };
+  return {
+    posts: 0,
+    comments: 0,
+    deleted: 0,
+    needsComments: 0,
+    withMedia: 0,
+    mediaPending: 0,
+    mediaCached: 0,
+  };
 }
 
 export async function getCrawlState(_groupId: string): Promise<CrawlState | undefined> {
@@ -54,6 +62,14 @@ export async function findArchivedById(_id: string): Promise<ArchivedContent | u
 export async function getOldestArchived(_groupId: string): Promise<string | undefined> {
   return undefined;
 }
+
+export async function listPostsNeedingComments(
+  _limit?: number,
+): Promise<{ id: string; comment_count: number }[]> {
+  return [];
+}
+
+export async function markCommentsFetched(_postId: string, _count: number): Promise<void> {}
 
 export interface SearchOptions {
   groupId?: string;

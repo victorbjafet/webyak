@@ -449,3 +449,43 @@ The progress bar measures the span walked against the distance to the target.
 Past the target it stops pretending to be a percentage: there is no known floor
 to measure against, so inventing a denominator would be a made-up number on a
 screen full of real ones.
+
+
+## Comments are a separate pass, and why
+
+A backfill of 157,000 posts reported **zero comments**, which looked like a
+labelling bug and was not: the feed crawler only ever called `getGroupPosts`.
+Comments were archived solely when a thread was opened in the app, and a crawl
+opens none.
+
+The reason to keep it separate is arithmetic. A community page yields ~24 posts
+per request; a comment thread costs **one request per post**. Folding comments
+into the feed crawl would have turned a few hundred requests into 157,000 —
+converting a twenty-minute job into a multi-day one, silently, the first time
+someone pressed the same button.
+
+So `startCommentCrawl` is its own opt-in pass, and it works off the **archive**
+rather than the network: it asks for posts flagged `needs_comments` and clears
+each only once its thread is stored. That makes it resumable for free — an
+interrupted run finds the same work waiting — and it never requests a thread for
+a post with no replies, which removes most of the corpus before it starts.
+
+`needs_comments` records the `comment_count` at fetch time rather than a plain
+boolean, so a post that later gains replies comes back around instead of being
+permanently considered done.
+
+### One deliberate asymmetry in error handling
+
+The feed crawler treats a failed request as worth retrying, because there is one
+sequence and losing it loses the run. The comment crawler notes a failed thread
+and **moves on**, because a single unreadable thread — deleted, private, or
+malformed — must not end a job spanning a hundred thousand posts. The post stays
+flagged and comes round again on a later run.
+
+### `type` is not trusted alone
+
+`toArchived` classifies a record as a comment if `type === 'comment'` **or** it
+has a `parent_post_id`. `type` has been correct everywhere observed, but it is
+one field from an undocumented payload, and a comment filed as a post would be
+invisible in the comment count while quietly inflating the post count — exactly
+the symptom that prompted this. The structural fact is the stronger signal.

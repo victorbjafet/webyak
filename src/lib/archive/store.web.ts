@@ -24,7 +24,7 @@ import type { PostOrComment } from '@/api/types';
  */
 
 const DB_NAME = 'webyak-archive';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const CONTENT = 'content';
 const MEDIA = 'media';
@@ -72,6 +72,7 @@ function openDb(): Promise<IDBDatabase> {
         // Compound, so "the oldest post I hold for this community" is a single
         // cursor step rather than a scan of everything in that group.
         store.createIndex('group_created', ['group_id', 'created_at']);
+        store.createIndex('needs_comments', 'needs_comments');
       }
 
       if (!db.objectStoreNames.contains(MEDIA)) {
@@ -94,7 +95,7 @@ function openDb(): Promise<IDBDatabase> {
         the archive is days old, so this is a small walk. A migration on a large
         store would need a background pass instead.
       */
-      if (from > 0 && from < 3 && upgrade) {
+      if (from > 0 && from < 4 && upgrade) {
         const store = upgrade.objectStore(CONTENT);
         if (!store.indexNames.contains('tokens')) {
           store.createIndex('tokens', 'tokens', { multiEntry: true });
@@ -106,16 +107,29 @@ function openDb(): Promise<IDBDatabase> {
         if (!store.indexNames.contains('group_created')) {
           store.createIndex('group_created', ['group_id', 'created_at']);
         }
+        if (!store.indexNames.contains('needs_comments')) {
+          store.createIndex('needs_comments', 'needs_comments');
+        }
 
         const cursorRequest = store.openCursor();
         cursorRequest.onsuccess = () => {
           const cursor = cursorRequest.result;
           if (!cursor) return;
           const record = cursor.value as ArchivedContent;
-          if (!record.tokens || record.deleted === undefined) {
+          if (
+            !record.tokens ||
+            record.deleted === undefined ||
+            record.needs_comments === undefined
+          ) {
             cursor.update({
               ...record,
               deleted: record.deleted ?? 0,
+              // Posts archived before the comment pass existed: mark the ones
+              // with replies as outstanding, so the backfill picks them up
+              // rather than skipping the entire existing archive.
+              needs_comments:
+                record.needs_comments ??
+                (record.type === 'post' && (record.comment_count ?? 0) > 0 ? 1 : 0),
               tokens: record.tokens ?? tokenize(record.text, record.author, record.alias),
             });
           }
@@ -200,10 +214,12 @@ export async function getArchiveStats(): Promise<ArchiveStats> {
   const content = transaction.objectStore(CONTENT);
   const media = transaction.objectStore(MEDIA);
 
-  const [posts, comments, deleted, withMedia, mediaPending, mediaCached] = await Promise.all([
+  const [posts, comments, deleted, needsComments, withMedia, mediaPending, mediaCached] =
+    await Promise.all([
     asPromise(content.index('type').count(IDBKeyRange.only('post'))),
     asPromise(content.index('type').count(IDBKeyRange.only('comment'))),
     asPromise(content.index('deleted').count(IDBKeyRange.only(1))),
+    asPromise(content.index('needs_comments').count(IDBKeyRange.only(1))),
     asPromise(content.index('has_media').count(IDBKeyRange.only(1))),
     asPromise(content.index('media_pending').count(IDBKeyRange.only(1))),
     asPromise(media.count()),
@@ -230,6 +246,7 @@ export async function getArchiveStats(): Promise<ArchiveStats> {
     posts,
     comments,
     deleted,
+    needsComments,
     withMedia,
     mediaPending,
     mediaCached,
@@ -484,4 +501,57 @@ export async function getOldestArchived(groupId: string): Promise<string | undef
   const range = IDBKeyRange.bound([groupId, ''], [groupId, '\uffff']);
   const cursor = await asPromise(store.index('group_created').openCursor(range, 'next'));
   return (cursor?.value as ArchivedContent | undefined)?.created_at;
+}
+
+
+/**
+ * Archived posts whose comment threads have not been fetched.
+ *
+ * An index lookup on `needs_comments`, not a scan — at 157k posts a scan would
+ * deserialize the entire archive to find the few thousand that still need work.
+ *
+ * Only ids and comment counts are returned: the comment crawler needs nothing
+ * else, and carrying full records for thousands of posts through memory would be
+ * waste on a job that is already long.
+ */
+export async function listPostsNeedingComments(
+  limit = 500,
+): Promise<{ id: string; comment_count: number }[]> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const out: { id: string; comment_count: number }[] = [];
+
+  await new Promise<void>((resolve, reject) => {
+    const request = store.index('needs_comments').openCursor(IDBKeyRange.only(1));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || out.length >= limit) {
+        resolve();
+        return;
+      }
+      const record = cursor.value as ArchivedContent;
+      out.push({ id: record.id, comment_count: record.comment_count ?? 0 });
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  return out;
+}
+
+/**
+ * Marks a post's thread as collected.
+ *
+ * Records the count at fetch time rather than a boolean, so a post that later
+ * gains replies comes back around instead of being permanently considered done.
+ */
+export async function markCommentsFetched(postId: string, count: number): Promise<void> {
+  const db = await openDb();
+  const transaction = tx(db, [CONTENT], 'readwrite');
+  const store = transaction.objectStore(CONTENT);
+  const record = (await asPromise(store.get(postId))) as ArchivedContent | undefined;
+  if (record) {
+    store.put({ ...record, needs_comments: 0, comments_fetched_count: count });
+  }
+  await done(transaction);
 }

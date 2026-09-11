@@ -533,6 +533,10 @@ and comment it sees** — effectively a Yik Yak downloader
       the community backfill, and the probes
 - [x] Backfill crawler — resumable per community, dedup-aware, stops on 401/429
       ([docs/API.md](docs/API.md#crawling-politely))
+- [x] **Comment collection** — a separate opt-in pass over archived posts with
+      replies. The feed crawl only ever fetched posts, which is why a 157k-post
+      archive held zero comments
+      ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#comments-are-a-separate-pass-and-why))
 - [ ] **Media back-fill** — download the bytes for flagged attachments. The
       schema and flags exist; the fetching does not
 - [x] **Search over the archive** — a `multiEntry` token index built at write

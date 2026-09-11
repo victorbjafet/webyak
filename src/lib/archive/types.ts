@@ -65,6 +65,17 @@ export interface ArchivedContent {
   deleted_at?: number;
 
   /**
+   * Posts only: this post's comments have not been fetched yet.
+   *
+   * Indexed, so the comment backfill is a lookup rather than a scan over
+   * hundreds of thousands of rows. `0` once fetched — and set back to `1` if the
+   * post is later seen with more comments than were captured.
+   */
+  needs_comments: 0 | 1;
+  /** `comment_count` at the moment the comments were fetched. */
+  comments_fetched_count?: number;
+
+  /**
    * Lowercased word list, used by the `tokens` multiEntry index — IndexedDB's
    * native inverted index. Stored rather than derived at query time because
    * scanning every record to match text is what makes search slow at scale.
@@ -100,6 +111,8 @@ export function tokenize(...sources: (string | undefined)[]): string[] {
 export interface ArchiveStats {
   posts: number;
   comments: number;
+  /** Posts with replies whose threads have not been fetched. */
+  needsComments: number;
   /** Archived, then later seen removed. */
   deleted: number;
   withMedia: number;
@@ -128,6 +141,8 @@ export interface ArchiveStats {
  */
 export interface CrawlState {
   group_id: string;
+  /** Progress of the separate comment pass, which walks archived posts. */
+  comments_done?: number;
   group_name?: string;
   /** How deep into history the backfill has walked. */
   tail_cursor?: string;
@@ -160,9 +175,21 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
     cached: 0,
   }));
 
+  /*
+    `parent_post_id` decides it, not `type` alone.
+
+    `type` is what the API sends and it has been right everywhere observed — but
+    it is one field from an undocumented payload, and a comment filed as a post
+    would be invisible in the comment count while quietly inflating the post
+    count. The structural fact (a comment hangs off a parent) is the stronger
+    signal, so both are checked.
+  */
+  const isComment = item.type === 'comment' || Boolean(item.parent_post_id);
+  const commentCount = item.comment_count ?? 0;
+
   return {
     id: item.id,
-    type: item.type === 'comment' ? 'comment' : 'post',
+    type: isComment ? 'comment' : 'post',
     group_id: item.group_id,
     group_name: item.group?.name,
     parent_post_id: item.parent_post_id,
@@ -179,6 +206,8 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
     first_seen_at: seenAt,
     last_seen_at: seenAt,
     deleted: 0,
+    // Only a post with replies is worth fetching a thread for.
+    needs_comments: !isComment && commentCount > 0 ? 1 : 0,
     tokens: tokenize(item.text, item.identity?.name, item.alias),
   };
 }
@@ -231,5 +260,18 @@ export function mergeArchived(
     // happened — the API gives no removal timestamp — so it is an upper bound.
     deleted: incomingIsTombstone || existing.deleted ? 1 : 0,
     deleted_at: existing.deleted_at ?? (incomingIsTombstone ? incoming.last_seen_at : undefined),
+    // Fetched comments stay fetched — unless the post has gained replies since,
+    // in which case there is genuinely more to collect.
+    comments_fetched_count: existing.comments_fetched_count,
+    needs_comments: needsComments(existing, incoming),
   };
+}
+
+function needsComments(existing: ArchivedContent, incoming: ArchivedContent): 0 | 1 {
+  if (incoming.type === 'comment') return 0;
+  const count = incoming.comment_count ?? 0;
+  if (count === 0) return 0;
+  const fetched = existing.comments_fetched_count;
+  if (fetched === undefined) return 1;
+  return count > fetched ? 1 : 0;
 }
