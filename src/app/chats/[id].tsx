@@ -145,6 +145,22 @@ export default function ChatThreadScreen() {
             </View>
           ) : null}
 
+          {/*
+            ⛔ There is no leave endpoint. offsides' `leaveChat` is a stub marked
+            "Waiting for sidechat.js implementation", and nothing in the library
+            wraps one — so a chat joined here can only be left from the official
+            app. Said out loud because a chat list that silently can't be pruned
+            reads as a missing button rather than a missing endpoint.
+          */}
+          {group ? (
+            <View style={styles.systemRow}>
+              <ThemedText type="caption" themeColor="textTertiary" style={styles.systemText}>
+                Leaving a group chat isn&rsquo;t possible from webyak — Yik Yak&rsquo;s API has no
+                endpoint for it. Use the official app to leave.
+              </ThemedText>
+            </View>
+          ) : null}
+
           {count === 0 ? (
             <EmptyState
               icon="chatbubble-outline"

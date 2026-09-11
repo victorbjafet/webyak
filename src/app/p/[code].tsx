@@ -2,7 +2,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { isPostId, useCachedPostByCode, useComments, usePost } from '@/api/queries';
+import { isPostId, useComments, usePost, usePostIdByCode } from '@/api/queries';
 import type { PostOrComment } from '@/api/types';
 import { GroupAvatar } from '@/components/group-avatar';
 import { CommentComposer } from '@/components/post/comment-composer';
@@ -32,8 +32,21 @@ export default function PostDetailScreen() {
     is cheaper and more reliable than predicting what it accepts: a share code
     just fails the request, and that failure is a case already handled.
   */
-  const cached = useCachedPostByCode(code);
-  const postId = cached?.id ?? code ?? undefined;
+  const resolved = usePostIdByCode(code);
+  const cached = resolved.post;
+
+  /*
+    Resolution order, without ever format-checking the param:
+
+    1. If the archive or the live cache knows this code, use the id it gives.
+    2. Otherwise, once that lookup has *settled*, hand the param to `getPost`
+       raw — an id resolves, a share code fails into the explanatory state.
+
+    Waiting for the lookup to settle is what avoids firing a request that is
+    already known to be wrong: handing a share code straight to `getPost` would
+    fail, then succeed a moment later once the archive answered.
+  */
+  const postId = resolved.postId ?? (resolved.isLoading ? undefined : code);
 
   const post = usePost(postId);
   const comments = useComments(postId);
@@ -42,7 +55,7 @@ export default function PostDetailScreen() {
   const startReply = useCallback((comment: PostOrComment) => setReplyTo(comment), []);
   const cancelReply = useCallback(() => setReplyTo(null), []);
 
-  if (post.isLoading && !cached) {
+  if ((post.isLoading || resolved.isLoading) && !cached) {
     return (
       <Screen title="Post" back>
         <LoadingState label="Loading post…" />

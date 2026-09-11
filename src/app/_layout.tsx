@@ -79,6 +79,7 @@ function RootNavigator() {
               <Stack.Screen name="chats/index" />
               <Stack.Screen name="chats/[id]" />
               <Stack.Screen name="diagnostics" />
+              <Stack.Screen name="settings" />
             </Stack.Protected>
 
             <Stack.Protected guard={status !== 'authenticated'}>

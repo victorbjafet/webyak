@@ -21,7 +21,13 @@ export const secureStorage: KeyValueStore = {
   removeItem: (key) => SecureStore.deleteItemAsync(key),
 };
 
-/** Non-sensitive data: preferences, drafts, the persisted query cache. */
+/**
+ * Non-sensitive, and **small**: preferences, the selected community, seen-post
+ * ids, drafts. On web this is `localStorage` — a few MB, synchronous, silently
+ * lossy at quota — so anything that grows without bound belongs in the archive
+ * instead (`src/lib/archive`, IndexedDB). The query cache used to be persisted
+ * here and outgrew it; see docs/ARCHITECTURE.md#the-archive--two-storage-layers-not-one.
+ */
 export const cacheStorage: KeyValueStore = {
   getItem: (key) => AsyncStorage.getItem(key),
   setItem: (key, value) => AsyncStorage.setItem(key, value),

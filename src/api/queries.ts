@@ -17,6 +17,7 @@ import {
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
 import { getDMThread, getDMThreads, getGroupChats, getJoinedGroupChats } from './chats';
+import { archiveContent, findArchivedByCode } from '@/lib/archive/store';
 import { hasSeenPost, useSeenVersion } from '@/lib/seen-posts';
 import type {
   Cursor,
@@ -90,7 +91,11 @@ export function useGroupFeed(
     initialPageParam: undefined as Cursor | undefined,
     queryFn: async ({ pageParam }) => {
       const page = await getGroupPosts(groupId as string, sort, pageParam, period);
-      return { posts: sanitizePosts(page?.posts), cursor: page?.cursor };
+      const posts = sanitizePosts(page?.posts);
+      // Everything seen gets recorded. Fire-and-forget on purpose: an archive
+      // write must never fail a feed load or make the user wait for it.
+      void archiveContent(posts).catch(() => {});
+      return { posts, cursor: page?.cursor };
     },
     getNextPageParam: (last) => {
       // Stop on a missing cursor or an empty page, otherwise this loops forever.
@@ -154,7 +159,11 @@ export function usePost(postId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.post(postId ?? ''),
     enabled: Boolean(postId),
-    queryFn: async () => (await api.getPost(postId as string)) as unknown as PostOrComment,
+    queryFn: async () => {
+      const post = (await api.getPost(postId as string)) as unknown as PostOrComment;
+      void archiveContent([post]).catch(() => {});
+      return post;
+    },
   });
 }
 
@@ -162,8 +171,11 @@ export function useComments(postId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.comments(postId ?? ''),
     enabled: Boolean(postId),
-    queryFn: async () =>
-      (await api.getPostComments(postId as string)) as unknown as PostOrComment[],
+    queryFn: async () => {
+      const comments = (await api.getPostComments(postId as string)) as unknown as PostOrComment[];
+      void archiveContent(comments).catch(() => {});
+      return comments;
+    },
   });
 }
 
@@ -233,9 +245,34 @@ export function findCachedPostByCode(client: QueryClient, code: string): PostOrC
   return null;
 }
 
-export function useCachedPostByCode(code: string | undefined) {
+/**
+ * Resolve a share code to a post id.
+ *
+ * Two layers, cheapest first: whatever is live in the query cache, then the
+ * **archive**, which is indexed on `index_code` and holds every post this client
+ * has ever seen — across reloads, which the in-memory scan never survived.
+ *
+ * That is what makes a `/p/<code>` link work at all now. The API still cannot
+ * resolve a code (docs/API.md#blocker-1); we just remember more than it does.
+ */
+export function usePostIdByCode(code: string | undefined) {
   const client = useQueryClient();
-  return code ? findCachedPostByCode(client, code) : null;
+  const live = code ? findCachedPostByCode(client, code) : null;
+
+  const archived = useQuery({
+    queryKey: ['archive', 'code', code ?? ''],
+    enabled: Boolean(code) && !live,
+    staleTime: Infinity,
+    retry: false,
+    queryFn: async () => (await findArchivedByCode(code as string)) ?? null,
+  });
+
+  return {
+    postId: live?.id ?? archived.data?.id,
+    /** The live object, when we have one — saves a fetch on the detail screen. */
+    post: live,
+    isLoading: !live && archived.isLoading,
+  };
 }
 
 

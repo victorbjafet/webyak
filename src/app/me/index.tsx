@@ -55,20 +55,17 @@ export default function MeScreen() {
       title="You"
       scroll={false}
       action={
-        // Temporary. The probes are how every API question gets answered, and
-        // they were previously reachable only by scrolling past every post on
-        // this screen. Header slot until there's a settings screen to hold it.
         <Pressable
           accessibilityRole="link"
-          accessibilityLabel="Open diagnostics"
-          onPress={() => router.push('/diagnostics')}
+          accessibilityLabel="Open settings"
+          onPress={() => router.push('/settings')}
           style={({ hovered, pressed }) => [
             styles.debug,
             { backgroundColor: hovered || pressed ? theme.controlHover : theme.control },
           ]}>
-          <Ionicons name="bug-outline" size={16} color={theme.textSecondary} />
+          <Ionicons name="settings-outline" size={16} color={theme.textSecondary} />
           <ThemedText type="caption" themeColor="textSecondary">
-            Probes
+            Settings
           </ThemedText>
         </Pressable>
       }>
@@ -194,22 +191,6 @@ export default function MeScreen() {
           <Row label="user id" value={userId ?? '—'} />
           <Row label="primary group" value={primaryGroup?.name ?? 'none'} />
           <Row label="device id" value={deviceId ?? '—'} />
-        </View>
-
-        <View
-          style={[
-            styles.card,
-            { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-          ]}>
-          <ThemedText type="bodyBold">Diagnostics</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            Runs the probes that answer open API questions against the live API.
-          </ThemedText>
-          <Button
-            label="Open diagnostics"
-            variant="secondary"
-            onPress={() => router.push('/diagnostics')}
-          />
         </View>
 
         <Button label="Sign out" variant="danger" onPress={() => void signOut()} />

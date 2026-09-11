@@ -169,6 +169,8 @@ Items 25–29 are the "sniff the official client and add via `sendRequest`" pile
 - **Multi-feed**: one merged, re-ranked timeline across several groups.
 - Light theme + system theme + reduced-motion support.
 - Client-side search/filter over the loaded feed; recent-search history.
+- **Search the archive** — every post ever seen, not just what is loaded. Folded
+  into the archive interlude above.
 - Compose drafts autosaved; offline read via a persisted query cache.
 - Image lightbox with zoom; `alt` text and real focus rings throughout.
 - Export my posts/comments to JSON.
@@ -505,6 +507,41 @@ one list rather than two sources
       sender", but `/v1/chats/start` needs a `post_id`, so what such a DM would
       hang off is unclear
 - [ ] Sending into a group chat uses the same `/v1/chats/send`; untested
+
+### Interlude — the archive (inserted between phases, 2026-09-11)
+
+A side feature, taken out of order because it changes the storage model that
+everything else sits on. **webyak keeps a permanent local record of every post
+and comment it sees** — effectively a Yik Yak downloader
+([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-archive--two-storage-layers-not-one)).
+
+- [x] IndexedDB store for posts *and* comments, with author, timestamp, score
+      and attachment metadata
+- [x] **Replaced the query-cache persister.** It dehydrated the entire cache into
+      one ~5 MB `localStorage` key and had almost certainly been failing quota
+      silently for a while — which would explain cold loads never finding
+      anything cached
+- [x] Everything read is archived — feeds, single posts, comment threads —
+      fire-and-forget so a disk write can never fail a feed load
+- [x] `/p/<code>` resolves against the archive, indexed on `index_code`, so a
+      share link works for anything ever seen *across reloads*
+- [x] Media is **flagged, not fetched** — every attachment is recorded
+      `cached: 0` so a back-fill knows what to get without re-walking feeds
+- [x] A deletion never erases a record: the API's `"Deleted Post"` placeholder is
+      not allowed to overwrite archived text
+- [x] Settings screen under You, holding the archive stats, NDJSON export,
+      the community backfill, and the probes
+- [x] Backfill crawler — resumable per community, dedup-aware, stops on 401/429
+      ([docs/API.md](docs/API.md#crawling-politely))
+- [ ] **Media back-fill** — download the bytes for flagged attachments. The
+      schema and flags exist; the fetching does not
+- [ ] **Search over the archive**, surfaced in Explore — keyword search across
+      every archived post and comment. The indexes it needs (`author`,
+      `created_at`, `group_id`) are already in place; full-text is not, and
+      IndexedDB has no native text search, so this needs a decision between
+      scanning with a cursor and building a token index at write time
+- [ ] Import an exported archive back in — makes the export a real backup rather
+      than a one-way dump
 
 ### Phase 7 — the extras from §5
 - [ ] Keyboard shortcuts + shortcut help overlay

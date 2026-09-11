@@ -26,6 +26,11 @@ relay in the Worker; the control stays hidden until one is configured, rather
 than offering an upload that provably cannot finish.
 [docs/API.md](docs/API.md#-image-upload-is-blocked-by-cors) has the detail.
 
+It also keeps a **local archive** of every post and comment it sees — text,
+author, timestamp and score — in IndexedDB, exportable as NDJSON. Yik Yak drops
+content; this doesn't. There's a backfill crawler in Settings that walks a
+community's history, paced deliberately slowly against a private API.
+
 See [PLAN.md](PLAN.md) for the roadmap and the rest of the gaps.
 
 ## Read this before you trust it

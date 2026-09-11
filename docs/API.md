@@ -1238,3 +1238,27 @@ would make it useless for exactly the posts this account shares. It should be
 verified against a public-community code before any worker work starts, because
 it could remove the route's justification entirely. The worker's other two jobs —
 image upload and video thumbnails — are unaffected.
+
+
+## Crawling politely
+
+The archive backfill walks a community's `recent` feed until it runs out. That
+is exactly the shape of client that gets an account flagged, so the pacing is
+deliberate and documented rather than tuned for speed:
+
+| Rule | Why |
+|---|---|
+| ~1.5s between pages, plus up to 600ms jitter | Slow enough to look human; jittered so the traffic is not a metronome |
+| Back-off doubling from 5s to 60s on error | A struggling server should be asked *less* often, not retried at the same rate |
+| **Hard stop on 401 and 429** | 401 means the session is gone and every retry is noise; 429 means we are already being told to slow down, and continuing is the one response guaranteed to make it worse |
+| Stop after 3 consecutive all-duplicate pages | Resuming overlaps by design, so one duplicate page is normal; three means this stretch is already held |
+
+**`recent`, never `hot`.** `hot` is re-ranked continuously, so paging it revisits
+the same posts and never terminates. `recent` is chronological — the cursor moves
+backwards through time and eventually runs out, which is the only ordering in
+which "archive everything" is a finite job.
+
+The cursor is persisted per community after **every** page, so a run that is
+stopped, reloaded or interrupted resumes rather than restarting. A community
+whose feed has been exhausted is marked, so a later run starts from the newest
+posts instead of immediately hitting the end again.

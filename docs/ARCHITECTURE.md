@@ -264,3 +264,62 @@ so patching one leaves the other showing the opposite state.
 The user's *own* group list is invalidated rather than patched: joining changes
 what the switcher and the home feed show, and only the server knows the
 resulting order.
+
+
+## The archive — two storage layers, not one
+
+Added 2026-09-11. webyak now keeps **a permanent local record of every post and
+comment it has ever seen**, separate from the query cache.
+
+| Layer | Store | Job | Lifetime |
+|---|---|---|---|
+| Query cache | memory | rendering, dedup, optimistic updates | the session |
+| **Archive** | **IndexedDB** | **a record that outlives the server's** | forever, until cleared |
+| Small prefs | `localStorage` | token, selected community, seen-post ids, theme | forever, tiny |
+
+### Why IndexedDB, and why the persister had to go
+
+This used to be one layer: `PersistQueryClientProvider` dehydrating the whole
+query cache into `localStorage` under a single key, rewritten every two seconds.
+That was wrong in a way that got worse as the app grew.
+
+- **It serialized everything** — every feed page, all 19 chat threads with their
+  full message arrays, the 4,237-group explore catalogue — into one JSON string.
+- **`localStorage` is ~5 MB**, and `storage.web.ts` catches quota errors and
+  continues by design. So once the blob outgrew the quota, persistence simply
+  **stopped, silently** — no error, no log, and no symptom except "nothing is
+  ever cached after a reload". Which is very likely why cold-loaded `/p/<code>`
+  links never found anything: the mechanism they depended on had quietly died.
+- **It had no indexes**, so the one thing durability was for — finding a post by
+  share code — still meant a linear scan.
+
+IndexedDB fixes all three: hundreds of MB to GB of quota, real indexes, and
+native `Blob` support so media needs no base64 round trip.
+
+### What it changed immediately
+
+`/p/<code>` resolves against the archive, which is **indexed on `index_code`**.
+The API still cannot look a share code up — but we can, over every post this
+client has ever seen, across reloads. That is a much larger set than the live
+query cache ever held.
+
+### Schema notes worth keeping
+
+- **Posts and comments share one store**, separated by a `type` index. They
+  carry the same metadata and the planned search wants both.
+- **`has_media` and `media_pending` are `0 | 1`, not booleans.** IndexedDB
+  **cannot index a boolean** — a `false` never appears in the index, so "posts
+  whose media I haven't downloaded" would silently return nothing.
+- **Media is flagged before it is fetched.** Bytes are not downloaded yet; every
+  attachment is recorded with `cached: 0`, so a later back-fill knows exactly
+  what to fetch without re-walking any feed.
+- **A deletion never erases a record.** Once a post is removed the API returns
+  its text as the literal `"Deleted Post"`; `mergeArchived` keeps the original
+  text and the last real vote count. An archive that lets the server overwrite
+  history is not an archive.
+
+### Writes are fire-and-forget
+
+Archiving happens inside the feed, post and comment `queryFn`s, with the promise
+deliberately unawaited and its errors swallowed. A record-keeping side effect
+must never fail a feed load or make the user wait for a disk write.
