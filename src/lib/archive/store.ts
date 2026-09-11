@@ -51,6 +51,10 @@ export async function findArchivedById(_id: string): Promise<ArchivedContent | u
   return undefined;
 }
 
+export async function getOldestArchived(_groupId: string): Promise<string | undefined> {
+  return undefined;
+}
+
 export interface SearchOptions {
   groupId?: string;
   type?: 'post' | 'comment';

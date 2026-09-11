@@ -385,7 +385,32 @@ the next run, so they are the ones worth securing first. Only `tail_cursor` is
 persisted — the head is found by starting at the top each time, which is correct
 by construction.
 
-The duplicate thresholds differ, and the asymmetry is deliberate: **3 pages** for
-catch-up, where meeting known content is the expected ending, and **15** for
-backfill, where everything past the tail cursor should be unseen and a low
-threshold would abort a legitimate run that crosses a previously-archived stretch.
+### Backfill never stops for duplicates
+
+Observed on a real run: a backfill that gave up as "stalled" would, when simply
+started again by hand, push straight through and keep finding new posts. So an
+unproductive stretch is **transient**, and ending the run made the operator do
+by hand what the loop should have done itself.
+
+Duplicates are also the *expected* state for much of a backfill. The crawl
+resumes above ground it already holds, so it must cross that ground to reach
+ground it doesn't — which is why the archive's oldest post for the community is
+read at the start and used as a **target**. Above that line duplicates mean
+"still on the way"; below it, the run is into genuinely new history.
+
+What replaces the thresholds is a **budget on progress**, where a page counts as
+progress if it archived something new *or* reached further back in time:
+
+| Pages without progress | Behaviour |
+|---|---|
+| 5 | Pause longer (8s, escalating to 30s) and keep going |
+| 40 | Give up and say so — something really is wrong |
+
+A repeated cursor is treated the same way rather than as an instant abort, for
+the same reason: it clears when waited out.
+
+Catch-up still stops on duplicates after 3 pages, because meeting known content
+is precisely how it knows the gap since the last run is closed.
+
+`getOldestArchived` is a single cursor step on a compound `[group_id,
+created_at]` index, so reading the target stays free as the archive grows.

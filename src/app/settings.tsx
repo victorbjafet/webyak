@@ -195,9 +195,14 @@ export default function SettingsScreen() {
               of posts. It resumes where it left off and skips anything already held.
             </ThemedText>
             <ThemedText type="caption" themeColor="textTertiary">
-              Runs in two passes: first it catches up on anything posted since the last run, then
-              it keeps digging backwards into history. Without the first pass a resumed crawl would
-              only ever go deeper and never see new posts.
+              Runs in two passes: first it catches up on anything posted since the last run, then it
+              keeps digging backwards into history. The backfill resumes from a saved cursor, so it
+              picks up deep in the feed rather than re-walking from the top.
+            </ThemedText>
+            <ThemedText type="caption" themeColor="textTertiary">
+              Unproductive stretches no longer end the run — it waits longer and pushes through,
+              and only gives up after a long run of genuinely no progress. Keep this screen open
+              while it works; leaving stops it.
             </ThemedText>
             <ThemedText type="caption" themeColor="textTertiary">
               Paced deliberately slowly — about a page every 1.5s, with a longer wait after any
@@ -257,6 +262,25 @@ export default function SettingsScreen() {
                     ? ` · back to ${progress.oldestReached.slice(0, 10)}`
                     : ''}
                 </ThemedText>
+
+                {progress.target && !progress.finished ? (
+                  <ThemedText
+                    type="caption"
+                    style={{
+                      color: progress.intoNewHistory ? theme.brand : theme.textTertiary,
+                    }}>
+                    {progress.intoNewHistory
+                      ? `Past ${progress.target.slice(0, 10)} — into history that wasn’t archived before.`
+                      : `Working back toward ${progress.target.slice(0, 10)}, the oldest post already held.`}
+                  </ThemedText>
+                ) : null}
+
+                {progress.recovering ? (
+                  <ThemedText type="caption" themeColor="textTertiary">
+                    The feed stopped giving new pages for a moment — waiting a little longer and
+                    carrying on rather than stopping.
+                  </ThemedText>
+                ) : null}
                 {progress.error ? (
                   <ThemedText type="caption" style={{ color: theme.danger }}>
                     {progress.error}
@@ -273,11 +297,9 @@ export default function SettingsScreen() {
                         exhausted:
                           'Reached the beginning of this community’s feed. Future runs only catch up on new posts.',
                         duplicates:
-                          'Everything from here back was already archived, and the feed was still moving backwards — so there is probably more history to get. Run again to continue.',
-                        looping:
-                          'The feed started handing back a page it had already given. That is the server cycling, not the end of history — running again later may get further.',
+                          'Caught up on everything posted since the last run.',
                         stalled:
-                          'Pages kept arriving but stopped getting any older. That is how far back this feed will page right now, not how far back the posts go — Yik Yak appears to cap the window.',
+                          'Gave up after a long stretch with no new posts and no movement further back, even after waiting it out. Something is off — worth trying again later, and worth looking at if it keeps happening.',
                         stopped: 'Stopped.',
                         error: 'Stopped after an error.',
                       }[progress.finished]

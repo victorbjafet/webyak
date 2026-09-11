@@ -1297,6 +1297,13 @@ this went unnoticed:
 The UI no longer claims "everything from here back is already archived" for any
 of these — that was a conclusion the evidence did not support.
 
+**Partly answered 2026-09-11:** it is not a hard window. Restarting the crawl by
+hand repeatedly pushed past the apparent limit and kept finding new posts, so the
+unproductive stretches are transient — the server intermittently stops advancing
+and then resumes. The crawler now waits those out instead of stopping, which
+removes the manual restarts. Whether there is an eventual true floor is still
+unknown; no run has reached one.
+
 **If it turns out to be a window**, backfilling beyond it needs a different
 route, and the ones worth trying are the user-scoped endpoints that are already
 known to return older content: `/v1/posts?type=my_posts`, `/v1/posts/saved`,

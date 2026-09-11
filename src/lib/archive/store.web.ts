@@ -24,7 +24,7 @@ import type { PostOrComment } from '@/api/types';
  */
 
 const DB_NAME = 'webyak-archive';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const CONTENT = 'content';
 const MEDIA = 'media';
@@ -69,6 +69,9 @@ function openDb(): Promise<IDBDatabase> {
         // exactly an inverted index — and it is native, so search costs no
         // dependency and no separate table. See `searchArchive`.
         store.createIndex('tokens', 'tokens', { multiEntry: true });
+        // Compound, so "the oldest post I hold for this community" is a single
+        // cursor step rather than a scan of everything in that group.
+        store.createIndex('group_created', ['group_id', 'created_at']);
       }
 
       if (!db.objectStoreNames.contains(MEDIA)) {
@@ -91,13 +94,17 @@ function openDb(): Promise<IDBDatabase> {
         the archive is days old, so this is a small walk. A migration on a large
         store would need a background pass instead.
       */
-      if (from > 0 && from < 2 && upgrade) {
+      if (from > 0 && from < 3 && upgrade) {
         const store = upgrade.objectStore(CONTENT);
         if (!store.indexNames.contains('tokens')) {
           store.createIndex('tokens', 'tokens', { multiEntry: true });
         }
         if (!store.indexNames.contains('deleted')) {
           store.createIndex('deleted', 'deleted');
+        }
+
+        if (!store.indexNames.contains('group_created')) {
+          store.createIndex('group_created', ['group_id', 'created_at']);
         }
 
         const cursorRequest = store.openCursor();
@@ -457,4 +464,24 @@ function matches(record: ArchivedContent, options: SearchOptions): boolean {
   if (options.author && record.author?.toLowerCase() !== options.author.toLowerCase()) return false;
   if (!options.includeDeleted && record.deleted) return false;
   return true;
+}
+
+
+/**
+ * The oldest post held for a community.
+ *
+ * This is the crawler's **target**: everything newer than this is territory the
+ * archive already covers, so duplicates there are expected rather than a reason
+ * to stop. Only once a crawl gets past this line is it into history we don't
+ * have.
+ *
+ * One cursor step on a compound `[group_id, created_at]` index — no scan, so it
+ * stays free as the archive grows.
+ */
+export async function getOldestArchived(groupId: string): Promise<string | undefined> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const range = IDBKeyRange.bound([groupId, ''], [groupId, '\uffff']);
+  const cursor = await asPromise(store.index('group_created').openCursor(range, 'next'));
+  return (cursor?.value as ArchivedContent | undefined)?.created_at;
 }
