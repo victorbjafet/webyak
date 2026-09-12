@@ -24,12 +24,23 @@ import {
   clearArchive,
   exportArchive,
   getArchiveStats,
+  importArchive,
   listCrawlStates,
+  type ImportProgress,
 } from '@/lib/archive/store';
+import { pickFile } from '@/lib/pick-file';
 import type { ArchiveStats, CrawlState } from '@/lib/archive/types';
 import { saveFile } from '@/lib/save-file';
 import { formatCount } from '@/lib/time';
 import { showToast, toastError } from '@/lib/toast';
+
+/** ~1.2s per thread plus jitter; rounded coarsely because it is an estimate. */
+function estimateHours(threads: number) {
+  const hours = (threads * 1.45) / 3600;
+  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} minutes`;
+  if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)} hours`;
+  return `${Math.round(hours / 24)} days`;
+}
 
 function formatBytes(bytes?: number) {
   if (!bytes) return '—';
@@ -53,6 +64,7 @@ export default function SettingsScreen() {
   const [target, setTarget] = useState<Group | null>(null);
   const [progress, setProgress] = useState<CrawlProgress | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState<ImportProgress | null>(null);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [comments, setComments] = useState<CommentCrawlProgress | null>(null);
@@ -158,6 +170,23 @@ export default function SettingsScreen() {
     }
   }, []);
 
+  const importArchiveFile = useCallback(async () => {
+    try {
+      const file = await pickFile('.ndjson,application/x-ndjson,application/json,text/plain');
+      if (!file) return;
+      setImporting({ lines: 0, added: 0, merged: 0, skipped: 0, bytes: 0, totalBytes: file.size });
+      const result = await importArchive(file, setImporting);
+      showToast(
+        `Imported ${formatCount(result.added)} new and merged ${formatCount(result.merged)}.`,
+        'info',
+      );
+      await refresh();
+    } catch (error) {
+      toastError(error, "Couldn't import that file.");
+      setImporting(null);
+    }
+  }, [refresh]);
+
   return (
     <Screen title="Settings" back scroll={false}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -215,15 +244,42 @@ export default function SettingsScreen() {
                   disabled={!stats || stats.posts + stats.comments === 0}
                 />
                 <Button
+                  label={importing && !importing.finished ? 'Importing…' : 'Import'}
+                  variant="secondary"
+                  onPress={importArchiveFile}
+                  loading={Boolean(importing) && !importing?.finished}
+                />
+                <Button
                   label="Clear"
                   variant="ghost"
                   onPress={() => setConfirmingClear(true)}
                   disabled={!stats || stats.posts + stats.comments === 0}
                 />
               </View>
+
+              {importing ? (
+                <View style={[styles.commentProgress, { backgroundColor: theme.background }]}>
+                  <ThemedText type="small">
+                    {importing.finished ? 'Imported' : 'Importing'} —{' '}
+                    {formatCount(importing.lines)} rows read · {formatCount(importing.added)} new ·{' '}
+                    {formatCount(importing.merged)} merged
+                    {importing.skipped > 0 ? ` · ${formatCount(importing.skipped)} unreadable` : ''}
+                  </ThemedText>
+                  <ThemedText type="caption" themeColor="textTertiary">
+                    {formatBytes(importing.bytes)} of {formatBytes(importing.totalBytes)}
+                  </ThemedText>
+                  {importing.error ? (
+                    <ThemedText type="caption" style={{ color: theme.danger }}>
+                      {importing.error}
+                    </ThemedText>
+                  ) : null}
+                </View>
+              ) : null}
+
               <ThemedText type="caption" themeColor="textTertiary">
                 Exports as NDJSON — one JSON object per line, so it streams and stays readable at
-                any size.
+                any size. Importing merges rather than replaces, and older exports still work:
+                anything they predate is rebuilt on the way in.
               </ThemedText>
             </>
           )}
@@ -349,6 +405,23 @@ export default function SettingsScreen() {
               <Stat label="Threads to fetch" value={formatCount(stats?.needsComments ?? 0)} />
               <Stat label="Comments held" value={formatCount(stats?.comments ?? 0)} />
             </View>
+
+            {/*
+              An estimate, shown before the button rather than after.
+
+              One request per thread at ~1.2s means a large archive is a job
+              measured in days, not minutes — on a 157k-post archive roughly half
+              the posts have replies, which is over a day of continuous
+              requests. That is a decision worth making informed, not one to
+              discover an hour in.
+            */}
+            {(stats?.needsComments ?? 0) > 0 ? (
+              <ThemedText type="caption" themeColor="textTertiary">
+                Roughly {estimateHours(stats?.needsComments ?? 0)} of requests at the pace below.
+                It stops and resumes cleanly, so it can be done across sessions — but it is not a
+                short job.
+              </ThemedText>
+            ) : null}
 
             {comments ? (
               <View style={[styles.commentProgress, { backgroundColor: theme.background }]}>

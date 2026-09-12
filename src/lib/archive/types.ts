@@ -29,8 +29,26 @@ export interface ArchivedContent {
   type: 'post' | 'comment';
   group_id: string;
   group_name?: string;
-  /** Comments only — the post this hangs off. */
+  /**
+   * Comments only — the post this hangs off. Indexed, so a thread can be
+   * reassembled from the archive without touching the network.
+   */
   parent_post_id?: string;
+  /**
+   * Comments only — what this is a reply *to*.
+   *
+   * Threading is two levels, and offsides distinguishes them by comparing this
+   * against `parent_post_id`: equal means a top-level comment on the post,
+   * different means a reply to another comment (docs/OFFSIDES.md). Both are kept
+   * rather than just a boolean, because the id is what lets an exported archive
+   * rebuild the tree — a flag would say a comment is a reply without saying to
+   * what.
+   */
+  reply_post_id?: string;
+  /** The specific comment replied to, when the API distinguishes it. */
+  reply_comment_post_id?: string;
+  /** Derived: `reply_post_id` differs from `parent_post_id`. */
+  is_reply: 0 | 1;
   index_code?: string;
 
   text: string;
@@ -193,6 +211,15 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
     group_id: item.group_id,
     group_name: item.group?.name,
     parent_post_id: item.parent_post_id,
+    reply_post_id: item.reply_post_id,
+    reply_comment_post_id: (item as { reply_comment_post_id?: string }).reply_comment_post_id,
+    is_reply:
+      isComment &&
+      Boolean(item.reply_post_id) &&
+      Boolean(item.parent_post_id) &&
+      item.reply_post_id !== item.parent_post_id
+        ? 1
+        : 0,
     index_code: item.index_code,
     text: item.text ?? '',
     alias: item.alias,

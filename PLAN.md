@@ -557,8 +557,11 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/API.md](docs/API.md#-how-far-back-does-the-recent-feed-page))
 - [ ] Whether `recent` has a true floor is still unknown — no run has reached
       one
-- [ ] Import an exported archive back in — makes the export a real backup rather
-      than a one-way dump
+- [x] Import an exported archive back in — streamed, merges by recency, and
+      rebuilds anything an older export predates
+      ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#importing-an-export))
+- [x] Comments store their thread position — parent post, reply target, and an
+      indexed `is_reply` — so an export can rebuild the tree
 
 ### Phase 7 — the extras from §5
 - [ ] Keyboard shortcuts + shortcut help overlay

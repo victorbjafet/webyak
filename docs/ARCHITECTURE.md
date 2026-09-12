@@ -489,3 +489,67 @@ has a `parent_post_id`. `type` has been correct everywhere observed, but it is
 one field from an undocumented payload, and a comment filed as a post would be
 invisible in the comment count while quietly inflating the post count — exactly
 the symptom that prompted this. The structural fact is the stronger signal.
+
+
+## Comments carry their thread position
+
+A comment is stored with enough to rebuild the tree offline, not just enough to
+show it:
+
+| Field | Holds |
+|---|---|
+| `parent_post_id` | the post the thread hangs off — indexed, so a thread reassembles without the network |
+| `reply_post_id` | what this is a reply *to* |
+| `reply_comment_post_id` | the specific comment, when the API distinguishes it |
+| `is_reply` | derived: `reply_post_id !== parent_post_id`, indexed |
+
+Threading is two levels, and offsides distinguishes them exactly this way
+([OFFSIDES.md](OFFSIDES.md)). Both ids are kept rather than just the flag,
+because the id is what lets an exported archive rebuild the tree — a boolean says
+a comment is a reply without saying to what, which is useless to anyone reading
+the export later.
+
+## Importing an export
+
+Exports are a durable format, so **older ones keep working**. Every field added
+since is rebuilt on the way in rather than assumed: a v1 export predates
+`needs_comments`, `is_reply` and the comment-linkage fields entirely, and one
+predating search would arrive with no `tokens` — records that exist in the
+archive but are invisible to every query, which is the quiet kind of broken.
+
+Two properties worth stating:
+
+- **Streamed, not read.** A real export runs to ~94 MB. `file.text()` would
+  materialise all of it as one string before a single row was written, with the
+  parsed objects on top. The import reads the blob in chunks, splits on
+  newlines, and writes in batches of 500, so peak memory is a batch.
+- **Merging respects recency, not argument order.** Whichever copy was seen more
+  recently wins the mutable fields, so importing an old export over a newer
+  archive cannot roll back vote counts or resurrect a post already recorded as
+  deleted.
+
+Unparseable lines are counted and skipped rather than aborting the import. A
+truncated export should restore everything up to the truncation — which is most
+of why NDJSON was chosen over one JSON array.
+
+## What the archive actually costs on disk
+
+Measured on a real 156,965-post archive: the NDJSON export is **94 MB**, while
+the browser reports **330 MB** used. That gap is not an error, it is the indexes:
+
+| | Approx. |
+|---|---|
+| Records | ~94 MB |
+| `tokens` multiEntry index (1.94M entries) | ~125 MB |
+| Ten plain indexes | ~113 MB |
+| `[group_id, created_at]` compound | ~14 MB |
+| | **~347 MB** vs 330 MB reported |
+
+Each index entry stores its key plus the record's 36-character UUID, so an index
+over 157k rows is not free and eleven of them are not cheap. **The token index is
+the single largest structure in the archive** — the price of search being a
+lookup rather than a scan, and worth knowing before adding another index
+casually.
+
+`navigator.storage.estimate()` is also origin-wide and approximate by design, so
+treat it as an order of magnitude rather than a measurement.

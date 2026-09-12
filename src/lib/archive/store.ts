@@ -71,6 +71,25 @@ export async function listPostsNeedingComments(
 
 export async function markCommentsFetched(_postId: string, _count: number): Promise<void> {}
 
+export interface ImportProgress {
+  lines: number;
+  added: number;
+  merged: number;
+  skipped: number;
+  bytes: number;
+  totalBytes: number;
+  finished?: boolean;
+  error?: string;
+}
+
+export async function importArchive(
+  _file: Blob,
+  _onProgress?: (progress: ImportProgress) => void,
+  _shouldStop?: () => boolean,
+): Promise<ImportProgress> {
+  return { lines: 0, added: 0, merged: 0, skipped: 0, bytes: 0, totalBytes: 0, finished: true };
+}
+
 export interface SearchOptions {
   groupId?: string;
   type?: 'post' | 'comment';

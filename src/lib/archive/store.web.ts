@@ -24,7 +24,7 @@ import type { PostOrComment } from '@/api/types';
  */
 
 const DB_NAME = 'webyak-archive';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 const CONTENT = 'content';
 const MEDIA = 'media';
@@ -73,6 +73,7 @@ function openDb(): Promise<IDBDatabase> {
         // cursor step rather than a scan of everything in that group.
         store.createIndex('group_created', ['group_id', 'created_at']);
         store.createIndex('needs_comments', 'needs_comments');
+        store.createIndex('is_reply', 'is_reply');
       }
 
       if (!db.objectStoreNames.contains(MEDIA)) {
@@ -95,7 +96,7 @@ function openDb(): Promise<IDBDatabase> {
         the archive is days old, so this is a small walk. A migration on a large
         store would need a background pass instead.
       */
-      if (from > 0 && from < 4 && upgrade) {
+      if (from > 0 && from < 5 && upgrade) {
         const store = upgrade.objectStore(CONTENT);
         if (!store.indexNames.contains('tokens')) {
           store.createIndex('tokens', 'tokens', { multiEntry: true });
@@ -110,6 +111,9 @@ function openDb(): Promise<IDBDatabase> {
         if (!store.indexNames.contains('needs_comments')) {
           store.createIndex('needs_comments', 'needs_comments');
         }
+        if (!store.indexNames.contains('is_reply')) {
+          store.createIndex('is_reply', 'is_reply');
+        }
 
         const cursorRequest = store.openCursor();
         cursorRequest.onsuccess = () => {
@@ -119,7 +123,8 @@ function openDb(): Promise<IDBDatabase> {
           if (
             !record.tokens ||
             record.deleted === undefined ||
-            record.needs_comments === undefined
+            record.needs_comments === undefined ||
+            record.is_reply === undefined
           ) {
             cursor.update({
               ...record,
@@ -130,6 +135,13 @@ function openDb(): Promise<IDBDatabase> {
               needs_comments:
                 record.needs_comments ??
                 (record.type === 'post' && (record.comment_count ?? 0) > 0 ? 1 : 0),
+              is_reply:
+                record.is_reply ??
+                (record.reply_post_id && record.parent_post_id
+                  ? record.reply_post_id !== record.parent_post_id
+                    ? 1
+                    : 0
+                  : 0),
               tokens: record.tokens ?? tokenize(record.text, record.author, record.alias),
             });
           }
@@ -554,4 +566,195 @@ export async function markCommentsFetched(postId: string, count: number): Promis
     store.put({ ...record, needs_comments: 0, comments_fetched_count: count });
   }
   await done(transaction);
+}
+
+
+/* ------------------------------------------------------------------------ *
+ * Import
+ * ------------------------------------------------------------------------ */
+
+export interface ImportProgress {
+  lines: number;
+  added: number;
+  merged: number;
+  skipped: number;
+  bytes: number;
+  totalBytes: number;
+  finished?: boolean;
+  error?: string;
+}
+
+/** Rows per transaction. Large enough to be fast, small enough to stay responsive. */
+const IMPORT_BATCH = 500;
+
+/**
+ * Fills in whatever a record from an older export is missing.
+ *
+ * Exports are a durable format and older ones must keep working, so every field
+ * added since is derived here rather than assumed. `tokens` in particular: a
+ * v1 export predates search entirely, and importing without regenerating them
+ * would put records in the archive that are invisible to every query — the
+ * quiet kind of broken.
+ */
+function normalizeImported(raw: Record<string, unknown>): ArchivedContent | null {
+  const id = typeof raw.id === 'string' ? raw.id : null;
+  if (!id) return null;
+
+  const parentPostId = typeof raw.parent_post_id === 'string' ? raw.parent_post_id : undefined;
+  const replyPostId = typeof raw.reply_post_id === 'string' ? raw.reply_post_id : undefined;
+  const isComment = raw.type === 'comment' || Boolean(parentPostId);
+  const commentCount = typeof raw.comment_count === 'number' ? raw.comment_count : undefined;
+  const text = typeof raw.text === 'string' ? raw.text : '';
+  const seen = typeof raw.last_seen_at === 'number' ? raw.last_seen_at : Date.now();
+
+  return {
+    id,
+    type: isComment ? 'comment' : 'post',
+    group_id: typeof raw.group_id === 'string' ? raw.group_id : '',
+    group_name: typeof raw.group_name === 'string' ? raw.group_name : undefined,
+    parent_post_id: parentPostId,
+    reply_post_id: replyPostId,
+    reply_comment_post_id:
+      typeof raw.reply_comment_post_id === 'string' ? raw.reply_comment_post_id : undefined,
+    is_reply:
+      (raw.is_reply as 0 | 1) ??
+      (isComment && replyPostId && parentPostId && replyPostId !== parentPostId ? 1 : 0),
+    index_code: typeof raw.index_code === 'string' ? raw.index_code : undefined,
+    text,
+    alias: typeof raw.alias === 'string' ? raw.alias : undefined,
+    author: typeof raw.author === 'string' ? raw.author : undefined,
+    created_at: typeof raw.created_at === 'string' ? raw.created_at : '',
+    vote_total: typeof raw.vote_total === 'number' ? raw.vote_total : 0,
+    comment_count: commentCount,
+    media: Array.isArray(raw.media) ? (raw.media as ArchivedContent['media']) : [],
+    has_media: (raw.has_media as 0 | 1) ?? (Array.isArray(raw.media) && raw.media.length ? 1 : 0),
+    media_pending:
+      (raw.media_pending as 0 | 1) ?? (Array.isArray(raw.media) && raw.media.length ? 1 : 0),
+    first_seen_at: typeof raw.first_seen_at === 'number' ? raw.first_seen_at : seen,
+    last_seen_at: seen,
+    deleted: (raw.deleted as 0 | 1) ?? 0,
+    deleted_at: typeof raw.deleted_at === 'number' ? raw.deleted_at : undefined,
+    needs_comments:
+      (raw.needs_comments as 0 | 1) ?? (!isComment && (commentCount ?? 0) > 0 ? 1 : 0),
+    comments_fetched_count:
+      typeof raw.comments_fetched_count === 'number' ? raw.comments_fetched_count : undefined,
+    tokens: Array.isArray(raw.tokens)
+      ? (raw.tokens as string[])
+      : tokenize(text, typeof raw.author === 'string' ? raw.author : undefined,
+          typeof raw.alias === 'string' ? raw.alias : undefined),
+  };
+}
+
+/**
+ * Restores an exported archive, merging into whatever is already held.
+ *
+ * **Streamed, not read into memory.** A real export is ~94 MB; `file.text()`
+ * would materialise all of it as one string before a single record was written,
+ * and the parsed objects on top of that. This reads the blob in chunks, splits
+ * on newlines, and writes in batches, so peak memory is a batch rather than a
+ * corpus.
+ *
+ * Merging respects *recency, not argument order*: whichever copy was seen more
+ * recently wins the fields that change, so importing an old export over a newer
+ * archive cannot roll back vote counts or resurrect a post already recorded as
+ * deleted.
+ *
+ * Unparseable lines are counted and skipped rather than aborting — a truncated
+ * export should restore everything up to the truncation, which is most of the
+ * reason NDJSON was chosen over a single JSON array.
+ */
+export async function importArchive(
+  file: Blob,
+  onProgress?: (progress: ImportProgress) => void,
+  shouldStop?: () => boolean,
+): Promise<ImportProgress> {
+  const progress: ImportProgress = {
+    lines: 0,
+    added: 0,
+    merged: 0,
+    skipped: 0,
+    bytes: 0,
+    totalBytes: file.size,
+  };
+
+  const reader = file.stream().getReader();
+  const decoder = new TextDecoder();
+  let carry = '';
+  let batch: ArchivedContent[] = [];
+
+  const flush = async () => {
+    if (batch.length === 0) return;
+    const db = await openDb();
+    const transaction = tx(db, [CONTENT], 'readwrite');
+    const store = transaction.objectStore(CONTENT);
+
+    await Promise.all(
+      batch.map(async (record) => {
+        const existing = (await asPromise(store.get(record.id))) as ArchivedContent | undefined;
+        if (!existing) {
+          progress.added += 1;
+          store.put(record);
+          return;
+        }
+        progress.merged += 1;
+        // Older observation first, so the newer one wins the mutable fields.
+        store.put(
+          existing.last_seen_at >= record.last_seen_at
+            ? mergeArchived(record, existing)
+            : mergeArchived(existing, record),
+        );
+      }),
+    );
+
+    await done(transaction);
+    batch = [];
+  };
+
+  const handleLine = (line: string) => {
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    progress.lines += 1;
+    try {
+      const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+      // The header line carries metadata, not a record.
+      if (parsed._format || !parsed.id) return;
+      const record = normalizeImported(parsed);
+      if (record) batch.push(record);
+      else progress.skipped += 1;
+    } catch {
+      progress.skipped += 1;
+    }
+  };
+
+  try {
+    for (;;) {
+      if (shouldStop?.()) break;
+      const { done: finished, value } = await reader.read();
+      if (finished) break;
+
+      progress.bytes += value.byteLength;
+      carry += decoder.decode(value, { stream: true });
+
+      const lines = carry.split('\n');
+      // The last piece may be a partial line; hold it for the next chunk.
+      carry = lines.pop() ?? '';
+      for (const line of lines) handleLine(line);
+
+      if (batch.length >= IMPORT_BATCH) {
+        await flush();
+        onProgress?.({ ...progress });
+      }
+    }
+
+    handleLine(carry);
+    await flush();
+    progress.finished = true;
+  } catch (error) {
+    progress.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    reader.releaseLock();
+  }
+
+  onProgress?.({ ...progress });
+  return progress;
 }
