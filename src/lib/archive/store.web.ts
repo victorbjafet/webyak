@@ -801,3 +801,39 @@ export async function importArchive(
   onProgress?.({ ...progress });
   return progress;
 }
+
+
+/**
+ * Walks every record once, in primary-key order.
+ *
+ * A callback rather than a returned array: the integrity check reads the whole
+ * archive, and materialising 157,000 objects to hand back would cost more memory
+ * than the analysis itself. The visitor accumulates counters and lets each
+ * record go.
+ */
+export async function forEachRecord(
+  visit: (record: ArchivedContent) => void,
+  onProgress?: (seen: number) => void,
+): Promise<void> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  let seen = 0;
+
+  await new Promise<void>((resolve, reject) => {
+    const request = store.openCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      visit(cursor.value as ArchivedContent);
+      seen += 1;
+      if (seen % 5000 === 0) onProgress?.(seen);
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  onProgress?.(seen);
+}

@@ -537,6 +537,10 @@ and comment it sees** — effectively a Yik Yak downloader
       replies. The feed crawl only ever fetched posts, which is why a 157k-post
       archive held zero comments
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#comments-are-a-separate-pass-and-why))
+- [x] **Integrity checking** — day-by-day coverage judged against local medians
+      rather than a flat average, plus structural checks. A flat average flags 33
+      days on the reference archive and every one is summer break
+      ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#integrity-checking-local-medians-not-a-flat-average))
 - [ ] **Media back-fill** — download the bytes for flagged attachments. The
       schema and flags exist; the fetching does not
 - [x] **Search over the archive** — a `multiEntry` token index built at write

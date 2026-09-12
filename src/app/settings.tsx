@@ -28,6 +28,8 @@ import {
   listCrawlStates,
   type ImportProgress,
 } from '@/lib/archive/store';
+import { analyseArchive, type IntegrityReport } from '@/lib/archive/integrity';
+import { forEachRecord } from '@/lib/archive/store';
 import { pickFile } from '@/lib/pick-file';
 import type { ArchiveStats, CrawlState } from '@/lib/archive/types';
 import { saveFile } from '@/lib/save-file';
@@ -65,6 +67,8 @@ export default function SettingsScreen() {
   const [progress, setProgress] = useState<CrawlProgress | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState<ImportProgress | null>(null);
+  const [report, setReport] = useState<IntegrityReport | null>(null);
+  const [checking, setChecking] = useState(false);
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [comments, setComments] = useState<CommentCrawlProgress | null>(null);
@@ -186,6 +190,17 @@ export default function SettingsScreen() {
       setImporting(null);
     }
   }, [refresh]);
+
+  const check = useCallback(async () => {
+    setChecking(true);
+    try {
+      setReport(await analyseArchive((visit) => forEachRecord(visit)));
+    } catch (error) {
+      toastError(error, "Couldn't check the archive.");
+    } finally {
+      setChecking(false);
+    }
+  }, []);
 
   return (
     <Screen title="Settings" back scroll={false}>
@@ -382,6 +397,105 @@ export default function SettingsScreen() {
 
                 {running ? <Button label="Stop" variant="danger" onPress={stop} /> : null}
               </>
+            ) : null}
+          </Card>
+        ) : null}
+
+        {/* ---------------------------------------------------------------- */}
+        {archiveAvailable ? (
+          <Card>
+            <ThemedText type="bodyBold">Check integrity</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Reads every record and looks for holes — days far quieter than the days around them,
+              records missing fields, comments whose post was never saved.
+            </ThemedText>
+            <ThemedText type="caption" themeColor="textTertiary">
+              Each day is judged against its own neighbourhood, not a flat average. A university
+              empties out over summer, so a June with a quarter of the usual traffic is normal —
+              against an overall average it looks like catastrophic loss.
+            </ThemedText>
+
+            <View style={styles.actions}>
+              <Button
+                label={checking ? 'Reading…' : 'Check archive'}
+                variant="secondary"
+                onPress={check}
+                loading={checking}
+                disabled={!stats || stats.posts + stats.comments === 0}
+              />
+            </View>
+
+            {report ? (
+              <View style={[styles.commentProgress, { backgroundColor: theme.background }]}>
+                <ThemedText type="small">
+                  {formatCount(report.records)} records · {report.oldest?.slice(0, 10)} →{' '}
+                  {report.newest?.slice(0, 10)} · {formatCount(report.spanDays)} days
+                </ThemedText>
+                <ThemedText type="caption" themeColor="textSecondary">
+                  {formatCount(Math.round(report.medianPerDay))}/day typical ·{' '}
+                  {report.emptyDays === 0
+                    ? 'no days missing entirely'
+                    : `${formatCount(report.emptyDays)} days with nothing`}{' '}
+                  · checked in {(report.ms / 1000).toFixed(1)}s
+                </ThemedText>
+
+                {/* The question behind "did something fall apart": did the crawl
+                    stop because history ran out, or because it gave up? */}
+                <ThemedText type="caption" themeColor="textTertiary">
+                  {report.edge.abrupt
+                    ? `Oldest week runs at ${Math.round(report.edge.firstWeekPerDay)}/day — full volume, so the crawl reached a limit on Yik Yak's side rather than petering out. Older posts are gone, not missed.`
+                    : `Oldest week runs at ${Math.round(report.edge.firstWeekPerDay)}/day against a typical ${Math.round(report.medianPerDay)} — it thins out, which suggests the crawl stopped early rather than running out of history.`}
+                </ThemedText>
+
+                {report.gaps.length === 0 ? (
+                  <ThemedText type="caption" style={{ color: theme.brand }}>
+                    No gaps. Every day is in line with the days around it.
+                  </ThemedText>
+                ) : (
+                  <>
+                    <ThemedText type="caption" style={{ color: theme.danger }}>
+                      {report.gaps.length} suspicious stretch
+                      {report.gaps.length === 1 ? '' : 'es'} · roughly{' '}
+                      {formatCount(report.estimatedMissing)} posts short
+                    </ThemedText>
+                    {report.gaps.slice(0, 6).map((gap) => (
+                      <ThemedText key={gap.start} type="caption" themeColor="textSecondary">
+                        {gap.start} → {gap.end} ({gap.days}d) — saw {formatCount(gap.observed)},
+                        expected ~{formatCount(gap.expected)}
+                      </ThemedText>
+                    ))}
+                  </>
+                )}
+
+                {report.structural.untokenized +
+                  report.structural.missingCreatedAt +
+                  report.structural.missingGroup +
+                  report.structural.orphanComments +
+                  report.structural.duplicateIndexCodes ===
+                0 ? (
+                  <ThemedText type="caption" themeColor="textTertiary">
+                    Every record is complete and searchable.
+                  </ThemedText>
+                ) : (
+                  <ThemedText type="caption" style={{ color: theme.danger }}>
+                    {report.structural.untokenized > 0
+                      ? `${formatCount(report.structural.untokenized)} unsearchable · `
+                      : ''}
+                    {report.structural.missingCreatedAt > 0
+                      ? `${formatCount(report.structural.missingCreatedAt)} undated · `
+                      : ''}
+                    {report.structural.missingGroup > 0
+                      ? `${formatCount(report.structural.missingGroup)} without a community · `
+                      : ''}
+                    {report.structural.orphanComments > 0
+                      ? `${formatCount(report.structural.orphanComments)} comments whose post is missing · `
+                      : ''}
+                    {report.structural.duplicateIndexCodes > 0
+                      ? `${formatCount(report.structural.duplicateIndexCodes)} duplicate share codes`
+                      : ''}
+                  </ThemedText>
+                )}
+              </View>
             ) : null}
           </Card>
         ) : null}

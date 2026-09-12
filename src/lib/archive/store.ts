@@ -72,6 +72,11 @@ export async function listPostsNeedingComments(
 
 export async function markCommentsFetched(_postId: string, _count: number): Promise<void> {}
 
+export async function forEachRecord(
+  _visit: (record: ArchivedContent) => void,
+  _onProgress?: (seen: number) => void,
+): Promise<void> {}
+
 export interface ImportProgress {
   lines: number;
   added: number;

@@ -631,3 +631,48 @@ Archive records render plainly. A `PostCard` implies working vote buttons and a
 live score; these are a **snapshot**, and dressing them up as the real thing
 would misrepresent what they are. Comments link to their parent post, since a
 comment has no page of its own.
+
+
+## Integrity checking: local medians, not a flat average
+
+The archive can be checked for holes from Settings. The interesting part is what
+it does **not** do.
+
+The obvious design — posts per day against the overall average — produces
+confident nonsense on this data. Measured on a real 156,965-post Virginia Tech
+archive:
+
+| Period | Posts/day | vs median |
+|---|---|---|
+| June–July 2025 | ~80 | 28% |
+| June–July 2026 | ~70–82 | 25% |
+| September, both years | 487–604 | 170–210% |
+
+A university empties out over summer and refills in September. **A flat-average
+check flags 33 days as missing data. Every one is a false positive** — the
+pattern repeats a year apart, which is the signature of a seasonal cycle, not a
+broken crawl.
+
+So each day is judged against its **local neighbourhood**: the median of the
+surrounding ±14 days, excluding the day itself so a zero cannot drag down its own
+baseline. A quiet July day sits among other quiet July days and passes; a genuine
+dropout stands out from its immediate neighbours whatever the season. On the same
+archive this reports **zero gaps**, which is correct.
+
+### The edge tells you why a crawl stopped
+
+The report also looks at the oldest week. A crawl that ran out of history stops
+at **full volume**; one that was interrupted or throttled **thins out first**.
+That distinguishes "the server has no more" from "we didn't finish" — which is
+the actual question behind "did something fall apart?".
+
+On the reference archive the first week runs at 296/day against a 285/day median:
+abrupt. The crawl hit Yik Yak's retention floor around 2025-03-28. Posts older
+than that are gone from the server, not missed by the crawl.
+
+### Structural checks
+
+Alongside coverage: records with no `created_at` or no community, **untokenized
+records** (present in the archive but invisible to search — the failure mode a
+schema migration would cause), comments whose parent post was never saved,
+duplicate share codes, and counts of outstanding thread and media work.
