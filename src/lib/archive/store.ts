@@ -1,3 +1,4 @@
+import type { ArchiveQuery } from './query';
 import type { ArchiveStats, ArchivedContent, CrawlState } from './types';
 
 import type { PostOrComment } from '@/api/types';
@@ -90,17 +91,14 @@ export async function importArchive(
   return { lines: 0, added: 0, merged: 0, skipped: 0, bytes: 0, totalBytes: 0, finished: true };
 }
 
-export interface SearchOptions {
-  groupId?: string;
-  type?: 'post' | 'comment';
-  author?: string;
-  includeDeleted?: boolean;
-  limit?: number;
+export interface SearchResult {
+  records: ArchivedContent[];
+  scanned: number;
+  strategy: string;
+  truncated: boolean;
+  ms: number;
 }
 
-export async function searchArchive(
-  _query: string,
-  _options?: SearchOptions,
-): Promise<ArchivedContent[]> {
-  return [];
+export async function searchArchive(_query: ArchiveQuery): Promise<SearchResult> {
+  return { records: [], scanned: 0, strategy: 'unavailable', truncated: false, ms: 0 };
 }

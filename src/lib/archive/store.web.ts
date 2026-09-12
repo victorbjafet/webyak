@@ -1,3 +1,4 @@
+import { type ArchiveQuery } from './query';
 import {
   mergeArchived,
   toArchived,
@@ -24,7 +25,7 @@ import type { PostOrComment } from '@/api/types';
  */
 
 const DB_NAME = 'webyak-archive';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 const CONTENT = 'content';
 const MEDIA = 'media';
@@ -74,6 +75,10 @@ function openDb(): Promise<IDBDatabase> {
         store.createIndex('group_created', ['group_id', 'created_at']);
         store.createIndex('needs_comments', 'needs_comments');
         store.createIndex('is_reply', 'is_reply');
+        // "Top posts of all time" and "anything above N" are the first things
+        // anyone asks a corpus like this, and both are unanswerable without it:
+        // there is no term to look up, so they would otherwise scan everything.
+        store.createIndex('vote_total', 'vote_total');
       }
 
       if (!db.objectStoreNames.contains(MEDIA)) {
@@ -96,7 +101,7 @@ function openDb(): Promise<IDBDatabase> {
         the archive is days old, so this is a small walk. A migration on a large
         store would need a background pass instead.
       */
-      if (from > 0 && from < 5 && upgrade) {
+      if (from > 0 && from < 6 && upgrade) {
         const store = upgrade.objectStore(CONTENT);
         if (!store.indexNames.contains('tokens')) {
           store.createIndex('tokens', 'tokens', { multiEntry: true });
@@ -113,6 +118,9 @@ function openDb(): Promise<IDBDatabase> {
         }
         if (!store.indexNames.contains('is_reply')) {
           store.createIndex('is_reply', 'is_reply');
+        }
+        if (!store.indexNames.contains('vote_total')) {
+          store.createIndex('vote_total', 'vote_total');
         }
 
         const cursorRequest = store.openCursor();
@@ -379,195 +387,230 @@ export async function findArchivedById(id: string): Promise<ArchivedContent | un
  * Search
  * ------------------------------------------------------------------------ */
 
-export interface SearchOptions {
-  groupId?: string;
-  /** `post`, `comment`, or both when omitted. */
-  type?: 'post' | 'comment';
-  author?: string;
-  includeDeleted?: boolean;
-  limit?: number;
+export interface SearchResult {
+  records: ArchivedContent[];
+  /** How many rows were examined — the honest cost of the query. */
+  scanned: number;
+  /** Which index served it, so a slow query can be understood rather than guessed at. */
+  strategy: string;
+  truncated: boolean;
+  ms: number;
 }
 
 /**
- * Keyword search over the whole archive.
+ * Runs a parsed query.
  *
- * ## Why an index and not a scan
+ * ## Two strategies, chosen by what the query contains
  *
- * The two options were scanning every record at query time, or building a token
- * index at write time. Scanning costs nothing to write and is O(n) per query —
- * and n here is intended to reach hundreds of thousands of records, each of
- * which IndexedDB must deserialize into a JS object before a single character
- * can be compared. That is seconds per keystroke, and it gets worse exactly as
- * the archive becomes worth searching.
+ * **With search terms**, the `tokens` multiEntry index does the work: each term
+ * resolves to a set of ids via `getAllKeys`, the sets are intersected, and
+ * excluded terms are *subtracted* — also an index lookup, so a `-word` narrows
+ * the candidate set instead of forcing a scan. Only the survivors are read as
+ * full records, because deserializing is the expensive part of IndexedDB.
  *
- * The index costs a tokenize per post — microseconds, on a write already
- * happening — and roughly the size of the text again on disk, which is nothing
- * beside the media it sits next to. In exchange a query touches only matching
- * records.
+ * **Without terms** — `from:someone since:2026-01-01`, say — there is nothing to
+ * look up, so the query rides the most selective index it can:
  *
- * No dependency was needed: **IndexedDB's `multiEntry` index is an inverted
- * index.** One index entry per array element means `tokens` maps word → records
- * natively.
+ * | Query contains | Index used |
+ * |---|---|
+ * | community + dates | `[group_id, created_at]`, bounded both ends |
+ * | an author | `author` |
+ * | `is:deleted` | `deleted` |
+ * | `has:media` | `has_media` |
+ * | dates only | `created_at`, bounded |
+ * | nothing selective | `created_at` descending, stopping at the limit |
  *
- * ## Why keys first, then records
+ * The last row is the only one that can touch a lot of rows, and it walks
+ * newest-first and stops at the limit, so it is bounded by the result count
+ * rather than by the archive size.
  *
- * Each term is resolved with `getAllKeys` — ids only. Those sets are intersected
- * in memory, and only the surviving ids are read as full records. Deserializing
- * is the expensive part of IndexedDB, so this pays it once for the answer rather
- * than once per term for everything that matched any term.
- *
- * Terms are matched as **prefixes** (`hokie` finds `hokies`) via a bounded key
- * range, which is the one piece of stemming that surprises nobody.
+ * Terms are matched as **prefixes** (`hokie` finds `hokies`); phrases are
+ * verified against the record text, since a token index knows which words are
+ * present but not their order.
  */
-export async function searchArchive(
-  query: string,
-  options: SearchOptions = {},
-): Promise<ArchivedContent[]> {
-  const terms = tokenize(query);
-  const limit = options.limit ?? 200;
-
+export async function searchArchive(query: ArchiveQuery): Promise<SearchResult> {
+  const startedAt = Date.now();
   const db = await openDb();
   const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
 
-  let ids: string[] | null = null;
+  let candidates: Set<string> | undefined;
+  let strategy = '';
+  let scanned = 0;
 
-  if (terms.length > 0) {
-    const tokenIndex = store.index('tokens');
+  const keysFor = async (term: string): Promise<string[]> =>
+    (await asPromise(
+      store.index('tokens').getAllKeys(IDBKeyRange.bound(term, `${term}\uffff`)),
+    )) as string[];
 
-    for (const term of terms) {
-      // Prefix range: everything from `term` up to `term￿`.
-      const range = IDBKeyRange.bound(term, `${term}￿`, false, false);
-      const keys = (await asPromise(tokenIndex.getAllKeys(range))) as string[];
+  // Positive terms: intersect. A phrase also contributes its words, so the
+  // index narrows before the text is checked.
+  const required = [...query.terms, ...query.phrases.flatMap((phrase) => tokenize(phrase))];
 
-      if (ids === null) {
-        ids = [...new Set(keys)];
-      } else {
-        // AND across terms, and each intersection can only shrink the set —
-        // so an impossible query gives up immediately rather than reading rows.
-        const next = new Set(keys);
-        ids = ids.filter((id) => next.has(id));
-      }
-      if (ids.length === 0) return [];
+  // Explicit loops rather than spread-and-filter: intersecting sets this way
+  // avoids allocating an intermediate array per term, which matters when a
+  // common word matches tens of thousands of ids.
+  const intersect = (into: Set<string>, keys: Set<string>) => {
+    const next = new Set<string>();
+    for (const id of into) if (keys.has(id)) next.add(id);
+    return next;
+  };
+
+  for (const term of required) {
+    const keys = new Set(await keysFor(term));
+    candidates = candidates ? intersect(candidates, keys) : keys;
+    if (candidates.size === 0) {
+      return {
+        records: [],
+        scanned: 0,
+        strategy: 'tokens (no match)',
+        truncated: false,
+        ms: Date.now() - startedAt,
+      };
     }
   }
 
-  // No terms: fall back to filtering by the structured options alone, which is
-  // a legitimate query ("everything deleted in this community").
-  const records: ArchivedContent[] = [];
+  // Negative terms: subtract, also via the index — so `-word` narrows the
+  // candidate set rather than forcing a scan to reject rows afterwards.
+  if (candidates) {
+    for (const term of query.excludedTerms) {
+      const keys = new Set(await keysFor(term));
+      const next = new Set<string>();
+      for (const id of candidates) if (!keys.has(id)) next.add(id);
+      candidates = next;
+    }
+    strategy = `tokens (${required.length} term${required.length === 1 ? '' : 's'})`;
+  }
 
-  if (ids === null) {
-    const source = options.groupId
-      ? store.index('group_id').openCursor(IDBKeyRange.only(options.groupId), 'prev')
-      : store.index('created_at').openCursor(null, 'prev');
+  const records: ArchivedContent[] = [];
+  let truncated = false;
+
+  if (candidates) {
+    for (const id of candidates) {
+      const record = (await asPromise(store.get(id))) as ArchivedContent | undefined;
+      scanned += 1;
+      if (record && matchesQuery(record, query)) records.push(record);
+    }
+  } else {
+    // No terms — pick the most selective index available.
+    let source: IDBRequest<IDBCursorWithValue | null>;
+    // Set when the cursor already yields rows in the requested order, which is
+    // what lets the walk stop at the limit instead of ranking afterwards.
+    let preSorted = query.sort === 'old' || query.sort === 'new';
+
+    if (query.sort === 'top' || query.minScore !== undefined) {
+      // Descending by score: `sort:top` arrives pre-ranked, and `min_score`
+      // becomes a bounded range rather than a predicate applied to everything.
+      strategy = 'vote_total index';
+      source = store
+        .index('vote_total')
+        .openCursor(
+          IDBKeyRange.bound(query.minScore ?? -Infinity, query.maxScore ?? Infinity),
+          'prev',
+        );
+      preSorted = query.sort === 'top';
+    } else if (query.group === undefined && query.author) {
+      strategy = 'author index';
+      source = store.index('author').openCursor(IDBKeyRange.only(query.author));
+    } else if (query.deleted === 'only') {
+      strategy = 'deleted index';
+      source = store.index('deleted').openCursor(IDBKeyRange.only(1));
+    } else if (query.hasMedia) {
+      strategy = 'has_media index';
+      source = store.index('has_media').openCursor(IDBKeyRange.only(1));
+    } else if (query.since || query.until) {
+      strategy = 'created_at range';
+      source = store
+        .index('created_at')
+        .openCursor(
+          IDBKeyRange.bound(query.since ?? '', query.until ?? '\uffff'),
+          query.sort === 'old' ? 'next' : 'prev',
+        );
+    } else {
+      strategy = 'created_at scan';
+      source = store.index('created_at').openCursor(null, query.sort === 'old' ? 'next' : 'prev');
+    }
 
     await new Promise<void>((resolve, reject) => {
-      const request = source;
-      request.onsuccess = () => {
-        const cursor = request.result;
-        if (!cursor || records.length >= limit) {
+      source.onsuccess = () => {
+        const cursor = source.result;
+        if (!cursor) {
           resolve();
           return;
         }
+        scanned += 1;
         const record = cursor.value as ArchivedContent;
-        if (matches(record, options)) records.push(record);
+        if (matchesQuery(record, query)) records.push(record);
+        // Only safe to stop early when the cursor is already in the requested
+        // order — otherwise the best results might still be ahead.
+        if (preSorted && records.length >= query.limit) {
+          truncated = true;
+          resolve();
+          return;
+        }
         cursor.continue();
       };
-      request.onerror = () => reject(request.error);
+      source.onerror = () => reject(source.error);
     });
-  } else {
-    for (const id of ids) {
-      const record = (await asPromise(store.get(id))) as ArchivedContent | undefined;
-      if (record && matches(record, options)) records.push(record);
-      if (records.length >= limit) break;
+  }
+
+  records.sort((a, b) => {
+    if (query.sort === 'top') return (b.vote_total ?? 0) - (a.vote_total ?? 0);
+    if (query.sort === 'old') return a.created_at < b.created_at ? -1 : 1;
+    return a.created_at > b.created_at ? -1 : 1;
+  });
+
+  if (records.length > query.limit) {
+    truncated = true;
+    records.length = query.limit;
+  }
+
+  return { records, scanned, strategy, truncated, ms: Date.now() - startedAt };
+}
+
+/**
+ * Every filter the index could not apply.
+ *
+ * Phrases are checked here rather than in the index: a token index knows which
+ * words a record contains, not the order they appear in, so `"grey market"`
+ * needs the text itself to distinguish it from a post containing both words
+ * apart.
+ */
+function matchesQuery(record: ArchivedContent, query: ArchiveQuery): boolean {
+  if (query.deleted === 'only' && !record.deleted) return false;
+  if (!query.deleted && record.deleted) return false;
+
+  if (query.type && record.type !== query.type) return false;
+  if (query.isReply !== undefined && Boolean(record.is_reply) !== query.isReply) return false;
+
+  if (query.author && record.author?.toLowerCase() !== query.author.toLowerCase()) return false;
+  if (query.group && !(record.group_name ?? '').toLowerCase().includes(query.group)) return false;
+
+  if (query.since && record.created_at < query.since) return false;
+  if (query.until && record.created_at > query.until) return false;
+
+  if (query.minScore !== undefined && (record.vote_total ?? 0) < query.minScore) return false;
+  if (query.maxScore !== undefined && (record.vote_total ?? 0) > query.maxScore) return false;
+
+  if (query.hasMedia !== undefined) {
+    const has = Boolean(record.has_media);
+    if (has !== query.hasMedia) return false;
+    if (query.hasMedia && query.mediaType) {
+      if (!record.media?.some((m) => m.type === query.mediaType)) return false;
     }
   }
 
-  // Newest first — for a corpus of social posts that is the order people expect,
-  // and relevance ranking over prefix-matched tokens would be mostly noise.
-  return records.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-}
+  const text = record.text.toLowerCase();
+  for (const phrase of query.phrases) if (!text.includes(phrase)) return false;
+  for (const phrase of query.excludedPhrases) if (text.includes(phrase)) return false;
 
-function matches(record: ArchivedContent, options: SearchOptions): boolean {
-  if (options.groupId && record.group_id !== options.groupId) return false;
-  if (options.type && record.type !== options.type) return false;
-  if (options.author && record.author?.toLowerCase() !== options.author.toLowerCase()) return false;
-  if (!options.includeDeleted && record.deleted) return false;
+  // Excluded single words, for the no-term path where the index did not subtract
+  // them. Prefix-matched, to stay consistent with how terms are included.
+  for (const term of query.excludedTerms) {
+    if (record.tokens?.some((token) => token.startsWith(term))) return false;
+  }
+
   return true;
 }
-
-
-/**
- * The oldest post held for a community.
- *
- * This is the crawler's **target**: everything newer than this is territory the
- * archive already covers, so duplicates there are expected rather than a reason
- * to stop. Only once a crawl gets past this line is it into history we don't
- * have.
- *
- * One cursor step on a compound `[group_id, created_at]` index — no scan, so it
- * stays free as the archive grows.
- */
-export async function getOldestArchived(groupId: string): Promise<string | undefined> {
-  const db = await openDb();
-  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
-  const range = IDBKeyRange.bound([groupId, ''], [groupId, '\uffff']);
-  const cursor = await asPromise(store.index('group_created').openCursor(range, 'next'));
-  return (cursor?.value as ArchivedContent | undefined)?.created_at;
-}
-
-
-/**
- * Archived posts whose comment threads have not been fetched.
- *
- * An index lookup on `needs_comments`, not a scan — at 157k posts a scan would
- * deserialize the entire archive to find the few thousand that still need work.
- *
- * Only ids and comment counts are returned: the comment crawler needs nothing
- * else, and carrying full records for thousands of posts through memory would be
- * waste on a job that is already long.
- */
-export async function listPostsNeedingComments(
-  limit = 500,
-): Promise<{ id: string; comment_count: number }[]> {
-  const db = await openDb();
-  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
-  const out: { id: string; comment_count: number }[] = [];
-
-  await new Promise<void>((resolve, reject) => {
-    const request = store.index('needs_comments').openCursor(IDBKeyRange.only(1));
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor || out.length >= limit) {
-        resolve();
-        return;
-      }
-      const record = cursor.value as ArchivedContent;
-      out.push({ id: record.id, comment_count: record.comment_count ?? 0 });
-      cursor.continue();
-    };
-    request.onerror = () => reject(request.error);
-  });
-
-  return out;
-}
-
-/**
- * Marks a post's thread as collected.
- *
- * Records the count at fetch time rather than a boolean, so a post that later
- * gains replies comes back around instead of being permanently considered done.
- */
-export async function markCommentsFetched(postId: string, count: number): Promise<void> {
-  const db = await openDb();
-  const transaction = tx(db, [CONTENT], 'readwrite');
-  const store = transaction.objectStore(CONTENT);
-  const record = (await asPromise(store.get(postId))) as ArchivedContent | undefined;
-  if (record) {
-    store.put({ ...record, needs_comments: 0, comments_fetched_count: count });
-  }
-  await done(transaction);
-}
-
 
 /* ------------------------------------------------------------------------ *
  * Import

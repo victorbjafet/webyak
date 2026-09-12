@@ -553,3 +553,81 @@ casually.
 
 `navigator.storage.estimate()` is also origin-wide and approximate by design, so
 treat it as an order of magnitude rather than a measurement.
+
+
+## Archive search: the query language, and what serves it
+
+Explore toggles between finding communities and searching the archive. They
+share nothing but the tab, so it is a toggle rather than a merged list — results
+mixing live communities with archived posts would mean nothing.
+
+**This searches what the browser has saved, not Yik Yak.** The API has no search
+endpoint and posts leave it, so the corpus is the archive. That is the point: it
+answers questions about content the server no longer serves.
+
+### Grammar
+
+Twitter-shaped, because that is the vocabulary people already have:
+
+| Syntax | Meaning |
+|---|---|
+| `word word` | all words present, prefix-matched (`hokie` finds `hokies`) |
+| `"exact phrase"` | that substring, in order |
+| `-word`, `-"phrase"` | excluded |
+| `from:` / `author:` / `by:` | author |
+| `in:` / `group:` / `community:` | community name, substring |
+| `since:` / `until:` (or `after:` / `before:`) | dates, inclusive |
+| `min_score:` / `max_score:` (`min_faves:` accepted) | vote total |
+| `is:post` `is:comment` `is:reply` `is:deleted` | kind |
+| `has:media` `has:image` `has:video` | attachments |
+| `sort:new` `sort:old` `sort:top` | ordering |
+| `limit:` | result cap |
+
+**An unrecognised operator is searched as text, never rejected.** Someone typing
+`price: 20` means those words, and refusing the query would be worse than
+running it. The screen echoes back what it understood, so a mistyped operator is
+visible rather than silent.
+
+Quoted runs are never operators — `"from:me"` searches for that literal text,
+which is the only reading under which quotes mean "literally".
+
+### Parsing and execution are separate
+
+The parser is a pure function over a string; the executor decides which index
+serves the parsed query. Mixing them is how a search box ends up with semantics
+nobody can state.
+
+### How a query is served
+
+**With terms**, the `tokens` index does the work: each term resolves to a set of
+ids, the sets intersect, and `-word` **subtracts** — also an index lookup, so an
+exclusion narrows the candidates instead of forcing a scan to reject rows later.
+Only survivors are read as records.
+
+**Without terms** there is nothing to look up, so the query takes the most
+selective index available:
+
+| Query contains | Index |
+|---|---|
+| `sort:top` or `min_score:` | `vote_total`, descending — pre-ranked, so it stops at the limit |
+| an author | `author` |
+| `is:deleted` | `deleted` |
+| `has:media` | `has_media` |
+| dates | `created_at`, bounded |
+| nothing selective | `created_at` descending, stopping at the limit |
+
+`vote_total` was added specifically because "top posts of all time" and "anything
+above N" are the first questions anyone asks a corpus like this, and both are
+termless — without it they scanned all 157k records and, for `sort:top`, could
+not stop early because the best result might still be ahead. The walk only stops
+at the limit when the cursor is already in the requested order.
+
+Every result reports its strategy, rows examined and elapsed time, so a slow
+query can be understood rather than guessed at.
+
+### Results are not post cards
+
+Archive records render plainly. A `PostCard` implies working vote buttons and a
+live score; these are a **snapshot**, and dressing them up as the real thing
+would misrepresent what they are. Comments link to their parent post, since a
+comment has no page of its own.

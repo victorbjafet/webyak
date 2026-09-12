@@ -548,8 +548,12 @@ and comment it sees** — effectively a Yik Yak downloader
 - [x] The crawler catches up on new posts **before** backfilling history — a
       single resume cursor only ever walks backwards, so anything posted since
       the last run would never be seen
-- [ ] **Wire search into Explore** — the query layer exists and is untested
-      against a large archive; the UI does not
+- [x] **Search wired into Explore** — a Communities/Archive toggle, with a
+      Twitter-style query language: phrases, exclusions, `from:`, date ranges,
+      `min_score:`, `is:`, `has:`, `sort:`
+      ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#archive-search-the-query-language-and-what-serves-it))
+- [x] Added a `vote_total` index — `sort:top` and `min_score:` are termless, so
+      without one they scanned the whole archive and could not stop early
 - [x] **The six-day wall was transient, not a window.** Manual restarts pushed
       straight past it, so the crawler now waits out unproductive stretches
       instead of stopping — with the archive's oldest post as a target, since

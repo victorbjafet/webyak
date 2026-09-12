@@ -12,6 +12,7 @@ import {
 import { useExploreGroups, useGroupSearch } from '@/api/queries';
 import { useSession } from '@/api/session';
 import type { Group } from '@/api/types';
+import { ArchiveSearch } from '@/components/explore/archive-search';
 import { GroupCard } from '@/components/explore/group-card';
 import { GroupChatsSection } from '@/components/explore/group-chats-section';
 import { Screen } from '@/components/screen';
@@ -52,6 +53,11 @@ export default function ExploreScreen() {
   const [term, setTerm] = useState('');
   const [focused, setFocused] = useState(false);
   const [order, setOrder] = useState<SortOrder>('members');
+  // Two things live under Explore now: finding communities, and searching what
+  // has been archived. They share nothing but the tab, so they are a toggle
+  // rather than a merged list — a result set mixing live communities with
+  // archived posts would be meaningless.
+  const [mode, setMode] = useState<'communities' | 'archive'>('communities');
   const { primaryGroup } = useSession();
 
   const all = useExploreGroups();
@@ -94,6 +100,42 @@ export default function ExploreScreen() {
 
   const columns = width >= TWO_COLUMN_AT ? 2 : 1;
 
+  const modeTabs = (
+    <View style={[styles.modes, { backgroundColor: theme.control }]}>
+      {(
+        [
+          { value: 'communities' as const, label: 'Communities', icon: 'compass-outline' as const },
+          { value: 'archive' as const, label: 'Archive', icon: 'search-outline' as const },
+        ]
+      ).map((option) => {
+        const selected = option.value === mode;
+        return (
+          <Pressable
+            key={option.value}
+            accessibilityRole="tab"
+            accessibilityState={{ selected }}
+            onPress={() => setMode(option.value)}
+            style={({ hovered }) => [
+              styles.mode,
+              selected && { backgroundColor: theme.backgroundSelected },
+              !selected && hovered ? { backgroundColor: theme.controlHover } : null,
+            ]}>
+            <Ionicons
+              name={option.icon}
+              size={14}
+              color={selected ? theme.brand : theme.controlText}
+            />
+            <ThemedText
+              type="smallBold"
+              style={{ color: selected ? theme.brand : theme.controlText }}>
+              {option.label}
+            </ThemedText>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
   const search = (
     <View
       style={[
@@ -127,8 +169,24 @@ export default function ExploreScreen() {
     </View>
   );
 
+  if (mode === 'archive') {
+    return (
+      <Screen title="Explore" headerBelow={modeTabs} scroll={false}>
+        <ArchiveSearch />
+      </Screen>
+    );
+  }
+
   return (
-    <Screen title="Explore" headerBelow={search} scroll={false}>
+    <Screen
+      title="Explore"
+      headerBelow={
+        <View style={styles.headerStack}>
+          {modeTabs}
+          {search}
+        </View>
+      }
+      scroll={false}>
       {all.isLoading ? <LoadingState label="Loading communities…" /> : null}
 
       {all.isError ? (
@@ -250,6 +308,30 @@ const styles = StyleSheet.create({
   },
   count: {
     paddingVertical: Spacing.two,
+  },
+  headerStack: {
+    width: '100%',
+    maxWidth: Layout.feedMaxWidth,
+    alignSelf: 'center',
+    gap: Spacing.two,
+  },
+  modes: {
+    flexDirection: 'row',
+    padding: Spacing.half,
+    borderRadius: Radius.pill,
+    gap: Spacing.half,
+    width: '100%',
+    maxWidth: Layout.feedMaxWidth,
+    alignSelf: 'center',
+  },
+  mode: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.one,
+    paddingVertical: Spacing.one,
+    borderRadius: Radius.pill,
   },
   listHeader: {
     flexDirection: 'row',
