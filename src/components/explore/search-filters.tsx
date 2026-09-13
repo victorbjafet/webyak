@@ -213,75 +213,87 @@ export function SearchFilters({
       </Pressable>
     </View>
   );
+}
 
-  function Row({ label, children }: { label: string; children: React.ReactNode }) {
-    return (
-      <View style={styles.row}>
-        <ThemedText type="caption" themeColor="textSecondary" style={styles.rowLabel}>
-          {label}
-        </ThemedText>
-        <View style={styles.rowBody}>{children}</View>
-      </View>
-    );
-  }
+/*
+  These live at module scope, not inside `SearchFilters`.
 
-  function Field({
-    value: fieldValue,
-    placeholder,
-    onChangeText,
-    keyboardType,
-  }: {
-    value: string;
-    placeholder: string;
-    onChangeText: (next: string) => void;
-    keyboardType?: 'numeric';
-  }) {
-    return (
-      <TextInput
-        value={fieldValue}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={theme.textTertiary}
-        autoCapitalize="none"
-        autoCorrect={false}
-        keyboardType={keyboardType}
-        style={[
-          styles.field,
-          Typography.caption,
-          { color: theme.text, backgroundColor: theme.background, borderColor: theme.border },
-        ]}
-      />
-    );
-  }
+  Declaring a component inside another component creates a **new component type
+  on every render**, so React cannot match it against the previous tree — it
+  unmounts the old one and mounts a fresh one. For a `TextInput` that means the
+  DOM node is replaced on every keystroke and focus goes with it, which is
+  exactly the bug this caused: one character per click into the box.
+*/
 
-  function Chip({
-    label,
-    active,
-    onPress,
-  }: {
-    label: string;
-    active: boolean;
-    onPress: () => void;
-  }) {
-    return (
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ selected: active }}
-        onPress={onPress}
-        style={({ hovered }) => [
-          styles.chip,
-          {
-            backgroundColor: active ? theme.brandMuted : theme.control,
-            borderColor: active ? theme.brand : 'transparent',
-          },
-          hovered && { opacity: 0.85 },
-        ]}>
-        <ThemedText type="caption" style={{ color: active ? theme.brand : theme.controlText }}>
-          {label}
-        </ThemedText>
-      </Pressable>
-    );
-  }
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.row}>
+      <ThemedText type="caption" themeColor="textSecondary" style={styles.rowLabel}>
+        {label}
+      </ThemedText>
+      <View style={styles.rowBody}>{children}</View>
+    </View>
+  );
+}
+
+function Field({
+  value,
+  placeholder,
+  onChangeText,
+  keyboardType,
+}: {
+  value: string;
+  placeholder: string;
+  onChangeText: (next: string) => void;
+  keyboardType?: 'numeric';
+}) {
+  const theme = useTheme();
+  return (
+    <TextInput
+      value={value}
+      onChangeText={onChangeText}
+      placeholder={placeholder}
+      placeholderTextColor={theme.textTertiary}
+      autoCapitalize="none"
+      autoCorrect={false}
+      keyboardType={keyboardType}
+      style={[
+        styles.field,
+        Typography.caption,
+        { color: theme.text, backgroundColor: theme.background, borderColor: theme.border },
+      ]}
+    />
+  );
+}
+
+function Chip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      onPress={onPress}
+      style={({ hovered }) => [
+        styles.chip,
+        {
+          backgroundColor: active ? theme.brandMuted : theme.control,
+          borderColor: active ? theme.brand : 'transparent',
+        },
+        hovered && { opacity: 0.85 },
+      ]}>
+      <ThemedText type="caption" style={{ color: active ? theme.brand : theme.controlText }}>
+        {label}
+      </ThemedText>
+    </Pressable>
+  );
 }
 
 /** Strips every operator token, leaving the free text the person typed. */

@@ -42,7 +42,6 @@ const DEBOUNCE_MS = 250;
  */
 export function ArchiveSearch() {
   const theme = useTheme();
-  const router = useRouter();
 
   const [input, setInput] = useState('');
   const [focused, setFocused] = useState(false);
@@ -274,81 +273,91 @@ export function ArchiveSearch() {
       />
     </View>
   );
+}
 
-  function Result({ record }: { record: ArchivedContent }) {
-    // Comments open their parent post; a comment has no page of its own.
-    const target = record.type === 'comment' ? record.parent_post_id : record.id;
+/*
+  Module scope, not nested inside `ArchiveSearch` — a component declared inside
+  another is a new type on every render, so React remounts it rather than
+  updating it. That cost the filter panel its keyboard focus, and here it threw
+  away and rebuilt every visible row on each keystroke.
+*/
 
-    return (
-      <Pressable
-        accessibilityRole="link"
-        accessibilityLabel="Open this post"
-        disabled={!target}
-        onPress={() => target && router.push({ pathname: '/p/[code]', params: { code: target } })}
-        style={({ hovered, pressed }) => [
-          styles.result,
-          {
-            backgroundColor:
-              hovered || pressed ? theme.backgroundHover : theme.backgroundElement,
-            borderColor: record.deleted ? theme.danger : theme.border,
-          },
-        ]}>
-        <View style={styles.resultHead}>
-          <ThemedText type="caption" themeColor="textTertiary" numberOfLines={1}>
-            {record.group_name ?? 'Community'}
-          </ThemedText>
-          {record.author ? (
-            <ThemedText type="caption" style={{ color: theme.brand }}>
-              @{record.author}
-            </ThemedText>
-          ) : record.alias ? (
-            <ThemedText type="caption" themeColor="textTertiary">
-              {record.alias}
-            </ThemedText>
-          ) : null}
-          <View style={styles.spacer} />
-          {record.type === 'comment' ? <Tag label={record.is_reply ? 'reply' : 'comment'} /> : null}
-          {record.has_media ? (
-            <Tag label={record.media?.[0]?.type === 'video' ? 'video' : 'image'} />
-          ) : null}
-          {record.deleted ? <Tag label="deleted" danger /> : null}
-        </View>
+function Result({ record }: { record: ArchivedContent }) {
+  const theme = useTheme();
+  const router = useRouter();
+  // Comments open their parent post; a comment has no page of its own.
+  const target = record.type === 'comment' ? record.parent_post_id : record.id;
 
-        <ThemedText type="small" numberOfLines={6}>
-          {record.text || '(no text)'}
+  return (
+    <Pressable
+      accessibilityRole="link"
+      accessibilityLabel="Open this post"
+      disabled={!target}
+      onPress={() => target && router.push({ pathname: '/p/[code]', params: { code: target } })}
+      style={({ hovered, pressed }) => [
+        styles.result,
+        {
+          backgroundColor:
+            hovered || pressed ? theme.backgroundHover : theme.backgroundElement,
+          borderColor: record.deleted ? theme.danger : theme.border,
+        },
+      ]}>
+      <View style={styles.resultHead}>
+        <ThemedText type="caption" themeColor="textTertiary" numberOfLines={1}>
+          {record.group_name ?? 'Community'}
         </ThemedText>
-
-        <View style={styles.resultFoot}>
-          <ThemedText type="caption" themeColor="textTertiary">
-            {record.created_at?.slice(0, 10)}
-          </ThemedText>
+        {record.author ? (
           <ThemedText type="caption" style={{ color: theme.brand }}>
-            {record.vote_total > 0 ? '+' : ''}
-            {formatCount(record.vote_total)}
+            @{record.author}
           </ThemedText>
-          {record.comment_count ? (
-            <ThemedText type="caption" themeColor="textTertiary">
-              {formatCount(record.comment_count)} replies
-            </ThemedText>
-          ) : null}
-        </View>
-      </Pressable>
-    );
-  }
-
-  function Tag({ label, danger }: { label: string; danger?: boolean }) {
-    return (
-      <View
-        style={[
-          styles.tag,
-          { backgroundColor: danger ? theme.danger : theme.control },
-        ]}>
-        <ThemedText type="caption" style={{ color: danger ? '#FFFFFF' : theme.controlText }}>
-          {label}
-        </ThemedText>
+        ) : record.alias ? (
+          <ThemedText type="caption" themeColor="textTertiary">
+            {record.alias}
+          </ThemedText>
+        ) : null}
+        <View style={styles.spacer} />
+        {record.type === 'comment' ? <Tag label={record.is_reply ? 'reply' : 'comment'} /> : null}
+        {record.has_media ? (
+          <Tag label={record.media?.[0]?.type === 'video' ? 'video' : 'image'} />
+        ) : null}
+        {record.deleted ? <Tag label="deleted" danger /> : null}
       </View>
-    );
-  }
+
+      <ThemedText type="small" numberOfLines={6}>
+        {record.text || '(no text)'}
+      </ThemedText>
+
+      <View style={styles.resultFoot}>
+        <ThemedText type="caption" themeColor="textTertiary">
+          {record.created_at?.slice(0, 10)}
+        </ThemedText>
+        <ThemedText type="caption" style={{ color: theme.brand }}>
+          {record.vote_total > 0 ? '+' : ''}
+          {formatCount(record.vote_total)}
+        </ThemedText>
+        {record.comment_count ? (
+          <ThemedText type="caption" themeColor="textTertiary">
+            {formatCount(record.comment_count)} replies
+          </ThemedText>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+}
+
+function Tag({ label, danger }: { label: string; danger?: boolean }) {
+  const theme = useTheme();
+  return (
+    <View
+      style={[
+        styles.tag,
+        { backgroundColor: danger ? theme.danger : theme.control },
+      ]}>
+      <ThemedText type="caption" style={{ color: danger ? '#FFFFFF' : theme.controlText }}>
+        {label}
+      </ThemedText>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

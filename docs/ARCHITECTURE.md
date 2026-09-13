@@ -758,3 +758,36 @@ denominator — the count of flagged posts — so it shows both.
 
 Both are scoped per community, because a job measured in days should be aimable
 at one community rather than being all-or-nothing.
+
+
+## Helper components go at module scope, never inside another component
+
+A component declared **inside** another component is a different function object
+on every render, so React sees a different type in the tree, unmounts the old
+subtree and mounts a fresh one. The state inside it is discarded — and for a
+`TextInput` that means the DOM node is replaced, which takes keyboard focus with
+it.
+
+This shipped twice and produced the same symptom both times: typing in the
+archive **filter panel** or in **profile edit** dropped focus after every single
+character, so each keystroke needed a fresh click. Both were nested `Field`
+helpers wrapping the inputs. They now live at module scope and take `useTheme()`
+themselves rather than closing over the parent's.
+
+It is a tempting pattern precisely because it reads well — a small `Row`, `Chip`
+or `Field` next to the markup that uses it, with the parent's `theme` already in
+scope. The cost is invisible until something in the subtree holds state.
+
+**It also blinds the linter.** `react-hooks`, running in its React Compiler-aware
+mode, bails out on a file containing nested component declarations and reports
+nothing else in it. Hoisting the helpers out of `src/app/me/edit.tsx` immediately
+surfaced a pre-existing `set-state-in-effect` error that had been sitting there
+unreported: the username availability check wrote `available` and `checking` from
+an effect. Those are now derived during render, and the server's answer is stored
+**keyed by the name it is about** — a bare boolean plus a separate `checking`
+flag can disagree, showing last name's "taken" against the name now in the box.
+
+Still nested elsewhere, harmlessly, because nothing in them holds state:
+`settings.tsx`, `compose.tsx`, `me/index.tsx`, the two crawl monitors,
+`karma-panel.tsx` and `post-actions.tsx`. Worth moving on sight, but only the
+input-wrapping cases were bugs.

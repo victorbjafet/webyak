@@ -42,8 +42,15 @@ export default function EditProfileScreen() {
   const [bio, setBio] = useState<string | null>(null);
   const [emoji, setEmoji] = useState<string | null>(null);
   const [color, setColor] = useState<string | null>(null);
-  const [available, setAvailable] = useState<boolean | null>(null);
-  const [checking, setChecking] = useState(false);
+  /*
+    The answer is stored **with the name it is about**, rather than as a bare
+    boolean alongside a separate `checking` flag. Those two can disagree — a
+    verdict left over from the previous name is shown against the current one
+    for as long as it takes the next check to land, so the form says "taken"
+    about a name nobody asked about. Keyed by name, a stale answer simply
+    doesn't match and is ignored.
+  */
+  const [check, setCheck] = useState<{ name: string; free: boolean | null } | null>(null);
 
   // `null` means untouched, so the loaded value shows through. Tracking that
   // separately is what lets us PATCH only what actually changed — sending every
@@ -61,24 +68,26 @@ export default function EditProfileScreen() {
   const usernameChanged = username !== null && username.trim() !== currentUsername;
   const trimmedUsername = usernameValue.trim();
 
+  const shouldCheck = usernameChanged && trimmedUsername.length >= 3;
+  // Derived during render, not written from the effect. State that is a pure
+  // function of other state has no business round-tripping through setState.
+  const answered = shouldCheck && check?.name === trimmedUsername;
+  const available = answered ? check.free : null;
+  const checking = shouldCheck && !answered;
+
   useEffect(() => {
-    if (!usernameChanged || trimmedUsername.length < 3) {
-      setAvailable(null);
-      return;
-    }
+    if (!shouldCheck) return;
     let cancelled = false;
-    setChecking(true);
     const handle = setTimeout(() => {
       void (async () => {
         try {
           const free = await checkUsername(trimmedUsername);
-          if (!cancelled) setAvailable(free);
+          if (!cancelled) setCheck({ name: trimmedUsername, free });
         } catch {
           // A failed check shouldn't block the form — the save itself is the
-          // real gate, and the server rejects a taken name anyway.
-          if (!cancelled) setAvailable(null);
-        } finally {
-          if (!cancelled) setChecking(false);
+          // real gate, and the server rejects a taken name anyway. Recorded
+          // against the name so it counts as answered and stops the spinner.
+          if (!cancelled) setCheck({ name: trimmedUsername, free: null });
         }
       })();
     }, CHECK_DELAY);
@@ -87,7 +96,7 @@ export default function EditProfileScreen() {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [usernameChanged, trimmedUsername]);
+  }, [shouldCheck, trimmedUsername]);
 
   const iconChanged = emojiValue !== currentEmoji || colorValue !== currentColor;
   const bioChanged = bio !== null && bio !== currentBio;
@@ -297,27 +306,35 @@ export default function EditProfileScreen() {
       </ScrollView>
     </Screen>
   );
+}
 
-  function Field({ label, children }: { label: string; children: React.ReactNode }) {
-    return (
-      <View style={styles.field}>
-        <ThemedText type="smallBold" themeColor="textSecondary">
-          {label}
-        </ThemedText>
-        {children}
-      </View>
-    );
-  }
+/*
+  Module scope on purpose. A component declared inside another is a new type on
+  every render, so React unmounts and remounts it instead of updating it — and
+  `Field` wraps the username and bio inputs, so that cost them focus after every
+  single keystroke.
+*/
 
-  function Hint({ tone, children }: { tone: 'muted' | 'good' | 'bad'; children: React.ReactNode }) {
-    const color =
-      tone === 'good' ? theme.brand : tone === 'bad' ? theme.danger : theme.textTertiary;
-    return (
-      <ThemedText type="caption" style={{ color }}>
-        {children}
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <View style={styles.field}>
+      <ThemedText type="smallBold" themeColor="textSecondary">
+        {label}
       </ThemedText>
-    );
-  }
+      {children}
+    </View>
+  );
+}
+
+function Hint({ tone, children }: { tone: 'muted' | 'good' | 'bad'; children: React.ReactNode }) {
+  const theme = useTheme();
+  const color =
+    tone === 'good' ? theme.brand : tone === 'bad' ? theme.danger : theme.textTertiary;
+  return (
+    <ThemedText type="caption" style={{ color }}>
+      {children}
+    </ThemedText>
+  );
 }
 
 const styles = StyleSheet.create({
