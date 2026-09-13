@@ -573,6 +573,11 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#importing-an-export))
 - [x] Comments store their thread position — parent post, reply target, and an
       indexed `is_reply` — so an export can rebuild the tree
+- [x] **Filters as controls, not just syntax** — a Filters panel and an
+      All/Posts/Comments segment, both of which rewrite the query string rather
+      than holding their own state, so the text box stays authoritative and the
+      operators stay visible. Replaced the example chips
+      ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-filter-panel-writes-the-query-string))
 
 ### Phase 7 — the extras from §5
 - [ ] Keyboard shortcuts + shortcut help overlay

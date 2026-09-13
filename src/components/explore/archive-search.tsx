@@ -7,8 +7,15 @@ import { ThemedText } from '../themed-text';
 
 import { Layout, Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { describeQuery, isEmptyQuery, parseQuery } from '@/lib/archive/query';
-import { archiveAvailable, getArchiveStats, searchArchive } from '@/lib/archive/store';
+import { SearchFilters } from './search-filters';
+
+import { describeQuery, isEmptyQuery, parseQuery, readFlag, writeFlag } from '@/lib/archive/query';
+import {
+  archiveAvailable,
+  getArchiveStats,
+  listCrawlStates,
+  searchArchive,
+} from '@/lib/archive/store';
 import type { SearchResult } from '@/lib/archive/store';
 import type { ArchivedContent } from '@/lib/archive/types';
 import { formatCount } from '@/lib/time';
@@ -19,16 +26,6 @@ import { formatCount } from '@/lib/time';
  * rather than network politeness.
  */
 const DEBOUNCE_MS = 250;
-
-const EXAMPLES: { label: string; query: string }[] = [
-  { label: 'Exact phrase', query: '"grey market"' },
-  { label: 'Exclude a word', query: 'parking -permit' },
-  { label: 'By a user', query: 'from:snoopyvt' },
-  { label: 'Best of a month', query: 'since:2026-04-01 until:2026-04-30 sort:top' },
-  { label: 'Popular only', query: 'min_score:50 sort:top' },
-  { label: 'With photos', query: 'has:image' },
-  { label: 'Removed posts', query: 'is:deleted' },
-];
 
 /**
  * Advanced search over the local archive.
@@ -53,12 +50,31 @@ export function ArchiveSearch() {
   const [busy, setBusy] = useState(false);
   const [total, setTotal] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const [groups, setGroups] = useState<string[]>([]);
 
   useEffect(() => {
     if (!archiveAvailable) return;
     void getArchiveStats()
       .then((stats) => setTotal(stats.posts + stats.comments))
       .catch(() => setTotal(null));
+  }, []);
+
+  /*
+    Community names for the picker, taken from the crawl states rather than a
+    scan. Those record every community ever backfilled, which is the same set
+    worth filtering by — and reading them costs one small lookup instead of
+    walking 157k records to collect distinct names.
+  */
+  useEffect(() => {
+    if (!archiveAvailable) return;
+    void listCrawlStates()
+      .then((states) =>
+        setGroups(
+          [...new Set(states.map((state) => state.group_name).filter(Boolean))] as string[],
+        ),
+      )
+      .catch(() => setGroups([]));
   }, []);
 
   const run = useCallback(async (raw: string) => {
@@ -88,6 +104,20 @@ export function ArchiveSearch() {
 
   const parsed = parseQuery(input);
   const description = describeQuery(parsed);
+  const kind = readFlag(input, 'is', ['post', 'comment']) as 'post' | 'comment' | undefined;
+  // Counted so the button can say how much is active while the panel is shut.
+  const activeFilters = [
+    parsed.author,
+    parsed.group,
+    parsed.since,
+    parsed.until,
+    parsed.minScore,
+    parsed.maxScore,
+    parsed.hasMedia,
+    parsed.isReply,
+    parsed.deleted,
+    parsed.sort !== 'new' ? parsed.sort : undefined,
+  ].filter((v) => v !== undefined).length;
 
   if (!archiveAvailable) {
     return (
@@ -129,31 +159,81 @@ export function ArchiveSearch() {
           ) : null}
         </View>
 
+        {/* Kind is the filter people reach for most, so it stays visible
+            rather than living behind the panel. Writes `is:` into the query
+            like every other control, so the text box remains authoritative. */}
+        <View style={styles.controlRow}>
+          <View style={[styles.segment, { backgroundColor: theme.control }]}>
+            {(
+              [
+                { value: undefined, label: 'All' },
+                { value: 'post', label: 'Posts' },
+                { value: 'comment', label: 'Comments' },
+              ] as const
+            ).map((option) => {
+              const selected = kind === option.value;
+              return (
+                <Pressable
+                  key={option.label}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected }}
+                  onPress={() =>
+                    setInput(writeFlag(input, 'is', ['post', 'comment'], option.value))
+                  }
+                  style={({ hovered }) => [
+                    styles.segmentItem,
+                    selected && { backgroundColor: theme.backgroundSelected },
+                    !selected && hovered ? { backgroundColor: theme.controlHover } : null,
+                  ]}>
+                  <ThemedText
+                    type="caption"
+                    style={{ color: selected ? theme.brand : theme.controlText }}>
+                    {option.label}
+                  </ThemedText>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={showFilters ? 'Hide filters' : 'Show filters'}
+            accessibilityState={{ expanded: showFilters }}
+            onPress={() => setShowFilters((v) => !v)}
+            style={({ hovered }) => [
+              styles.filterButton,
+              {
+                backgroundColor: showFilters || activeFilters > 0 ? theme.brandMuted : theme.control,
+                borderColor: showFilters || activeFilters > 0 ? theme.brand : 'transparent',
+              },
+              hovered && { opacity: 0.85 },
+            ]}>
+            <Ionicons
+              name="options-outline"
+              size={14}
+              color={showFilters || activeFilters > 0 ? theme.brand : theme.controlText}
+            />
+            <ThemedText
+              type="caption"
+              style={{
+                color: showFilters || activeFilters > 0 ? theme.brand : theme.controlText,
+              }}>
+              Filters{activeFilters > 0 ? ` · ${activeFilters}` : ''}
+            </ThemedText>
+          </Pressable>
+        </View>
+
+        {showFilters ? (
+          <SearchFilters value={input} onChange={setInput} groups={groups} />
+        ) : null}
+
         {/* Echoes back what the query was understood to mean, so a mistyped
             operator is visible rather than silently treated as a word. */}
         {description.length > 0 ? (
           <ThemedText type="caption" themeColor="textTertiary" numberOfLines={2}>
             {description.join(' · ')}
           </ThemedText>
-        ) : (
-          <View style={styles.examples}>
-            {EXAMPLES.map((example) => (
-              <Pressable
-                key={example.query}
-                accessibilityRole="button"
-                accessibilityLabel={`Try ${example.label}`}
-                onPress={() => setInput(example.query)}
-                style={({ hovered, pressed }) => [
-                  styles.chip,
-                  { backgroundColor: hovered || pressed ? theme.controlHover : theme.control },
-                ]}>
-                <ThemedText type="caption" themeColor="controlText">
-                  {example.query}
-                </ThemedText>
-              </Pressable>
-            ))}
-          </View>
-        )}
+        ) : null}
 
         {result ? (
           <ThemedText type="caption" themeColor="textTertiary">
@@ -186,7 +266,7 @@ export function ArchiveSearch() {
             <ThemedText type="small" themeColor="textTertiary" style={styles.empty}>
               {input.trim()
                 ? 'Nothing in the archive matches that.'
-                : 'Search every post and comment this browser has saved — including ones Yik Yak has since dropped.'}
+                : 'Search every post and comment this browser has saved — including ones Yik Yak has since dropped. Type words, or use Filters to build a query.'}
             </ThemedText>
           )
         }
@@ -299,15 +379,32 @@ const styles = StyleSheet.create({
     flex: 1,
     outlineStyle: 'none',
   } as object,
-  examples: {
+  controlRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.one,
+    alignItems: 'center',
+    gap: Spacing.two,
   },
-  chip: {
-    paddingVertical: Spacing.half,
+  segment: {
+    flex: 1,
+    flexDirection: 'row',
+    padding: Spacing.half,
+    borderRadius: Radius.pill,
+    gap: Spacing.half,
+  },
+  segmentItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: Spacing.one,
+    borderRadius: Radius.pill,
+  },
+  filterButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.two,
     borderRadius: Radius.pill,
+    borderWidth: 1,
   },
   list: {
     width: '100%',

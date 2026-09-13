@@ -625,6 +625,43 @@ at the limit when the cursor is already in the requested order.
 Every result reports its strategy, rows examined and elapsed time, so a slow
 query can be understood rather than guessed at.
 
+### The filter panel writes the query string
+
+Operators are only useful to someone who knows they exist, so the same filters
+are available as controls: a **Filters** button opens a panel with author,
+community, dates, score range, attachments, replies, removed and sort, and an
+always-visible **All / Posts / Comments** segment above it, since kind is the
+filter reached for most.
+
+**Every control rewrites the text in the search box.** The panel holds no state
+of its own. A panel with its own state would let the two disagree the moment
+someone edited the text by hand, and then neither is authoritative — the classic
+failure of a "simple mode" bolted onto a query language.
+
+Two things fall out of that:
+
+- The **syntax stays visible.** Set a filter and the operator appears in the box,
+  so the panel teaches the query language rather than hiding it. The example
+  chips it replaced did that badly: they were suggestions you had to accept
+  wholesale, not a way to see your own query written down.
+- Rewrites are **targeted, not parse-and-reserialise.** Round-tripping through
+  the parser would rebuild free text from its tokens — lowercasing it and
+  dropping punctuation — so toggling one filter would quietly rewrite what you
+  typed. `writeOperator` / `writeFlag` in [src/lib/archive/query.ts](../src/lib/archive/query.ts)
+  touch only the tokens they own and leave the rest byte-for-byte. `writeFlag`
+  exists separately because `is:reply` and `is:deleted` share a key but are
+  independent: setting one must not clear the other.
+
+"Removed" is three states rather than a toggle — hidden, shown alongside, or
+shown alone. *Only removed* is the interesting one: it asks what got taken down,
+which is a question only an archive can answer at all.
+
+The community picker is populated from the crawl states, not a scan of the
+records. Those list every community ever backfilled, which is the same set worth
+filtering by, and reading them costs one small lookup instead of walking 157k
+rows to collect distinct names. It is hidden entirely when only one community has
+been archived, which is the common case.
+
 ### Results are not post cards
 
 Archive records render plainly. A `PostCard` implies working vote buttons and a

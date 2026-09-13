@@ -268,3 +268,87 @@ export function describeQuery(query: ArchiveQuery): string[] {
   if (query.sort !== 'new') parts.push(query.sort === 'top' ? 'highest score first' : 'oldest first');
   return parts;
 }
+
+/* ------------------------------------------------------------------------ *
+ * Editing a query string from UI controls
+ *
+ * The text box stays the **single source of truth**. A filter panel that kept
+ * its own state alongside the query would let the two disagree — you set a
+ * control, edit the text, and now neither is authoritative. Instead every
+ * control rewrites the query string, and the string is what runs.
+ *
+ * Rewrites are **targeted rather than parse-and-reserialise**. Round-tripping
+ * through the parser would rebuild free text from its tokens, which lowercases
+ * it and drops punctuation — so toggling a filter would quietly rewrite what
+ * you typed. These only touch the tokens they own and leave everything else
+ * byte-for-byte.
+ * ------------------------------------------------------------------------ */
+
+/** Splits into whitespace-separated tokens, keeping quoted runs intact. */
+function tokensOf(input: string): string[] {
+  return input.match(/-?(?:"[^"]*"|\S+)/g) ?? [];
+}
+
+function keyOf(token: string): string | null {
+  const match = /^-?([a-z_]+):/i.exec(token);
+  return match ? match[1].toLowerCase() : null;
+}
+
+function valueOf(token: string): string {
+  const index = token.indexOf(':');
+  return index === -1 ? '' : token.slice(index + 1);
+}
+
+/** Current value of the first token matching any of `keys`. */
+export function readOperator(input: string, keys: string[]): string | undefined {
+  for (const token of tokensOf(input)) {
+    if (token.startsWith('"')) continue;
+    const key = keyOf(token);
+    if (key && keys.includes(key)) return valueOf(token);
+  }
+  return undefined;
+}
+
+/**
+ * Replaces every token using any of `keys` with a single `keys[0]:value`, or
+ * removes them all when `value` is undefined.
+ */
+export function writeOperator(input: string, keys: string[], value?: string): string {
+  const kept = tokensOf(input).filter((token) => {
+    if (token.startsWith('"')) return true;
+    const key = keyOf(token);
+    return !(key && keys.includes(key));
+  });
+  if (value !== undefined && value !== '') kept.push(`${keys[0]}:${value}`);
+  return kept.join(' ').trim();
+}
+
+/**
+ * For keys whose values are independent flags — `is:reply` and `is:deleted` can
+ * both be set, so writing one must not clear the other.
+ */
+export function writeFlag(
+  input: string,
+  key: string,
+  values: string[],
+  active?: string,
+): string {
+  const kept = tokensOf(input).filter((token) => {
+    if (token.startsWith('"')) return true;
+    if (keyOf(token) !== key) return true;
+    return !values.includes(valueOf(token).toLowerCase());
+  });
+  if (active) kept.push(`${key}:${active}`);
+  return kept.join(' ').trim();
+}
+
+/** Reads which of `values` is currently set for `key`, if any. */
+export function readFlag(input: string, key: string, values: string[]): string | undefined {
+  for (const token of tokensOf(input)) {
+    if (token.startsWith('"')) continue;
+    if (keyOf(token) !== key) continue;
+    const value = valueOf(token).toLowerCase();
+    if (values.includes(value)) return value;
+  }
+  return undefined;
+}
