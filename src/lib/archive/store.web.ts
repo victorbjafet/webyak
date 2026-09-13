@@ -1,3 +1,4 @@
+import type { ArchiveStore } from './contract';
 import { type ArchiveQuery } from './query';
 import {
   mergeArchived,
@@ -837,3 +838,126 @@ export async function forEachRecord(
 
   onProgress?.(seen);
 }
+
+/**
+ * The oldest post held for a community.
+ *
+ * The crawler's **target**: everything newer is ground the archive already
+ * covers, so duplicates there are expected rather than a reason to stop. One
+ * cursor step on the compound `[group_id, created_at]` index — no scan.
+ */
+export async function getOldestArchived(groupId: string): Promise<string | undefined> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const range = IDBKeyRange.bound([groupId, ''], [groupId, '￿']);
+  const cursor = await asPromise(store.index('group_created').openCursor(range, 'next'));
+  return (cursor?.value as ArchivedContent | undefined)?.created_at;
+}
+
+/**
+ * Archived posts whose comment threads have not been fetched.
+ *
+ * An index lookup on `needs_comments`, not a scan — at 157k posts a scan would
+ * deserialize the whole archive to find the ones still outstanding.
+ *
+ * `groupId` filters within the cursor rather than through a second index: an
+ * account belongs to a handful of communities, so the walk skips few rows, and
+ * another compound index would cost storage on every record to serve one query.
+ */
+export async function listPostsNeedingComments(
+  limit = 500,
+  groupId?: string,
+): Promise<{ id: string; comment_count: number }[]> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const out: { id: string; comment_count: number }[] = [];
+
+  await new Promise<void>((resolve, reject) => {
+    const request = store.index('needs_comments').openCursor(IDBKeyRange.only(1));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || out.length >= limit) {
+        resolve();
+        return;
+      }
+      const record = cursor.value as ArchivedContent;
+      if (!groupId || record.group_id === groupId) {
+        out.push({ id: record.id, comment_count: record.comment_count ?? 0 });
+      }
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  return out;
+}
+
+/** How many threads are still outstanding, optionally within one community. */
+export async function countPostsNeedingComments(groupId?: string): Promise<number> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const index = store.index('needs_comments');
+
+  if (!groupId) return asPromise(index.count(IDBKeyRange.only(1)));
+
+  let total = 0;
+  await new Promise<void>((resolve, reject) => {
+    const request = index.openCursor(IDBKeyRange.only(1));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      if ((cursor.value as ArchivedContent).group_id === groupId) total += 1;
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+  return total;
+}
+
+/**
+ * Marks a post's thread as collected.
+ *
+ * Records the count at fetch time rather than a boolean, so a post that later
+ * gains replies comes back around instead of being permanently considered done.
+ */
+export async function markCommentsFetched(postId: string, count: number): Promise<void> {
+  const db = await openDb();
+  const transaction = tx(db, [CONTENT], 'readwrite');
+  const store = transaction.objectStore(CONTENT);
+  const record = (await asPromise(store.get(postId))) as ArchivedContent | undefined;
+  if (record) {
+    store.put({ ...record, needs_comments: 0, comments_fetched_count: count });
+  }
+  await done(transaction);
+}
+
+/* ------------------------------------------------------------------------ *
+ * Completeness check
+ *
+ * Proves at compile time that this platform implementation provides everything
+ * `ArchiveStore` requires. Without it, TypeScript never type-checks this file
+ * against the module that callers actually import — see contract.ts.
+ * ------------------------------------------------------------------------ */
+const _implements: ArchiveStore = {
+  archiveAvailable,
+  archiveContent,
+  getArchiveStats,
+  clearArchive,
+  forEachRecord,
+  findArchivedByCode,
+  findArchivedById,
+  getOldestArchived,
+  searchArchive,
+  getCrawlState,
+  setCrawlState,
+  listCrawlStates,
+  listPostsNeedingComments,
+  countPostsNeedingComments,
+  markCommentsFetched,
+  exportArchive,
+  importArchive,
+};
+void _implements;

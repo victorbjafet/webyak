@@ -676,3 +676,48 @@ Alongside coverage: records with no `created_at` or no community, **untokenized
 records** (present in the archive but invisible to search — the failure mode a
 schema migration would cause), comments whose parent post was never saved,
 duplicate share codes, and counts of outstanding thread and media work.
+
+
+## ⚠️ A platform split hides missing exports from the compiler
+
+`store.ts` (native) and `store.web.ts` (IndexedDB) are a platform split, and
+**TypeScript only ever resolves `./store` to the native file.** Metro picks the
+`.web` variant at bundle time; `tsc` never does.
+
+So a web-only implementation can lose an export entirely and `tsc`, `expo lint`
+and the production build all stay green. The failure surfaces as
+`listPostsNeedingComments is not a function`, in a browser, when a user presses
+the button.
+
+That is exactly what happened on 2026-09-12. An edit replaced a section of
+`store.web.ts` by slicing between two comment markers, and removed three
+functions that had been appended in between. Nothing caught it — three checks
+passed and the archive's comment collection was simply broken.
+
+**The fix is `contract.ts`:** an `ArchiveStore` interface both modules assert
+against at the bottom of the file. `tsc` type-checks every file in the project,
+including the `.web` one it never resolves, so a missing or mistyped export is a
+compile error. It found a second gap the moment it was added — the native stub
+was missing `countPostsNeedingComments`.
+
+**Any future platform split holding more than a couple of functions should do
+the same.** The same hazard applies to `storage`, `save-file`, `pick-file`,
+`image-picker` and `authed-image`; those are small enough to eyeball, and this
+one was not.
+
+## The two crawlers report different things on purpose
+
+| | Feed crawl | Comment pass |
+|---|---|---|
+| Work is | open-ended — nobody knows where history ends | a **known, finite queue** |
+| Leads with | movement: pages/min, idle pages, time since last page | completion: percentage done, threads left, ETA |
+| Progress bar | span walked toward a target, and stops pretending past it | a real percentage |
+| ETA | none | projected from the **achieved** rate, not the configured delay |
+
+The feed crawler deliberately refuses to show a percentage or an ETA once past
+its target, because the denominator is unknown and inventing one would put a
+made-up number on a screen of real ones. The comment pass has a genuine
+denominator — the count of flagged posts — so it shows both.
+
+Both are scoped per community, because a job measured in days should be aimable
+at one community rather than being all-or-nothing.

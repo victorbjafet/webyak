@@ -1,5 +1,6 @@
 import {
   archiveContent,
+  countPostsNeedingComments,
   getCrawlState,
   getOldestArchived,
   listPostsNeedingComments,
@@ -466,19 +467,32 @@ export interface CommentCrawlProgress {
   startedAt: number;
   /** Threads fetched this run. */
   threads: number;
-  /** Comments archived this run (new rows only). */
+  /** Comment rows never seen before. */
   archived: number;
+  /** Comment rows already held — scores and deletions refreshed. */
   duplicates: number;
+  /** Threads that came back empty despite the post claiming replies. */
+  empty: number;
   errors: number;
-  /** Posts still flagged as needing a thread, at the last batch boundary. */
-  remaining?: number;
+  /** Outstanding threads when the run began, for a completion estimate. */
+  outstandingAtStart: number;
+  /** Still outstanding — recomputed at each batch boundary. */
+  remaining: number;
   lastAt?: number;
   finished?: 'done' | 'stopped' | 'error';
   error?: string;
 }
 
+/**
+ * Fetches comment threads for archived posts, optionally for one community.
+ *
+ * Scoped the same way the feed crawl is, and for the same reason: an archive
+ * spanning several communities should be fillable one at a time, so a long job
+ * can be aimed at what matters rather than being all-or-nothing.
+ */
 export function startCommentCrawl(
   onProgress: (progress: CommentCrawlProgress) => void,
+  groupId?: string,
 ): CrawlHandle {
   let stopped = false;
 
@@ -488,17 +502,23 @@ export function startCommentCrawl(
       threads: 0,
       archived: 0,
       duplicates: 0,
+      empty: 0,
       errors: 0,
+      outstandingAtStart: 0,
+      remaining: 0,
     };
     let backoff = BACKOFF_START_MS;
 
     try {
+      progress.outstandingAtStart = await countPostsNeedingComments(groupId);
+      progress.remaining = progress.outstandingAtStart;
+      onProgress({ ...progress });
+
       while (!stopped) {
-        const batch = await listPostsNeedingComments(COMMENT_BATCH);
-        progress.remaining = batch.length;
-        onProgress({ ...progress });
+        const batch = await listPostsNeedingComments(COMMENT_BATCH, groupId);
 
         if (batch.length === 0) {
+          progress.remaining = 0;
           progress.finished = 'done';
           onProgress({ ...progress });
           return;
@@ -512,9 +532,7 @@ export function startCommentCrawl(
           }
 
           try {
-            const comments = (await api.getPostComments(post.id)) as unknown as {
-              id?: string;
-            }[];
+            const comments = (await api.getPostComments(post.id)) as unknown as { id?: string }[];
             const { added, updated } = await archiveContent(
               comments as Parameters<typeof archiveContent>[0],
             );
@@ -526,6 +544,10 @@ export function startCommentCrawl(
             progress.threads += 1;
             progress.archived += added;
             progress.duplicates += updated;
+            if (comments.length === 0) progress.empty += 1;
+            // Cheaper than re-counting the index every thread, and exact as long
+            // as nothing else is clearing flags mid-run.
+            progress.remaining = Math.max(0, progress.remaining - 1);
             progress.lastAt = Date.now();
             progress.error = undefined;
             backoff = BACKOFF_START_MS;

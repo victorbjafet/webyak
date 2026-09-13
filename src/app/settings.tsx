@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { CommentMonitor } from '@/components/settings/comment-monitor';
 import { CrawlMonitor } from '@/components/settings/crawl-monitor';
 import {
   startCommentCrawl,
@@ -29,7 +30,7 @@ import {
   type ImportProgress,
 } from '@/lib/archive/store';
 import { analyseArchive, type IntegrityReport } from '@/lib/archive/integrity';
-import { forEachRecord } from '@/lib/archive/store';
+import { countPostsNeedingComments, forEachRecord } from '@/lib/archive/store';
 import { pickFile } from '@/lib/pick-file';
 import type { ArchiveStats, CrawlState } from '@/lib/archive/types';
 import { saveFile } from '@/lib/save-file';
@@ -72,6 +73,8 @@ export default function SettingsScreen() {
   const [confirmingClear, setConfirmingClear] = useState(false);
   const [stopped, setStopped] = useState(false);
   const [comments, setComments] = useState<CommentCrawlProgress | null>(null);
+  const [commentTarget, setCommentTarget] = useState<Group | null>(null);
+  const [outstanding, setOutstanding] = useState<Record<string, number>>({});
   const commentHandle = useRef<CrawlHandle | null>(null);
   const commentsRunning = Boolean(commentHandle.current) && !comments?.finished;
 
@@ -93,6 +96,28 @@ export default function SettingsScreen() {
     void refresh();
   }, [refresh]);
 
+  // Outstanding threads per community, so the picker shows how much work each
+  // one actually represents rather than one lump figure.
+  useEffect(() => {
+    if (!archiveAvailable || groups.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const counts: Record<string, number> = {};
+      for (const group of groups) {
+        if (cancelled) return;
+        try {
+          counts[group.id] = await countPostsNeedingComments(group.id);
+        } catch {
+          /* a failed count shouldn't blank the screen */
+        }
+      }
+      if (!cancelled) setOutstanding(counts);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [groups, stats?.needsComments]);
+
   // A crawl outlives this screen's render cycle, so it has to be stopped when
   // the screen goes away — otherwise it keeps issuing requests against a private
   // API with nothing on screen to show for it.
@@ -103,14 +128,27 @@ export default function SettingsScreen() {
     };
   }, []);
 
-  const beginComments = useCallback(() => {
-    commentHandle.current?.stop();
-    setComments({ startedAt: Date.now(), threads: 0, archived: 0, duplicates: 0, errors: 0 });
-    commentHandle.current = startCommentCrawl((next) => {
-      setComments(next);
-      if (next.finished) void refresh();
-    });
-  }, [refresh]);
+  const beginComments = useCallback(
+    (group: Group | null) => {
+      commentHandle.current?.stop();
+      setCommentTarget(group);
+      setComments({
+        startedAt: Date.now(),
+        threads: 0,
+        archived: 0,
+        duplicates: 0,
+        empty: 0,
+        errors: 0,
+        outstandingAtStart: 0,
+        remaining: 0,
+      });
+      commentHandle.current = startCommentCrawl((next) => {
+        setComments(next);
+        if (next.finished) void refresh();
+      }, group?.id);
+    },
+    [refresh],
+  );
 
   const stopComments = useCallback(() => {
     commentHandle.current?.stop();
@@ -520,55 +558,59 @@ export default function SettingsScreen() {
               <Stat label="Comments held" value={formatCount(stats?.comments ?? 0)} />
             </View>
 
-            {/*
-              An estimate, shown before the button rather than after.
-
-              One request per thread at ~1.2s means a large archive is a job
-              measured in days, not minutes — on a 157k-post archive roughly half
-              the posts have replies, which is over a day of continuous
-              requests. That is a decision worth making informed, not one to
-              discover an hour in.
-            */}
-            {(stats?.needsComments ?? 0) > 0 ? (
-              <ThemedText type="caption" themeColor="textTertiary">
-                Roughly {estimateHours(stats?.needsComments ?? 0)} of requests at the pace below.
-                It stops and resumes cleanly, so it can be done across sessions — but it is not a
-                short job.
-              </ThemedText>
-            ) : null}
+            {/* Scoped the same way the feed crawl is: a job this long should be
+                aimable at one community rather than being all-or-nothing. */}
+            <View style={styles.groupRow}>
+              {[null, ...crawlable].map((group) => {
+                const id = group?.id ?? 'all';
+                const selected = (commentTarget?.id ?? 'all') === id;
+                const pending = group ? outstanding[group.id] : (stats?.needsComments ?? 0);
+                return (
+                  <Pressable
+                    key={id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    disabled={commentsRunning || (pending !== undefined && pending === 0)}
+                    onPress={() => beginComments(group)}
+                    style={({ hovered }) => [
+                      styles.groupChip,
+                      {
+                        backgroundColor: selected ? theme.brandMuted : theme.control,
+                        borderColor: selected ? theme.brand : 'transparent',
+                      },
+                      hovered && !commentsRunning ? { opacity: 0.85 } : null,
+                      commentsRunning && !selected ? styles.dim : null,
+                      pending === 0 ? styles.dim : null,
+                    ]}>
+                    <ThemedText
+                      type="smallBold"
+                      style={{ color: selected ? theme.brand : theme.controlText }}>
+                      {group ? groupDisplayName(group) : 'All communities'}
+                    </ThemedText>
+                    <ThemedText type="caption" themeColor="textTertiary">
+                      {pending === undefined
+                        ? 'counting…'
+                        : pending === 0
+                          ? 'nothing outstanding'
+                          : `${formatCount(pending)} threads · ~${estimateHours(pending)}`}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
 
             {comments ? (
-              <View style={[styles.commentProgress, { backgroundColor: theme.background }]}>
-                <ThemedText type="small">
-                  {formatCount(comments.threads)} threads · {formatCount(comments.archived)} new
-                  comments · {formatCount(comments.duplicates)} re-seen
-                  {comments.errors > 0 ? ` · ${formatCount(comments.errors)} failed` : ''}
-                </ThemedText>
-                {comments.error ? (
-                  <ThemedText type="caption" style={{ color: theme.danger }}>
-                    {comments.error}
-                  </ThemedText>
-                ) : null}
-                {comments.finished === 'done' ? (
-                  <ThemedText type="caption" themeColor="textTertiary">
-                    Every archived post with replies has had its thread collected.
-                  </ThemedText>
-                ) : null}
-              </View>
+              <CommentMonitor
+                progress={comments}
+                scopeName={commentTarget ? groupDisplayName(commentTarget) : undefined}
+              />
             ) : null}
 
-            <View style={styles.actions}>
-              {commentsRunning ? (
+            {commentsRunning ? (
+              <View style={styles.actions}>
                 <Button label="Stop" variant="danger" onPress={stopComments} />
-              ) : (
-                <Button
-                  label="Collect comments"
-                  variant="secondary"
-                  onPress={beginComments}
-                  disabled={!stats || stats.needsComments === 0 || running}
-                />
-              )}
-            </View>
+              </View>
+            ) : null}
           </Card>
         ) : null}
 

@@ -534,9 +534,12 @@ and comment it sees** — effectively a Yik Yak downloader
 - [x] Backfill crawler — resumable per community, dedup-aware, stops on 401/429
       ([docs/API.md](docs/API.md#crawling-politely))
 - [x] **Comment collection** — a separate opt-in pass over archived posts with
-      replies. The feed crawl only ever fetched posts, which is why a 157k-post
-      archive held zero comments
+      replies, scoped per community, with completion metrics and an ETA
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#comments-are-a-separate-pass-and-why))
+- [x] **Compile-time contract for platform splits** — `tsc` resolves `./store`
+      to the native stub only, so `store.web.ts` lost three exports with every
+      check passing. Both now assert against a shared interface
+      ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#-a-platform-split-hides-missing-exports-from-the-compiler))
 - [x] **Integrity checking** — day-by-day coverage judged against local medians
       rather than a flat average, plus structural checks. A flat average flags 33
       days on the reference archive and every one is summer break

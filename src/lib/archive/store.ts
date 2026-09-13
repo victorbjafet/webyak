@@ -1,3 +1,4 @@
+import type { ArchiveStore } from './contract';
 import type { ArchiveQuery } from './query';
 import type { ArchiveStats, ArchivedContent, CrawlState } from './types';
 
@@ -66,8 +67,13 @@ export async function getOldestArchived(_groupId: string): Promise<string | unde
 
 export async function listPostsNeedingComments(
   _limit?: number,
+  _groupId?: string,
 ): Promise<{ id: string; comment_count: number }[]> {
   return [];
+}
+
+export async function countPostsNeedingComments(_groupId?: string): Promise<number> {
+  return 0;
 }
 
 export async function markCommentsFetched(_postId: string, _count: number): Promise<void> {}
@@ -107,3 +113,31 @@ export interface SearchResult {
 export async function searchArchive(_query: ArchiveQuery): Promise<SearchResult> {
   return { records: [], scanned: 0, strategy: 'unavailable', truncated: false, ms: 0 };
 }
+
+/* ------------------------------------------------------------------------ *
+ * Completeness check
+ *
+ * Proves at compile time that this platform implementation provides everything
+ * `ArchiveStore` requires. Without it, TypeScript never type-checks this file
+ * against the module that callers actually import — see contract.ts.
+ * ------------------------------------------------------------------------ */
+const _implements: ArchiveStore = {
+  archiveAvailable,
+  archiveContent,
+  getArchiveStats,
+  clearArchive,
+  forEachRecord,
+  findArchivedByCode,
+  findArchivedById,
+  getOldestArchived,
+  searchArchive,
+  getCrawlState,
+  setCrawlState,
+  listCrawlStates,
+  listPostsNeedingComments,
+  countPostsNeedingComments,
+  markCommentsFetched,
+  exportArchive,
+  importArchive,
+};
+void _implements;
