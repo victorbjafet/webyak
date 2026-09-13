@@ -8,7 +8,7 @@ import {
   setCrawlState,
 } from './store';
 
-import { api, getGroupPosts } from '@/api/client';
+import { getGroupPosts, getPostComments } from '@/api/client';
 import type { Cursor } from '@/api/types';
 
 /**
@@ -532,10 +532,8 @@ export function startCommentCrawl(
           }
 
           try {
-            const comments = (await api.getPostComments(post.id)) as unknown as { id?: string }[];
-            const { added, updated } = await archiveContent(
-              comments as Parameters<typeof archiveContent>[0],
-            );
+            const comments = await getPostComments(post.id);
+            const { added, updated } = await archiveContent(comments);
             // Cleared even when the thread came back empty: the post claimed
             // replies and the server disagrees, and asking again every run
             // would loop on it forever.

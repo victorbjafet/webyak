@@ -260,8 +260,67 @@ export async function getPost(postId: string) {
   return (await api.getPost(postId)) as unknown as PostOrComment;
 }
 
+/**
+ * A post's comments. Not sidechat.js's `getPostComments`, for two reasons found
+ * during a 180,000-thread comment crawl (docs/API.md#sidechatjs-getpostcomments-throws-on-an-unexpected-body).
+ *
+ * 1. It calls `json.posts.forEach` with no check, so **any** response body
+ *    without a `posts` array throws `Cannot read properties of undefined`. Its
+ *    own catch then `console.error`s the raw error — which is what puts a red
+ *    overlay in front of a crawl that is otherwise handling the failure fine.
+ * 2. That catch replaces the error with a bare `SidechatAPIError`, **losing the
+ *    HTTP status**. The crawler hard-stops on 401 and 429 precisely so a dead
+ *    session or a rate limit does not turn into thousands of retries against a
+ *    private API — and it could never see either through this method. PLAN §8
+ *    calls an over-eager client an account risk, so that is the important half.
+ *
+ * `request` checks the status and surfaces `ApiError`, so both go away.
+ */
 export async function getPostComments(postId: string) {
-  return (await api.getPostComments(postId)) as unknown as PostOrComment[];
+  const params = new URLSearchParams({ post_id: postId, cacheBust: String(Date.now()) });
+  const json = await request<{ posts?: PostOrComment[] }>(`/v1/posts/comments/?${params}`);
+  // A thread that returns no `posts` is empty, not broken. Deleted and
+  // moderated posts both answer this way.
+  return threadOrder(json.posts ?? []);
+}
+
+/**
+ * Reproduces sidechat.js's comment ordering: nest replies under their parent,
+ * then flatten depth-first, so a reply follows the comment it answers.
+ *
+ * Kept faithful to the original **including its quirk** — the parent map is
+ * built while iterating, so a reply arriving before its parent is treated as
+ * top-level rather than being re-parented later. The API returns comments in
+ * creation order, which makes that the normal case rather than an edge one, and
+ * changing it here would silently reorder every existing thread view.
+ *
+ * Entries stay reachable twice, flat and under `replies` — `patchList` in
+ * mutations.ts depends on that to keep an optimistic vote consistent.
+ */
+function threadOrder(comments: PostOrComment[]): PostOrComment[] {
+  const byId = new Map<string, PostOrComment>();
+  const roots: PostOrComment[] = [];
+
+  for (const comment of comments) {
+    byId.set(comment.id, comment);
+    const parent = comment.reply_post_id ? byId.get(comment.reply_post_id) : undefined;
+    if (!parent || comment.reply_post_id === comment.parent_post_id) {
+      roots.push(comment);
+    } else {
+      if (!parent.replies) parent.replies = [];
+      parent.replies.push(comment);
+    }
+  }
+
+  const flat: PostOrComment[] = [];
+  const walk = (list: PostOrComment[]) => {
+    for (const comment of list) {
+      flat.push(comment);
+      if (comment.replies?.length) walk(comment.replies);
+    }
+  };
+  walk(roots);
+  return flat;
 }
 
 /**

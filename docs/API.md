@@ -625,6 +625,7 @@ which the library added in 2.4.9 for exactly this.
 | `registerEmail()` | `throw`s the API's message from *inside* its own `try`, so its own `catch` replaces it with the constant `"Failed to request email verification."` | Bypassed — we call `/v2/users/register_email` directly |
 | `checkEmailVerification()` | Same self-swallowing pattern: every failure, including a 401, surfaces as `"Email is not verified."` | Bypassed |
 | `setAge()` | Throws a hardcoded `"You're too young to use Offsides."` — a different app's name, shown to our users | Bypassed |
+| `getPostComments()` | Calls `json.posts.forEach` with no check, so any body without a `posts` array throws `Cannot read properties of undefined`; its catch then `console.error`s it and rethrows a status-less `SidechatAPIError` | Bypassed — see below |
 | `searchAvailableGroups()` | Returns `json.results` unconditionally; the endpoint does not use that key, so it silently returns `undefined` rather than a list | Bypassed — `coerceGroupList` in `src/api/groups.ts` reads any envelope |
 | — | No methods at all for save, follow, activity list, report, or awards, though posts carry `is_saved`, `follow_status` and `awards[]`. | Phase 8 |
 
@@ -636,6 +637,43 @@ Also note: the library swallows HTTP status codes — every method just calls
 `.json()`, so a 401 surfaces as a malformed object rather than an error. Our
 `request()` helper checks `res.ok` and throws `ApiError` with the status, which is
 what makes expired-token detection possible.
+
+### sidechat.js `getPostComments` throws on an unexpected body
+
+Found during a 180,000-thread comment crawl, after about an hour of running.
+
+```js
+const sortedComments = preprocessComments(json.posts);   // no check
+// …
+apiComments.forEach((comment) => { … });                 // throws if undefined
+```
+
+A post whose thread comes back without a `posts` key — deleted, moderated, or
+any error body the status check never saw — takes `undefined.forEach` and
+throws. Two consequences, and the second is the one that matters:
+
+1. **Console noise over a handled failure.** The library's catch calls
+   `console.error(err)` *before* rethrowing, which in development puts a red
+   error overlay in front of a crawl that is handling the failure correctly. The
+   stack frame it points at is mis-mapped — ours landed in the middle of a
+   comment block in `crawler.ts` — so it reads as a crash in our code.
+2. **The status is lost.** The catch rethrows a bare `SidechatAPIError`, so the
+   crawler's hard stop on 401 and 429 could never fire for this endpoint: an
+   expired session or a rate limit would be treated as one bad thread and
+   retried, thread after thread, for as long as the run lasted. PLAN §8 names an
+   over-eager client as an **account risk**, which makes this the serious half.
+
+`getPostComments` in [src/api/client.ts](../src/api/client.ts) now goes through
+`request()`, which checks the status, and treats a missing `posts` array as an
+empty thread. It reproduces the library's thread ordering — replies nested under
+their parent, then flattened depth-first — **including the quirk that the parent
+map is built while iterating**, so a reply that arrives before its parent stays
+top-level. The API returns comments in creation order, so that is the ordinary
+case, and "fixing" it would silently reorder every thread on screen.
+
+**No archived data was at risk.** `needs_comments` is cleared only after the
+thread is stored, so a failed thread stays flagged and a later run retries it.
+The failure direction is a duplicate fetch, never a gap.
 
 ### Why every write bypasses the library (Phase 4)
 

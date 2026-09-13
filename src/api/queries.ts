@@ -9,6 +9,7 @@ import { useEffect, useMemo } from 'react';
 import {
   api,
   getGroupPosts,
+  getPostComments,
   getSavedPosts,
   getUpdates,
   getUpvotedPosts,
@@ -172,7 +173,7 @@ export function useComments(postId: string | undefined) {
     queryKey: queryKeys.comments(postId ?? ''),
     enabled: Boolean(postId),
     queryFn: async () => {
-      const comments = (await api.getPostComments(postId as string)) as unknown as PostOrComment[];
+      const comments = await getPostComments(postId as string);
       void archiveContent(comments).catch(() => {});
       return comments;
     },
