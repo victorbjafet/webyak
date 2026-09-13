@@ -470,6 +470,10 @@ export default function SettingsScreen() {
                   {report.newest?.slice(0, 10)} · {formatCount(report.spanDays)} days
                 </ThemedText>
                 <ThemedText type="caption" themeColor="textSecondary">
+                  {formatCount(report.posts)} posts · {formatCount(report.comments)} comments ·{' '}
+                  {formatCount(report.structural.quotes)} quotes linked
+                </ThemedText>
+                <ThemedText type="caption" themeColor="textSecondary">
                   {formatCount(Math.round(report.medianPerDay))}/day typical ·{' '}
                   {report.emptyDays === 0
                     ? 'no days missing entirely'
@@ -509,6 +513,7 @@ export default function SettingsScreen() {
                   report.structural.missingCreatedAt +
                   report.structural.missingGroup +
                   report.structural.orphanComments +
+                  report.structural.orphanQuotes +
                   report.structural.duplicateIndexCodes ===
                 0 ? (
                   <ThemedText type="caption" themeColor="textTertiary">
@@ -527,6 +532,9 @@ export default function SettingsScreen() {
                       : ''}
                     {report.structural.orphanComments > 0
                       ? `${formatCount(report.structural.orphanComments)} comments whose post is missing · `
+                      : ''}
+                    {report.structural.orphanQuotes > 0
+                      ? `${formatCount(report.structural.orphanQuotes)} quoted posts not held · `
                       : ''}
                     {report.structural.duplicateIndexCodes > 0
                       ? `${formatCount(report.structural.duplicateIndexCodes)} duplicate share codes`

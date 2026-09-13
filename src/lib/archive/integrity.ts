@@ -81,6 +81,17 @@ export interface IntegrityReport {
     untokenized: number;
     /** Comments whose parent post is not archived. */
     orphanComments: number;
+    /** Quote-reposts held. */
+    quotes: number;
+    /**
+     * Quote-reposts whose quoted post is not archived.
+     *
+     * Should be near zero: the quoted post arrives embedded in the same payload
+     * and is archived alongside. A non-zero count means the API returned only
+     * `quote_post_id` with no inline copy, so those originals are fetchable but
+     * not held — a real, closeable gap rather than a corruption.
+     */
+    orphanQuotes: number;
     /** Two records sharing a share code — should never happen. */
     duplicateIndexCodes: number;
     /** Posts with replies whose threads have not been collected. */
@@ -129,6 +140,7 @@ export function analyseArchive(
   const perDay = new Map<string, number>();
   const postIds = new Set<string>();
   const commentParents: string[] = [];
+  const quoteTargets: string[] = [];
   const indexCodes = new Set<string>();
 
   let records = 0;
@@ -141,6 +153,8 @@ export function analyseArchive(
     missingGroup: 0,
     untokenized: 0,
     orphanComments: 0,
+    quotes: 0,
+    orphanQuotes: 0,
     duplicateIndexCodes: 0,
     threadsUncollected: 0,
     mediaPending: 0,
@@ -154,6 +168,10 @@ export function analyseArchive(
     } else {
       posts += 1;
       postIds.add(record.id);
+      if (record.quote_post_id) {
+        structural.quotes += 1;
+        quoteTargets.push(record.quote_post_id);
+      }
     }
 
     if (!record.created_at) {
@@ -179,6 +197,9 @@ export function analyseArchive(
     // parent does.
     for (const parent of commentParents) {
       if (!postIds.has(parent)) structural.orphanComments += 1;
+    }
+    for (const target of quoteTargets) {
+      if (!postIds.has(target)) structural.orphanQuotes += 1;
     }
 
     if (!oldest || !newest) {

@@ -541,12 +541,12 @@ the browser reports **330 MB** used. That gap is not an error, it is the indexes
 |---|---|
 | Records | ~94 MB |
 | `tokens` multiEntry index (1.94M entries) | ~125 MB |
-| Twelve plain indexes | ~113 MB |
+| Thirteen plain indexes | ~113 MB |
 | `[group_id, created_at]` compound | ~14 MB |
 | | **~347 MB** vs 330 MB reported |
 
 Each index entry stores its key plus the record's 36-character UUID, so an index
-over 157k rows is not free and fourteen of them are not cheap. **The token index is
+over 157k rows is not free and fifteen of them are not cheap. **The token index is
 the single largest structure in the archive** — the price of search being a
 lookup rather than a scan, and worth knowing before adding another index
 casually.

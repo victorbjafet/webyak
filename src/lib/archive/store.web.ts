@@ -1,6 +1,7 @@
 import type { ArchiveStore } from './contract';
 import { type ArchiveQuery } from './query';
 import {
+  expandQuoted,
   mergeArchived,
   toArchived,
   tokenize,
@@ -26,7 +27,7 @@ import type { PostOrComment } from '@/api/types';
  */
 
 const DB_NAME = 'webyak-archive';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 const CONTENT = 'content';
 const MEDIA = 'media';
@@ -80,6 +81,9 @@ function openDb(): Promise<IDBDatabase> {
         // anyone asks a corpus like this, and both are unanswerable without it:
         // there is no term to look up, so they would otherwise scan everything.
         store.createIndex('vote_total', 'vote_total');
+        // "What quoted this post" — the reverse direction of the link, which is
+        // the one that cannot be answered by reading the record you already have.
+        store.createIndex('quote_post_id', 'quote_post_id');
       }
 
       if (!db.objectStoreNames.contains(MEDIA)) {
@@ -102,6 +106,24 @@ function openDb(): Promise<IDBDatabase> {
         the archive is days old, so this is a small walk. A migration on a large
         store would need a background pass instead.
       */
+      /*
+        v6 → v7: quote linkage.
+
+        Index only, no record rewrite. `quote_post_id` was never stored, so it
+        cannot be recovered from what is on disk — the link only appears on a
+        fresh sighting. Walking 157k records to write nothing would be a long
+        upgrade transaction with the archive locked, in exchange for nothing.
+
+        Records without the key simply do not appear in the index, which is the
+        behaviour wanted here: the index holds quote-reposts, not everything.
+      */
+      if (from > 0 && from < 7 && upgrade) {
+        const store = upgrade.objectStore(CONTENT);
+        if (!store.indexNames.contains('quote_post_id')) {
+          store.createIndex('quote_post_id', 'quote_post_id');
+        }
+      }
+
       if (from > 0 && from < 6 && upgrade) {
         const store = upgrade.objectStore(CONTENT);
         if (!store.indexNames.contains('tokens')) {
@@ -200,7 +222,9 @@ export const archiveAvailable = true;
 export async function archiveContent(
   items: (PostOrComment | null | undefined)[],
 ): Promise<{ added: number; updated: number }> {
-  const records = items
+  // Quote-reposts carry the original inline; archive it too rather than
+  // discarding a complete post we already fetched.
+  const records = expandQuoted(items)
     .map((item) => (item ? toArchived(item) : null))
     .filter((r): r is ArchivedContent => Boolean(r));
   if (records.length === 0) return { added: 0, updated: 0 };

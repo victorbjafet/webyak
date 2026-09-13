@@ -581,8 +581,11 @@ and comment it sees** — effectively a Yik Yak downloader
       votes and never revisited. `sort:top` and any "top of all time" view are
       wrong until this exists
       ([docs/ARCHIVE.md](docs/ARCHIVE.md#g1-scores-are-systematically-wrong-in-a-direction-that-matters))
-- [ ] Quote posts drop `quote_post_id` and the embedded original
-      ([docs/ARCHIVE.md](docs/ARCHIVE.md#g5-quote-posts-lose-their-link-and-their-payload))
+- [x] **Quote linkage** — `quote_post_id` stored and indexed, and the original
+      embedded in a quote-repost archived as a record of its own. Only applies to
+      fresh sightings: the v6 → v7 migration cannot recover a link that was never
+      written, so the existing archive gains it as the refresh pass re-reads
+      ([docs/ARCHIVE.md](docs/ARCHIVE.md#quote-posts))
 - [x] **Filters as controls, not just syntax** — a Filters panel and an
       All/Posts/Comments segment, both of which rewrite the query string rather
       than holding their own state, so the text box stays authoritative and the

@@ -47,6 +47,15 @@ export interface ArchivedContent {
   reply_post_id?: string;
   /** The specific comment replied to, when the API distinguishes it. */
   reply_comment_post_id?: string;
+  /**
+   * Posts only — the post this one quote-reposts.
+   *
+   * Indexed, so "what quoted this" is a lookup rather than a scan. The quoted
+   * post itself is archived separately: the API embeds a **complete copy** of it
+   * at `quote_post.post`, and `expandQuoted` below pulls that out so it is
+   * stored as a record in its own right rather than discarded with the envelope.
+   */
+  quote_post_id?: string;
   /** Derived: `reply_post_id` differs from `parent_post_id`. */
   is_reply: 0 | 1;
   index_code?: string;
@@ -124,6 +133,44 @@ export function tokenize(...sources: (string | undefined)[]): string[] {
     }
   }
   return [...seen];
+}
+
+/**
+ * Expands a batch to include the posts embedded inside quote-reposts.
+ *
+ * A quote-repost's response carries the **entire original post** inline. Keeping
+ * only the quoting post threw away a complete record we had already paid the
+ * request for — and if the original is later deleted, or predates the archive,
+ * that copy was the only one we were ever going to get.
+ *
+ * One level deep on purpose. A quote of a quote yields its own embedded copy on
+ * its own sighting, and recursing would let a malformed or circular payload walk
+ * as far as the response nested.
+ *
+ * Ids are deduped here because a page of the feed can easily quote the same post
+ * twice, and `archiveContent` writes one transaction per batch — two records
+ * with the same key in one `Promise.all` would race on read-then-write.
+ */
+export function expandQuoted<T extends PostOrComment>(
+  items: (T | null | undefined)[],
+): (PostOrComment | null | undefined)[] {
+  const out: (PostOrComment | null | undefined)[] = [];
+  const seen = new Set<string>();
+
+  for (const item of items) {
+    if (item?.id) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+    }
+    out.push(item);
+
+    const quoted = item?.quote_post?.post;
+    if (quoted?.id && !seen.has(quoted.id)) {
+      seen.add(quoted.id);
+      out.push(quoted);
+    }
+  }
+  return out;
 }
 
 export interface ArchiveStats {
@@ -213,6 +260,10 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
     parent_post_id: item.parent_post_id,
     reply_post_id: item.reply_post_id,
     reply_comment_post_id: (item as { reply_comment_post_id?: string }).reply_comment_post_id,
+    // The wrapper is `quote_post`, the post is at `quote_post.post`
+    // (docs/API.md). `quote_post_id` is the fallback for responses that carry
+    // only the id.
+    quote_post_id: item.quote_post?.post?.id ?? item.quote_post_id,
     is_reply:
       isComment &&
       Boolean(item.reply_post_id) &&

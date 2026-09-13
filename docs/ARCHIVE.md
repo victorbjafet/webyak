@@ -93,14 +93,34 @@ Siblings are not stored as such — B and D are siblings because they share a
 stored either; it is reconstructed from `created_at`, or from the API's own
 ordering when a thread is fetched live.
 
-### Quote posts are not linked at all
+### Quote posts
 
 A quote-repost carries `quote_post_id` and an embedded `quote_post.post` — the
-whole original post, inline in the response.
+whole original post, inline in the response. Both are kept:
 
-**`toArchived` copies neither.** The archive keeps the quoting post's text and
-loses both the link and the free copy of the post it quoted. See
-[G5](#g5-quote-posts-lose-their-link-and-their-payload).
+| Field | Meaning |
+|---|---|
+| `quote_post_id` | The post this one quotes. Indexed, so **"what quoted this"** is a lookup. |
+
+The forward direction (*what did this quote*) is answerable from the record you
+already hold. The reverse (*what quoted this*) is not, which is the only reason
+the index exists.
+
+The embedded original is **archived as a record in its own right**, by
+`expandQuoted` in [types.ts](../src/lib/archive/types.ts), which flattens a batch
+before it is written. That copy is free — the request was already paid for — and
+if the original is deleted, or predates the archive, it is the only copy we were
+ever going to get.
+
+Expansion is **one level deep**. A quote of a quote brings its own embedded copy
+when it is itself sighted, and recursing would let a malformed or circular
+payload walk as deep as the response nested. Ids are deduped in the same pass,
+because a feed page can quote the same post twice and `archiveContent` writes one
+transaction per batch — two records with the same key in one `Promise.all` would
+race on read-then-write.
+
+Quote linkage only exists from v7 onward — see
+[G5](#g5-quote-linkage-exists-now-but-only-going-forward--closed-with-a-tail).
 
 ### What is deliberately not stored
 
@@ -418,17 +438,27 @@ The `deleted` count is therefore a **severe undercount**, and `is:deleted`
 searches a small and unrepresentative sample. The archive is good at preserving
 deleted content; it is bad at *knowing* the content was deleted.
 
-### G5: Quote posts lose their link and their payload
+### G5: Quote linkage exists now, but only going forward — CLOSED, with a tail
 
-`toArchived` drops both `quote_post_id` and `quote_post.post`. Two losses:
+Fixed: `quote_post_id` is stored and indexed, and the embedded original is
+archived alongside the post that quotes it (see [Quote posts](#quote-posts)).
 
-- The quoting post has no recorded relationship to what it quoted, so quote
-  chains cannot be reconstructed from the archive at all.
-- The embedded original — a **complete post object, free, already in the
-  response** — is thrown away rather than archived. If the original is deleted or
-  predates the archive, that copy was the only one we would ever have had.
+**What the fix cannot do is reach backwards.** `quote_post_id` was never written,
+so it is not recoverable from what is on disk — the v6 → v7 migration adds the
+index and deliberately rewrites no records, because there is nothing to write
+them from. Every quote-repost archived before this change is still an unlinked
+post, and the originals they quoted are held only if they were separately
+crawled.
 
-Cheap to fix, and worth doing before the next long crawl rather than after.
+The link appears on a **fresh sighting**, so this is one more thing the refresh
+pass repairs for free as it re-reads posts. Until then expect `quotes linked` in
+the integrity report to be small relative to the archive, and to grow with each
+run.
+
+`orphanQuotes` in the same report counts quote-reposts whose target is not held.
+It should stay near zero now that the inline copy is archived; a non-zero count
+means the API returned an id with no embedded post, so those originals are
+fetchable but missing — a closeable gap rather than a corruption.
 
 ### G6: `markCommentsFetched` records a stale count
 
@@ -447,9 +477,10 @@ real.
 
 ### G7: No index supports "what have I not refreshed recently"
 
-The 14 indexes cover `group_id`, `created_at`, `type`, `parent_post_id`,
+The 15 indexes cover `group_id`, `created_at`, `type`, `parent_post_id`,
 `has_media`, `index_code`, `media_pending`, `author`, `deleted`, `tokens`,
-`[group_id, created_at]`, `needs_comments`, `is_reply` and `vote_total`.
+`[group_id, created_at]`, `needs_comments`, `is_reply`, `vote_total` and
+`quote_post_id`.
 
 **`last_seen_at` and `first_seen_at` are not indexed.** So the most natural
 question a refresh pass asks — *which records have not been checked since X* — is
@@ -490,11 +521,15 @@ Not a design, just the questions this document says are open:
    scores, tombstones and the comment flag — a refresh pass needs **no changes to
    the merge rules**, only something that feeds it. That is the good news in all
    of this.
-4. **Whether a refresh can re-arm comments.** Re-reading a post updates
+4. **That a refresh also back-fills quote links.** A re-read writes
+   `quote_post_id` and archives the embedded original, which is the only way the
+   pre-v7 part of the archive ever gains quote linkage
+   ([G5](#g5-quote-linkage-exists-now-but-only-going-forward--closed-with-a-tail)).
+5. **Whether a refresh can re-arm comments.** Re-reading a post updates
    `comment_count`, which re-arms `needs_comments` automatically. So a score
    refresh also repairs [G3](#g3-comment-counts-freeze-the-same-way) for free, and
    the two passes should probably share a schedule.
-5. **How far back to go.** Refreshing everything forever is not finite work.
+6. **How far back to go.** Refreshing everything forever is not finite work.
    Scores stop moving after a few days; comment counts move for longer; deletions
    happen at any time. Those three want different cadences and probably different
    passes.
