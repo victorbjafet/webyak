@@ -541,18 +541,25 @@ the browser reports **330 MB** used. That gap is not an error, it is the indexes
 |---|---|
 | Records | ~94 MB |
 | `tokens` multiEntry index (1.94M entries) | ~125 MB |
-| Ten plain indexes | ~113 MB |
+| Twelve plain indexes | ~113 MB |
 | `[group_id, created_at]` compound | ~14 MB |
 | | **~347 MB** vs 330 MB reported |
 
 Each index entry stores its key plus the record's 36-character UUID, so an index
-over 157k rows is not free and eleven of them are not cheap. **The token index is
+over 157k rows is not free and fourteen of them are not cheap. **The token index is
 the single largest structure in the archive** — the price of search being a
 lookup rather than a scan, and worth knowing before adding another index
 casually.
 
 `navigator.storage.estimate()` is also origin-wide and approximate by design, so
 treat it as an order of magnitude rather than a measurement.
+
+
+## The scrapers
+
+How a crawl resumes, what re-seeing a post changes, how thread linkage is stored,
+and — for the planned refresh pass — an inventory of what the archive does *not*
+keep up to date: **[ARCHIVE.md](ARCHIVE.md)**.
 
 
 ## Archive search: the query language, and what serves it

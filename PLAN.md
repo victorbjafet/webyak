@@ -573,6 +573,16 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#importing-an-export))
 - [x] Comments store their thread position — parent post, reply target, and an
       indexed `is_reply` — so an export can rebuild the tree
+- [x] **The scrapers are documented end to end** — resume logic, merge rules,
+      thread linkage, and a gap inventory written for the refresh pass
+      ([docs/ARCHIVE.md](docs/ARCHIVE.md))
+- [ ] **Refresh pass** — scores and comment counts freeze at first sighting, so
+      posts caught by the catch-up phase are archived minutes old with near-zero
+      votes and never revisited. `sort:top` and any "top of all time" view are
+      wrong until this exists
+      ([docs/ARCHIVE.md](docs/ARCHIVE.md#g1-scores-are-systematically-wrong-in-a-direction-that-matters))
+- [ ] Quote posts drop `quote_post_id` and the embedded original
+      ([docs/ARCHIVE.md](docs/ARCHIVE.md#g5-quote-posts-lose-their-link-and-their-payload))
 - [x] **Filters as controls, not just syntax** — a Filters panel and an
       All/Posts/Comments segment, both of which rewrite the query string rather
       than holding their own state, so the text box stays authoritative and the
