@@ -44,8 +44,16 @@ export function CommentMonitor({
   const elapsed = Math.max(0, now - progress.startedAt);
   const minutes = elapsed / 60_000;
   const threadsPerMin = minutes > 0.05 ? progress.threads / minutes : 0;
+  const requestsPerMin = minutes > 0.05 ? progress.requests / minutes : 0;
   const commentsPerThread =
     progress.threads > 0 ? (progress.archived + progress.duplicates) / progress.threads : 0;
+  const commentsPerMin = minutes > 0.05 ? (progress.archived + progress.duplicates) / minutes : 0;
+
+  // Of everything attempted, how much came back. The interesting number when a
+  // stretch of the queue is unreadable — throughput can look fine while the
+  // success rate quietly collapses.
+  const attempted = progress.threads + progress.errors;
+  const successRate = attempted > 0 ? progress.threads / attempted : 1;
 
   const done = progress.outstandingAtStart - progress.remaining;
   const fraction =
@@ -54,22 +62,37 @@ export function CommentMonitor({
       : 0;
 
   // Projected from the rate actually achieved, not the configured delay — the
-  // two diverge as soon as anything is retried.
-  const etaMs = threadsPerMin > 0 ? (progress.remaining / threadsPerMin) * 60_000 : undefined;
+  // two diverge as soon as anything is retried. Posts left behind are excluded:
+  // they are not going to be read by this run, so counting them would put an
+  // ETA on work that is already deferred.
+  const reachable = Math.max(0, progress.remaining - progress.behind);
+  const etaMs = threadsPerMin > 0 ? (reachable / threadsPerMin) * 60_000 : undefined;
 
   const sinceLast = progress.lastAt ? now - progress.lastAt : undefined;
   const live = !progress.finished;
+  const recovering = live && progress.mode !== 'working';
 
   const status = progress.finished
     ? { done: 'Finished', stopped: 'Stopped', error: 'Stopped after an error' }[progress.finished]
-    : progress.error
-      ? 'Retrying'
-      : 'Collecting threads';
+    : progress.mode === 'bracketing'
+      ? 'Jumping ahead past unreadable posts'
+      : progress.mode === 'bisecting'
+        ? 'Narrowing down where the bad stretch ends'
+        : progress.error
+          ? 'Retrying'
+          : 'Collecting threads';
 
   return (
     <View style={[styles.wrap, { backgroundColor: theme.background, borderColor: theme.border }]}>
       <View style={styles.headerRow}>
-        {live ? <View style={[styles.pulse, { backgroundColor: theme.brand }]} /> : null}
+        {live ? (
+          <View
+            style={[
+              styles.pulse,
+              { backgroundColor: recovering ? theme.danger : theme.brand },
+            ]}
+          />
+        ) : null}
         <ThemedText type="smallBold" style={styles.headerText} numberOfLines={1}>
           {scopeName ?? 'All communities'} — {status}
         </ThemedText>
@@ -92,8 +115,9 @@ export function CommentMonitor({
         {etaMs !== undefined && live ? ` · ~${duration(etaMs)} left` : ''}
       </ThemedText>
 
+      <Section label="Collected" />
       <View style={styles.grid}>
-        <Metric label="Threads" value={formatCount(progress.threads)} hint="fetched" />
+        <Metric label="Threads" value={formatCount(progress.threads)} hint="stored" />
         <Metric
           label="New comments"
           value={formatCount(progress.archived)}
@@ -107,14 +131,9 @@ export function CommentMonitor({
           hint="comments"
         />
         <Metric
-          label="Threads/min"
-          value={threadsPerMin > 0 ? threadsPerMin.toFixed(1) : '—'}
-          hint="actual rate"
-        />
-        <Metric
-          label="Remaining"
-          value={formatCount(progress.remaining)}
-          hint="still flagged"
+          label="Last thread"
+          value={progress.lastThreadSize !== undefined ? formatCount(progress.lastThreadSize) : '—'}
+          hint="comments"
         />
         <Metric
           label="Empty"
@@ -122,11 +141,77 @@ export function CommentMonitor({
           hint="claimed replies, had none"
           warn={progress.empty > progress.threads * 0.5 && progress.threads > 20}
         />
+      </View>
+
+      <Section label="Rate" />
+      <View style={styles.grid}>
+        <Metric
+          label="Threads/min"
+          value={threadsPerMin > 0 ? threadsPerMin.toFixed(1) : '—'}
+          hint="stored"
+        />
+        <Metric
+          label="Requests/min"
+          value={requestsPerMin > 0 ? requestsPerMin.toFixed(1) : '—'}
+          hint="incl. failures"
+        />
+        <Metric
+          label="Comments/min"
+          value={commentsPerMin > 0 ? formatCount(Math.round(commentsPerMin)) : '—'}
+          hint="seen"
+        />
+        <Metric
+          label="Requests"
+          value={formatCount(progress.requests)}
+          hint={`${formatCount(progress.windows)} queue reads`}
+        />
+      </View>
+
+      <Section label="Queue" />
+      <View style={styles.grid}>
+        <Metric label="Remaining" value={formatCount(progress.remaining)} hint="still flagged" />
+        <Metric
+          label="Left behind"
+          value={formatCount(progress.behind)}
+          hint="unreadable this run"
+          warn={progress.behind > 0}
+        />
+        <Metric
+          label="Reachable"
+          value={formatCount(reachable)}
+          hint="this run can still get"
+        />
+        <Metric
+          label="Success"
+          value={`${Math.round(successRate * 100)}%`}
+          hint="of attempts"
+          warn={attempted > 20 && successRate < 0.8}
+        />
+      </View>
+
+      <Section label="Recovery" />
+      <View style={styles.grid}>
         <Metric
           label="Errors"
           value={formatCount(progress.errors)}
-          hint={progress.errors > 0 ? 'skipped, retried later' : 'none'}
+          hint={progress.errors > 0 ? 'stay flagged' : 'none'}
           warn={progress.errors > 0}
+        />
+        <Metric
+          label="Error streak"
+          value={formatCount(progress.errorStreak)}
+          hint={`worst ${formatCount(progress.worstStreak)}`}
+          warn={progress.errorStreak >= 3}
+        />
+        <Metric
+          label="Recoveries"
+          value={formatCount(progress.recoveries)}
+          hint={`${formatCount(progress.probes)} probes`}
+        />
+        <Metric
+          label="Jumped"
+          value={formatCount(progress.skipped)}
+          hint="never tried"
         />
       </View>
 
@@ -147,9 +232,24 @@ export function CommentMonitor({
         </ThemedText>
       ) : null}
 
-      {progress.finished === 'done' ? (
+      {recovering ? (
+        <ThemedText type="caption" style={{ color: theme.danger }}>
+          {progress.mode === 'bracketing'
+            ? `${progress.errorStreak} failed in a row — jumping ahead to find where the readable posts start again, instead of failing through every one.`
+            : 'Found a readable post past the bad stretch. Narrowing down where it ends so the rest of the queue is not re-tried.'}
+        </ThemedText>
+      ) : null}
+
+      {progress.finished === 'done' && progress.behind === 0 ? (
         <ThemedText type="caption" style={{ color: theme.brand }}>
           Every flagged post has had its thread collected.
+        </ThemedText>
+      ) : progress.finished === 'done' ? (
+        <ThemedText type="caption" themeColor="textTertiary">
+          Reached the end of the queue. {formatCount(progress.behind)} post
+          {progress.behind === 1 ? '' : 's'} could not be read and stay flagged — deleted or
+          moderated threads usually never will be, so a stable count here across runs is the
+          expected outcome rather than a problem.
         </ThemedText>
       ) : progress.finished === 'stopped' ? (
         <ThemedText type="caption" themeColor="textTertiary">
@@ -159,38 +259,53 @@ export function CommentMonitor({
       ) : null}
     </View>
   );
+}
 
-  function Metric({
-    label,
-    value,
-    hint,
-    accent,
-    warn,
-  }: {
-    label: string;
-    value: string;
-    hint?: string;
-    accent?: boolean;
-    warn?: boolean;
-  }) {
-    return (
-      <View style={[styles.metric, { backgroundColor: theme.backgroundElement }]}>
-        <ThemedText
-          type="bodyBold"
-          style={{ color: warn ? theme.danger : accent ? theme.brand : theme.text }}>
-          {value}
+/*
+  Module scope, not nested inside the component — see
+  docs/ARCHITECTURE.md#helper-components-go-at-module-scope-never-inside-another-component.
+*/
+
+/** Groups the metrics so four rows of numbers read as four questions. */
+function Section({ label }: { label: string }) {
+  return (
+    <ThemedText type="caption" themeColor="textTertiary" style={styles.section}>
+      {label.toUpperCase()}
+    </ThemedText>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  hint,
+  accent,
+  warn,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  accent?: boolean;
+  warn?: boolean;
+}) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.metric, { backgroundColor: theme.backgroundElement }]}>
+      <ThemedText
+        type="bodyBold"
+        style={{ color: warn ? theme.danger : accent ? theme.brand : theme.text }}>
+        {value}
+      </ThemedText>
+      <ThemedText type="caption" themeColor="textSecondary">
+        {label}
+      </ThemedText>
+      {hint ? (
+        <ThemedText type="caption" themeColor="textTertiary" numberOfLines={1}>
+          {hint}
         </ThemedText>
-        <ThemedText type="caption" themeColor="textSecondary">
-          {label}
-        </ThemedText>
-        {hint ? (
-          <ThemedText type="caption" themeColor="textTertiary" numberOfLines={1}>
-            {hint}
-          </ThemedText>
-        ) : null}
-      </View>
-    );
-  }
+      ) : null}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -241,5 +356,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
+  },
+  section: {
+    letterSpacing: 0.8,
+    marginTop: Spacing.one,
   },
 });

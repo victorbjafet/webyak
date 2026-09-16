@@ -134,11 +134,20 @@ export default function SettingsScreen() {
       setCommentTarget(group);
       setComments({
         startedAt: Date.now(),
+        mode: 'working',
         threads: 0,
         archived: 0,
         duplicates: 0,
         empty: 0,
         errors: 0,
+        requests: 0,
+        errorStreak: 0,
+        worstStreak: 0,
+        probes: 0,
+        recoveries: 0,
+        skipped: 0,
+        behind: 0,
+        windows: 0,
         outstandingAtStart: 0,
         remaining: 0,
       });
@@ -442,6 +451,82 @@ export default function SettingsScreen() {
         {/* ---------------------------------------------------------------- */}
         {archiveAvailable ? (
           <Card>
+            <ThemedText type="bodyBold">Collect comments</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              The feed crawl archives posts only — comments come one request per thread, so they
+              are a separate job. This walks archived posts that have replies and fetches each
+              thread.
+            </ThemedText>
+            <ThemedText type="caption" themeColor="textTertiary">
+              Far longer than a feed crawl: a community page yields ~24 posts per request, while a
+              thread costs one request each. Posts with no replies are skipped entirely. It
+              resumes on its own — a post is only cleared once its thread is stored.
+            </ThemedText>
+
+            <View style={styles.statGrid}>
+              <Stat label="Threads to fetch" value={formatCount(stats?.needsComments ?? 0)} />
+              <Stat label="Comments held" value={formatCount(stats?.comments ?? 0)} />
+            </View>
+
+            {/* Scoped the same way the feed crawl is: a job this long should be
+                aimable at one community rather than being all-or-nothing. */}
+            <View style={styles.groupRow}>
+              {[null, ...crawlable].map((group) => {
+                const id = group?.id ?? 'all';
+                const selected = (commentTarget?.id ?? 'all') === id;
+                const pending = group ? outstanding[group.id] : (stats?.needsComments ?? 0);
+                return (
+                  <Pressable
+                    key={id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    disabled={commentsRunning || (pending !== undefined && pending === 0)}
+                    onPress={() => beginComments(group)}
+                    style={({ hovered }) => [
+                      styles.groupChip,
+                      {
+                        backgroundColor: selected ? theme.brandMuted : theme.control,
+                        borderColor: selected ? theme.brand : 'transparent',
+                      },
+                      hovered && !commentsRunning ? { opacity: 0.85 } : null,
+                      commentsRunning && !selected ? styles.dim : null,
+                      pending === 0 ? styles.dim : null,
+                    ]}>
+                    <ThemedText
+                      type="smallBold"
+                      style={{ color: selected ? theme.brand : theme.controlText }}>
+                      {group ? groupDisplayName(group) : 'All communities'}
+                    </ThemedText>
+                    <ThemedText type="caption" themeColor="textTertiary">
+                      {pending === undefined
+                        ? 'counting…'
+                        : pending === 0
+                          ? 'nothing outstanding'
+                          : `${formatCount(pending)} threads · ~${estimateHours(pending)}`}
+                    </ThemedText>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {comments ? (
+              <CommentMonitor
+                progress={comments}
+                scopeName={commentTarget ? groupDisplayName(commentTarget) : undefined}
+              />
+            ) : null}
+
+            {commentsRunning ? (
+              <View style={styles.actions}>
+                <Button label="Stop" variant="danger" onPress={stopComments} />
+              </View>
+            ) : null}
+          </Card>
+        ) : null}
+
+        {/* ---------------------------------------------------------------- */}
+        {archiveAvailable ? (
+          <Card>
             <ThemedText type="bodyBold">Check integrity</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
               Reads every record and looks for holes — days far quieter than the days around them,
@@ -541,82 +626,6 @@ export default function SettingsScreen() {
                       : ''}
                   </ThemedText>
                 )}
-              </View>
-            ) : null}
-          </Card>
-        ) : null}
-
-        {/* ---------------------------------------------------------------- */}
-        {archiveAvailable ? (
-          <Card>
-            <ThemedText type="bodyBold">Collect comments</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              The feed crawl archives posts only — comments come one request per thread, so they
-              are a separate job. This walks archived posts that have replies and fetches each
-              thread.
-            </ThemedText>
-            <ThemedText type="caption" themeColor="textTertiary">
-              Far longer than a feed crawl: a community page yields ~24 posts per request, while a
-              thread costs one request each. Posts with no replies are skipped entirely. It
-              resumes on its own — a post is only cleared once its thread is stored.
-            </ThemedText>
-
-            <View style={styles.statGrid}>
-              <Stat label="Threads to fetch" value={formatCount(stats?.needsComments ?? 0)} />
-              <Stat label="Comments held" value={formatCount(stats?.comments ?? 0)} />
-            </View>
-
-            {/* Scoped the same way the feed crawl is: a job this long should be
-                aimable at one community rather than being all-or-nothing. */}
-            <View style={styles.groupRow}>
-              {[null, ...crawlable].map((group) => {
-                const id = group?.id ?? 'all';
-                const selected = (commentTarget?.id ?? 'all') === id;
-                const pending = group ? outstanding[group.id] : (stats?.needsComments ?? 0);
-                return (
-                  <Pressable
-                    key={id}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected }}
-                    disabled={commentsRunning || (pending !== undefined && pending === 0)}
-                    onPress={() => beginComments(group)}
-                    style={({ hovered }) => [
-                      styles.groupChip,
-                      {
-                        backgroundColor: selected ? theme.brandMuted : theme.control,
-                        borderColor: selected ? theme.brand : 'transparent',
-                      },
-                      hovered && !commentsRunning ? { opacity: 0.85 } : null,
-                      commentsRunning && !selected ? styles.dim : null,
-                      pending === 0 ? styles.dim : null,
-                    ]}>
-                    <ThemedText
-                      type="smallBold"
-                      style={{ color: selected ? theme.brand : theme.controlText }}>
-                      {group ? groupDisplayName(group) : 'All communities'}
-                    </ThemedText>
-                    <ThemedText type="caption" themeColor="textTertiary">
-                      {pending === undefined
-                        ? 'counting…'
-                        : pending === 0
-                          ? 'nothing outstanding'
-                          : `${formatCount(pending)} threads · ~${estimateHours(pending)}`}
-                    </ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-
-            {comments ? (
-              <CommentMonitor
-                progress={comments}
-                scopeName={commentTarget ? groupDisplayName(commentTarget) : undefined}
-              />
-            ) : null}
-
-            {commentsRunning ? (
-              <View style={styles.actions}>
-                <Button label="Stop" variant="danger" onPress={stopComments} />
               </View>
             ) : null}
           </Card>

@@ -68,6 +68,7 @@ export async function getOldestArchived(_groupId: string): Promise<string | unde
 export async function listPostsNeedingComments(
   _limit?: number,
   _groupId?: string,
+  _offset?: number,
 ): Promise<{ id: string; comment_count: number }[]> {
   return [];
 }

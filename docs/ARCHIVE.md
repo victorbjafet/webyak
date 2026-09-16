@@ -308,13 +308,14 @@ archive for posts flagged `needs_comments = 1` — an index lookup, not a scan o
 
 ```
 loop:
-  batch = listPostsNeedingComments(250, groupId?)
-  if batch empty            → done
-  for each post in batch:
+  window = listPostsNeedingComments(250, groupId?, behind)
+  if window empty           → done
+  for each post in window:
       comments = getPostComments(post.id)
       archiveContent(comments)          ← comments written first
       markCommentsFetched(post.id, n)   ← flag cleared only after
       sleep 1200ms + up to 500ms jitter
+      on failure: behind++, and after 3 in a row, probe ahead (below)
 ```
 
 **The ordering is the whole resumption story.** A post's flag is cleared only
@@ -332,6 +333,96 @@ corpus from the job before it starts.
 A single unreadable thread — deleted, moderated, private — must not end a run
 spanning a hundred thousand posts. It is counted in `errors`, the post stays
 flagged, and the pass moves on after a backoff. 401 and 429 still hard-stop.
+
+### Getting past a run of unreadable posts
+
+Leaving a failed post flagged is what makes the pass resumable, and it has a
+consequence that only shows up after a few runs: **unreadable posts accumulate at
+the head of the queue.** Every readable post ahead of them gets cleared and
+leaves the index; they do not. So the front of the queue slowly becomes the set
+of posts that always fail, and every resume spends its first minutes re-failing
+them in the same order.
+
+The obvious fix — mark a post as bad and stop offering it — was rejected. That
+makes a **second source of truth** about what the queue contains, it is wrong the
+moment a post becomes readable again, and it has to be migrated, exported and
+reasoned about forever.
+
+Instead the pass finds the end of the bad stretch by probing:
+
+```
+1. WORKING     …fail, fail, fail            → 3 consecutive failures
+2. BRACKETING  jump +8, +16, +32, +64…      → until one reads cleanly
+                 (clamped to the window end)
+3. BISECTING   binary search the bracket     → where does the bad stretch end?
+4. WORKING     resume just past the boundary
+```
+
+Cost goes from O(n) failures to O(log n) probes. Measured against a simulated
+queue, driving the real `startCommentCrawl` with a stubbed archive:
+
+| Shape | Requests (naive) | Requests (actual) | Readable posts skipped |
+|---|---|---|---|
+| 120 unreadable in a row, 200 total | 200 | **93** | 0 |
+| 400 unreadable in a row, 600 total | 600 | **226** | 0 |
+| Whole 80-post queue unreadable | 80 | **7** | 0 |
+| 8 scattered unreadable, 120 total | 120 | 123 | 0 |
+| Alternating bad/good, 100 total | 100 | 100 | 0 |
+
+The last two matter as much as the first three: **a stretch that is not actually
+a run must not trigger skipping.** A success resets the streak, so alternating
+failures never reach the threshold and nothing is jumped over — the recovery is
+inert unless there is a real run to escape.
+
+#### Why guessing the boundary is safe
+
+The predicate being bisected — *is this post unreadable* — is **not guaranteed
+monotonic**. A bisect over a non-monotonic predicate finds *a* boundary, not
+necessarily *the* boundary.
+
+That is acceptable here because **the flag is the queue**. Anything jumped over
+stays flagged and is offered again on the next run, so a mis-placed boundary
+defers work rather than losing it. The failure mode is "a few posts read next
+time instead of this time", which is the same thing that happens when you press
+stop.
+
+Two details keep it tighter than it needs to be:
+
+- Bracketing **clamps to the last post in the window** rather than overshooting
+  it. Probing the far end turns *the rest of this window is unknown* into *the
+  rest of this window is bad*, on evidence — so skipping it is a measurement, not
+  a guess. That is why a wholly unreadable 80-post queue costs 7 requests.
+- Successful probes are **not wasted**. A thread read while bracketing or
+  bisecting is archived and cleared like any other, which is why the request
+  counts above beat the naive ones rather than merely matching them.
+
+#### The queue offset
+
+Skipping means the pass can no longer rely on "flagged posts, from the top" — the
+posts it just skipped are still flagged and would be handed straight back.
+
+So `listPostsNeedingComments` takes an **offset**, and the pass keeps a `behind`
+counter: the number of flagged posts it has passed without clearing. Successes do
+not increment it, because a success removes the post from the index and the queue
+shifts up by one on its own. Failures and skips do.
+
+This is exact rather than approximate, and the simulation asserts it: `behind`
+equals the number of still-flagged posts at the end of every run.
+
+Unfiltered, the offset uses IndexedDB's `cursor.advance()`. Filtered by
+community it cannot — `advance` counts raw index entries while the offset counts
+*matching* ones, so a second community's posts would throw the count off. The
+filtered path walks and counts instead, which is exact and cheap, because the
+offset is the number of unreadable posts rather than the size of the queue.
+
+#### What it looks like when it happens
+
+The monitor names the mode — *Jumping ahead past unreadable posts*, then
+*Narrowing down where the bad stretch ends* — and reports `Left behind`,
+`Jumped`, `Recoveries`, `Probes`, the current and worst error streak, and a
+success rate over attempts. A run that finishes with posts left behind says so
+explicitly, and says that a **stable count across runs is the expected outcome**:
+deleted and moderated threads are never going to become readable.
 
 This is also why `getPostComments` is our own implementation rather than
 sidechat.js's: theirs throws on any body without a `posts` array and rethrows

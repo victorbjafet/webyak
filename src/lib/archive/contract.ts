@@ -53,6 +53,8 @@ export interface ArchiveStore {
   listPostsNeedingComments(
     limit?: number,
     groupId?: string,
+    /** Flagged posts to pass over — the ones a run could not read. */
+    offset?: number,
   ): Promise<{ id: string; comment_count: number }[]>;
   countPostsNeedingComments(groupId?: string): Promise<number>;
   markCommentsFetched(postId: string, count: number): Promise<void>;

@@ -463,8 +463,50 @@ const COMMENT_JITTER_MS = 500;
 /** How many outstanding posts to pull from the archive at a time. */
 const COMMENT_BATCH = 250;
 
+/**
+ * ## Getting past a run of unreadable posts
+ *
+ * A post whose thread cannot be fetched stays flagged, which is what makes the
+ * pass resumable. It also means unreadable posts **accumulate at the head of the
+ * queue**: every readable post ahead of them gets cleared, they do not, so what
+ * is left at the front is increasingly the ones that always fail. Every resume
+ * then spends its first minutes re-failing the same posts in the same order.
+ *
+ * Rather than persist a "this one is bad" marker — which would be a second
+ * source of truth about the queue, and wrong the moment a post becomes readable
+ * again — the pass **finds the end of the bad stretch by probing**:
+ *
+ * 1. After `ERRORS_BEFORE_PROBE` consecutive failures, stop working forwards.
+ * 2. Jump ahead by a stride, doubling each time, until a post reads cleanly.
+ *    That brackets the boundary between a known-bad and a known-good position.
+ * 3. Bisect the bracket to find where the bad stretch actually ends, and carry
+ *    on from there.
+ *
+ * Cost goes from O(n) failed requests to O(log n) — a 500-post stretch takes
+ * about 18 probes instead of 500 failures.
+ *
+ * **Skipping is safe because the flag is the queue.** Anything jumped over stays
+ * flagged and is offered again on a later run, so a mis-placed boundary defers
+ * work rather than losing it. That is also why the bisect does not need the
+ * stretch to be perfectly contiguous: the predicate it searches is not
+ * guaranteed monotonic, and the worst case of guessing wrong is a few posts
+ * deferred to the next pass.
+ *
+ * Successful probes are not wasted — a thread read while bracketing is archived
+ * and cleared like any other.
+ */
+const ERRORS_BEFORE_PROBE = 3;
+const PROBE_STRIDE_START = 8;
+const PROBE_STRIDE_MAX = 512;
+/** A ceiling on bracketing, so a wholly unreadable window cannot loop. */
+const MAX_PROBES_PER_RECOVERY = 24;
+
+/** What the pass is doing right now — see the probing note above. */
+export type CommentCrawlMode = 'working' | 'bracketing' | 'bisecting';
+
 export interface CommentCrawlProgress {
   startedAt: number;
+  mode: CommentCrawlMode;
   /** Threads fetched this run. */
   threads: number;
   /** Comment rows never seen before. */
@@ -474,10 +516,28 @@ export interface CommentCrawlProgress {
   /** Threads that came back empty despite the post claiming replies. */
   empty: number;
   errors: number;
+  /** Every HTTP request, including failures and probes. */
+  requests: number;
+  /** Consecutive failures right now — resets on any success. */
+  errorStreak: number;
+  /** Longest run of consecutive failures this run. */
+  worstStreak: number;
+  /** Requests spent locating the end of a bad stretch. */
+  probes: number;
+  /** Times the pass had to bracket and bisect its way out of one. */
+  recoveries: number;
+  /** Posts jumped over. They stay flagged for a later run. */
+  skipped: number;
+  /** Posts passed over without clearing — the offset into the flagged queue. */
+  behind: number;
+  /** Windows of flagged posts pulled from the archive. */
+  windows: number;
   /** Outstanding threads when the run began, for a completion estimate. */
   outstandingAtStart: number;
   /** Still outstanding — recomputed at each batch boundary. */
   remaining: number;
+  /** Comments seen in the most recent thread, for a sense of live movement. */
+  lastThreadSize?: number;
   lastAt?: number;
   finished?: 'done' | 'stopped' | 'error';
   error?: string;
@@ -499,88 +559,221 @@ export function startCommentCrawl(
   void (async () => {
     const progress: CommentCrawlProgress = {
       startedAt: Date.now(),
+      mode: 'working',
       threads: 0,
       archived: 0,
       duplicates: 0,
       empty: 0,
       errors: 0,
+      requests: 0,
+      errorStreak: 0,
+      worstStreak: 0,
+      probes: 0,
+      recoveries: 0,
+      skipped: 0,
+      behind: 0,
+      windows: 0,
       outstandingAtStart: 0,
       remaining: 0,
     };
     let backoff = BACKOFF_START_MS;
+    const emit = () => onProgress({ ...progress });
+
+    /** Thrown to unwind out of nested probing when the run must end now. */
+    const HALT = Symbol('halt');
+
+    /**
+     * Fetches one thread. `true` if it was stored and the post cleared.
+     *
+     * Per-post failures are recorded and reported as `false` — a single
+     * unreadable thread must not end a run over a hundred thousand posts. Only
+     * 401 and 429 throw, because those are facts about the session rather than
+     * about the post, and retrying either is how an account gets flagged.
+     */
+    const fetchThread = async (post: { id: string; comment_count: number }) => {
+      progress.requests += 1;
+      try {
+        const comments = await getPostComments(post.id);
+        const { added, updated } = await archiveContent(comments);
+        // Cleared even when the thread came back empty: the post claimed
+        // replies and the server disagrees, and asking again every run
+        // would loop on it forever.
+        await markCommentsFetched(post.id, post.comment_count);
+
+        progress.threads += 1;
+        progress.archived += added;
+        progress.duplicates += updated;
+        progress.lastThreadSize = comments.length;
+        if (comments.length === 0) progress.empty += 1;
+        // Cheaper than re-counting the index every thread, and exact as long
+        // as nothing else is clearing flags mid-run.
+        progress.remaining = Math.max(0, progress.remaining - 1);
+        progress.lastAt = Date.now();
+        progress.error = undefined;
+        progress.errorStreak = 0;
+        backoff = BACKOFF_START_MS;
+        return true;
+      } catch (error) {
+        const status = (error as { status?: number })?.status;
+        if (status === 401 || status === 429) {
+          progress.error =
+            status === 401
+              ? 'Session expired — sign in again before resuming.'
+              : 'Rate limited. Stopping rather than pushing harder.';
+          progress.finished = 'error';
+          throw HALT;
+        }
+        progress.errors += 1;
+        progress.errorStreak += 1;
+        progress.worstStreak = Math.max(progress.worstStreak, progress.errorStreak);
+        progress.error = error instanceof Error ? error.message : String(error);
+        return false;
+      }
+    };
+
+    const pace = () => sleep(COMMENT_DELAY_MS + Math.random() * COMMENT_JITTER_MS);
 
     try {
       progress.outstandingAtStart = await countPostsNeedingComments(groupId);
       progress.remaining = progress.outstandingAtStart;
-      onProgress({ ...progress });
+      emit();
 
       while (!stopped) {
-        const batch = await listPostsNeedingComments(COMMENT_BATCH, groupId);
+        /*
+          Fetched at `behind`, because everything this run failed to read is
+          still flagged and would otherwise be handed back first, forever.
+        */
+        const window = await listPostsNeedingComments(COMMENT_BATCH, groupId, progress.behind);
+        progress.windows += 1;
 
-        if (batch.length === 0) {
-          progress.remaining = 0;
+        if (window.length === 0) {
+          progress.remaining = progress.behind;
           progress.finished = 'done';
-          onProgress({ ...progress });
+          emit();
           return;
         }
 
-        for (const post of batch) {
-          if (stopped) {
-            progress.finished = 'stopped';
-            onProgress({ ...progress });
-            return;
-          }
+        let j = 0;
+        while (j < window.length && !stopped) {
+          const ok = await fetchThread(window[j]);
+          emit();
 
-          try {
-            const comments = await getPostComments(post.id);
-            const { added, updated } = await archiveContent(comments);
-            // Cleared even when the thread came back empty: the post claimed
-            // replies and the server disagrees, and asking again every run
-            // would loop on it forever.
-            await markCommentsFetched(post.id, post.comment_count);
-
-            progress.threads += 1;
-            progress.archived += added;
-            progress.duplicates += updated;
-            if (comments.length === 0) progress.empty += 1;
-            // Cheaper than re-counting the index every thread, and exact as long
-            // as nothing else is clearing flags mid-run.
-            progress.remaining = Math.max(0, progress.remaining - 1);
-            progress.lastAt = Date.now();
-            progress.error = undefined;
-            backoff = BACKOFF_START_MS;
-          } catch (error) {
-            const status = (error as { status?: number })?.status;
-            if (status === 401 || status === 429) {
-              progress.error =
-                status === 401
-                  ? 'Session expired — sign in again before resuming.'
-                  : 'Rate limited. Stopping rather than pushing harder.';
-              progress.finished = 'error';
-              onProgress({ ...progress });
-              return;
-            }
-            // A single unreadable thread — deleted, or private — must not end a
-            // run over a hundred thousand posts. Note it and move on; the post
-            // stays flagged and will be retried on a later run.
-            progress.errors += 1;
-            progress.error = error instanceof Error ? error.message : String(error);
-            onProgress({ ...progress });
-            await sleep(backoff);
-            backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
+          if (ok) {
+            j += 1;
+            await pace();
             continue;
           }
 
-          onProgress({ ...progress });
-          await sleep(COMMENT_DELAY_MS + Math.random() * COMMENT_JITTER_MS);
+          // Failed: it stays flagged, so the queue offset has to move past it.
+          progress.behind += 1;
+          j += 1;
+
+          if (progress.errorStreak < ERRORS_BEFORE_PROBE) {
+            await sleep(backoff);
+            backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
+            emit();
+            continue;
+          }
+
+          j = await recover(window, j);
+          emit();
         }
       }
+
       progress.finished = 'stopped';
-      onProgress({ ...progress });
+      emit();
     } catch (error) {
-      progress.error = error instanceof Error ? error.message : String(error);
-      progress.finished = 'error';
-      onProgress({ ...progress });
+      if (error !== HALT) {
+        progress.error = error instanceof Error ? error.message : String(error);
+        progress.finished = 'error';
+      }
+      progress.mode = 'working';
+      emit();
+    }
+
+    /**
+     * Finds the end of a run of unreadable posts, and returns where to resume.
+     *
+     * `from` is the first position not yet examined; `from - 1` is known bad.
+     * Bracket by jumping ahead with a doubling stride until something reads,
+     * then bisect the bracket. Everything left unread in between stays flagged
+     * and comes back on a later run, which is what makes guessing the boundary
+     * an acceptable thing to do at all.
+     */
+    async function recover(
+      window: { id: string; comment_count: number }[],
+      from: number,
+    ): Promise<number> {
+      progress.recoveries += 1;
+      let attempted = 0;
+      let cleared = 0;
+
+      /** Accounts for a span [from, through] and returns the resume position. */
+      const settle = (through: number) => {
+        const span = through - from + 1;
+        // Everything in the span that was not cleared is still flagged.
+        progress.behind += Math.max(0, span - cleared);
+        // "Skipped" is narrower than that: positions never even tried.
+        progress.skipped += Math.max(0, span - attempted);
+        progress.mode = 'working';
+        return through + 1;
+      };
+
+      const last = window.length - 1;
+      if (from > last) return from;
+
+      progress.mode = 'bracketing';
+      emit();
+
+      let lo = from - 1; // known bad
+      let hi = -1; // first known good, once found
+      let stride = PROBE_STRIDE_START;
+
+      while (progress.probes < MAX_PROBES_PER_RECOVERY * progress.recoveries) {
+        if (stopped) return settle(lo);
+        // Clamped rather than overshooting: probing the far end turns "the rest
+        // of this window is unknown" into "the rest of this window is bad", on
+        // evidence, so skipping it is a measurement and not a guess.
+        const probe = Math.min(lo + stride, last);
+        progress.probes += 1;
+        attempted += 1;
+
+        const ok = await fetchThread(window[probe]);
+        if (ok) cleared += 1;
+        emit();
+        await pace();
+
+        if (ok) {
+          hi = probe;
+          break;
+        }
+        if (probe === last) return settle(last);
+        lo = probe;
+        stride = Math.min(stride * 2, PROBE_STRIDE_MAX);
+      }
+
+      // Bracketing gave up: skip what is left of the window rather than grind.
+      if (hi < 0) return settle(last);
+
+      progress.mode = 'bisecting';
+      emit();
+
+      while (hi - lo > 1) {
+        if (stopped) break;
+        const mid = Math.floor((lo + hi) / 2);
+        progress.probes += 1;
+        attempted += 1;
+
+        const ok = await fetchThread(window[mid]);
+        if (ok) cleared += 1;
+        emit();
+        await pace();
+
+        if (ok) hi = mid;
+        else lo = mid;
+      }
+
+      return settle(hi);
     }
   })();
 

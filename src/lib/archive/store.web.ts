@@ -891,6 +891,7 @@ export async function getOldestArchived(groupId: string): Promise<string | undef
 export async function listPostsNeedingComments(
   limit = 500,
   groupId?: string,
+  offset = 0,
 ): Promise<{ id: string; comment_count: number }[]> {
   const db = await openDb();
   const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
@@ -898,14 +899,38 @@ export async function listPostsNeedingComments(
 
   await new Promise<void>((resolve, reject) => {
     const request = store.index('needs_comments').openCursor(IDBKeyRange.only(1));
+    /*
+      `offset` exists for one caller: the comment pass, skipping past posts it
+      could not read. Those stay flagged, so without an offset the next window
+      would return the same unreadable posts forever.
+
+      Unfiltered, `advance()` does it in one step. Filtered, it cannot — advance
+      counts raw index entries, and the offset is counted in *matching* ones, so
+      a second community's posts would be miscounted. Walking is exact, and the
+      offset here is the number of unreadable posts, which is small.
+    */
+    let advanced = offset === 0 || Boolean(groupId);
+    let skipped = 0;
+    const toSkip = groupId ? offset : 0;
+
     request.onsuccess = () => {
       const cursor = request.result;
       if (!cursor || out.length >= limit) {
         resolve();
         return;
       }
+      if (!advanced) {
+        advanced = true;
+        cursor.advance(offset);
+        return;
+      }
       const record = cursor.value as ArchivedContent;
       if (!groupId || record.group_id === groupId) {
+        if (skipped < toSkip) {
+          skipped += 1;
+          cursor.continue();
+          return;
+        }
         out.push({ id: record.id, comment_count: record.comment_count ?? 0 });
       }
       cursor.continue();

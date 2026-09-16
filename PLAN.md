@@ -573,6 +573,12 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#importing-an-export))
 - [x] Comments store their thread position — parent post, reply target, and an
       indexed `is_reply` — so an export can rebuild the tree
+- [x] **The comment pass skips past unreadable stretches** — three failures in a
+      row triggers a doubling-stride jump, then a bisect for the boundary, so a
+      resume no longer re-fails every known-bad post first. No "this one is bad"
+      marker: skipped posts stay flagged, so a mis-placed boundary defers work
+      rather than losing it
+      ([docs/ARCHIVE.md](docs/ARCHIVE.md#getting-past-a-run-of-unreadable-posts))
 - [x] **The scrapers are documented end to end** — resume logic, merge rules,
       thread linkage, and a gap inventory written for the refresh pass
       ([docs/ARCHIVE.md](docs/ARCHIVE.md))
