@@ -579,6 +579,13 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#importing-an-export))
 - [x] Comments store their thread position — parent post, reply target, and an
       indexed `is_reply` — so an export can rebuild the tree
+- [x] **Cold reload no longer 401s, or quietly logs you out** — protected
+      screens were mounted underneath the "Restoring session…" overlay, so every
+      reload fired a feed request before the stored token was read. sidechat.js
+      sends `Bearer ${token}` unconditionally, so it went out as
+      `Bearer undefined`, came back 401, and the 401 handler signed the user out
+      — deleting the token still being restored. The navigator now waits, and a
+      401 with no token attached no longer counts as an expired session
 - [x] **The comment pass skips past unreadable stretches** — three failures in a
       row triggers a doubling-stride jump, then a bisect for the boundary, so a
       resume no longer re-fails every known-bad post first. No "this one is bad"

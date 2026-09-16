@@ -51,6 +51,35 @@ function RootNavigator() {
     };
   }, [scheme, theme]);
 
+  /*
+    Nothing authenticated is mounted until the session is known.
+
+    This used to render the whole app underneath a loading overlay, which looked
+    the same and was not: the screens beneath it were live, so every cold reload
+    fired a feed request before the stored token had been read. That went out as
+    `Bearer undefined`, came back 401, and the 401 handler signed the user out —
+    deleting the token that was still being restored. The overlay hid a request
+    storm and a self-inflicted logout behind a spinner.
+
+    Returning early instead of guarding with `Stack.Protected` is deliberate:
+    `guard={status !== 'anonymous'}` is true while loading, which is what kept
+    the login screen from flashing but also kept the screens mounted. Not
+    rendering the navigator at all until boot completes is the Expo template's
+    own pattern for exactly this, and it cannot race.
+  */
+  if (status === 'loading') {
+    return (
+      <ThemeProvider value={navigationTheme}>
+        <View style={[styles.root, styles.bootOnly, { backgroundColor: theme.background }]}>
+          <ActivityIndicator color={theme.textSecondary} />
+          <ThemedText type="small" themeColor="textSecondary">
+            Restoring session…
+          </ThemedText>
+        </View>
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider value={navigationTheme}>
       <View style={styles.root}>
@@ -61,13 +90,12 @@ function RootNavigator() {
               contentStyle: { backgroundColor: theme.background },
             }}>
             {/*
-              webyak is auth-only (docs/API.md#auth-is-mandatory). `guard` is
-              written against `anonymous`/`authenticated` rather than a boolean
-              so that during `loading` neither group is withdrawn — otherwise the
-              login screen flashes on every cold start before the stored token
-              has been read.
+              webyak is auth-only (docs/API.md#auth-is-mandatory). By the time
+              this renders `status` is settled — the early return above handles
+              `loading` — so these guards only ever see a real answer, and the
+              login screen cannot flash before the stored token has been read.
             */}
-            <Stack.Protected guard={status !== 'anonymous'}>
+            <Stack.Protected guard={status === 'authenticated'}>
               <Stack.Screen name="index" />
               <Stack.Screen name="explore" />
               <Stack.Screen name="notifications" />
@@ -82,20 +110,11 @@ function RootNavigator() {
               <Stack.Screen name="settings" />
             </Stack.Protected>
 
-            <Stack.Protected guard={status !== 'authenticated'}>
+            <Stack.Protected guard={status === 'anonymous'}>
               <Stack.Screen name="login/index" />
             </Stack.Protected>
           </Stack>
         </AppShell>
-
-        {status === 'loading' ? (
-          <View style={[styles.boot, { backgroundColor: theme.background }]}>
-            <ActivityIndicator color={theme.textSecondary} />
-            <ThemedText type="small" themeColor="textSecondary">
-              Restoring session…
-            </ThemedText>
-          </View>
-        ) : null}
 
         {/* Above the shell so a failed write is visible from any screen. */}
         <ToastHost />
@@ -124,12 +143,7 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  boot: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+  bootOnly: {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,

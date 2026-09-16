@@ -18,6 +18,7 @@ and integrity checking; [API.md](API.md) covers endpoint behaviour.
 |---|---|---|
 | Record shape, merge rules | [src/lib/archive/types.ts](../src/lib/archive/types.ts) | `toArchived`, `mergeArchived`, `CrawlState` |
 | Storage | [src/lib/archive/store.web.ts](../src/lib/archive/store.web.ts) | IndexedDB, indexes, export/import |
+| Storage contract | [src/lib/archive/contract.ts](../src/lib/archive/contract.ts) | The interface both platform files assert against, so a missing export is a compile error rather than a runtime one |
 | Feed crawl + comment pass | [src/lib/archive/crawler.ts](../src/lib/archive/crawler.ts) | `startCrawl`, `startCommentCrawl` |
 | Gap detection | [src/lib/archive/integrity.ts](../src/lib/archive/integrity.ts) | `analyseArchive` |
 | UI | [src/app/settings.tsx](../src/app/settings.tsx) | Both jobs, per-community |
@@ -26,10 +27,16 @@ There are **two separate jobs**, and they are separate on purpose:
 
 - **The feed crawl** pages a community's `recent` feed. One request returns ~24
   posts, so a community's entire history is a few thousand requests.
-- **The comment pass** fetches one thread per post. At 157k archived posts with
-  ~49% carrying replies, that is ~77k requests — roughly three days at the
-  configured pacing. Folding it into the feed crawl would have turned a
-  twenty-minute job into a multi-day one without saying so.
+- **The comment pass** fetches one thread per post. Measured 2026-09-11 on the
+  reference archive: 157k posts, ~49% carrying replies, so ~77k requests —
+  days at the configured pacing, against a feed crawl of a few hundred. Folding
+  it into the feed crawl would have turned a twenty-minute job into a multi-day
+  one without saying so.
+
+**Figures in this document are dated measurements, not constants.** The archive
+grows every run — the same reference archive reported 181k outstanding threads
+five days later — so treat the Settings screen as the live number and these as
+orders of magnitude.
 
 ### Three write paths
 
@@ -332,7 +339,20 @@ corpus from the job before it starts.
 
 A single unreadable thread — deleted, moderated, private — must not end a run
 spanning a hundred thousand posts. It is counted in `errors`, the post stays
-flagged, and the pass moves on after a backoff. 401 and 429 still hard-stop.
+flagged, and the pass moves on after a backoff.
+
+401 and 429 hard-stop instead, because those are facts about the session rather
+than about the post: one means the token is gone, the other means we are already
+being told to slow down, and retrying either is how an account gets flagged.
+
+**That stop only started working once `getPostComments` stopped being
+sidechat.js's.** Theirs throws on any body without a `posts` array — a deleted
+post is enough — and its catch rethrows a bare `SidechatAPIError` carrying **no
+HTTP status**, so a 401 or 429 arrived looking exactly like one unreadable
+thread. A dead session would have been retried for the length of the run
+([API.md](API.md#sidechatjs-getpostcomments-throws-on-an-unexpected-body)). Ours
+goes through `request()`, which checks the status, and reads a missing `posts`
+array as an empty thread rather than an exception.
 
 ### Getting past a run of unreadable posts
 
@@ -424,10 +444,26 @@ success rate over attempts. A run that finishes with posts left behind says so
 explicitly, and says that a **stable count across runs is the expected outcome**:
 deleted and moderated threads are never going to become readable.
 
-This is also why `getPostComments` is our own implementation rather than
-sidechat.js's: theirs throws on any body without a `posts` array and rethrows
-without the HTTP status, so the 401/429 stop could never fire for this endpoint
-([API.md](API.md#sidechatjs-getpostcomments-throws-on-an-unexpected-body)).
+
+#### `remaining`, `behind`, and what the ETA promises
+
+Three numbers that look interchangeable and are not:
+
+| Number | Means |
+|---|---|
+| `remaining` | Still flagged in the archive. Decremented only by a thread actually stored. |
+| `behind` | Flagged posts *this run* has passed without clearing — failures and jumps. Also the offset the next window is read from. |
+| `reachable` | `remaining - behind`: what this run can still get to. |
+
+The ETA is built from `reachable`, not `remaining`. Putting a countdown on posts
+the run has already given up on would be a promise it cannot keep, and the
+countdown would stall at a floor equal to `behind` and never reach zero.
+
+A run that finishes with `behind > 0` reports it plainly rather than claiming
+completion. **A count that is stable across runs is the expected outcome**, not a
+fault: a deleted or moderated thread is never going to become readable, and the
+alternative — clearing the flag to make the number look good — would throw away
+the only record that the post ever had replies.
 
 ### An empty thread still clears the flag
 

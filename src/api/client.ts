@@ -48,9 +48,17 @@ export class ApiError extends Error {
 }
 
 /**
- * Called whenever any request comes back 401. `SessionProvider` registers its
- * sign-out here so an expired token drops the session from wherever it is
- * noticed, rather than each caller having to check.
+ * Called whenever any **authenticated** request comes back 401.
+ * `SessionProvider` registers its sign-out here so an expired token drops the
+ * session from wherever it is noticed, rather than each caller having to check.
+ *
+ * "Authenticated" is doing real work in that sentence. sidechat.js sends
+ * `Bearer ${this.userToken}` unconditionally, so a request issued before the
+ * stored token has been restored goes out as the literal string
+ * `Bearer undefined` and comes back 401 — and that 401 used to sign the user
+ * out, **deleting the very token that was still being restored**. A 401 with no
+ * token attached means "we never sent credentials", not "the credentials
+ * expired", and only the second is grounds for dropping a session.
  */
 let onUnauthorized: (() => void) | null = null;
 
@@ -115,13 +123,19 @@ export async function unwrap<T>(res: Response, label: string): Promise<T> {
     if (!res.ok) throw new ApiError(`${label} failed with ${res.status}`, res.status);
     throw new ApiError(`${label} returned a malformed response`);
   }
+  // See `onUnauthorized`: only a 401 against a token we actually hold says
+  // anything about the session.
+  const expired = () => {
+    if (res.status === 401 && hasAuthToken()) onUnauthorized?.();
+  };
+
   const body = json as { error_code?: string; message?: string } | null;
   if (body && typeof body === 'object' && (body.error_code || (!res.ok && body.message))) {
-    if (res.status === 401) onUnauthorized?.();
+    expired();
     throw new ApiError(body.message || body.error_code || `${label} failed`, res.status);
   }
   if (!res.ok) {
-    if (res.status === 401) onUnauthorized?.();
+    expired();
     throw new ApiError(`${label} failed with ${res.status}`, res.status);
   }
   return json as T;
