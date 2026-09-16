@@ -464,11 +464,29 @@ which is why "does this account have a photo" was ambiguous for so long: the
 emoji is a real, populated field even on accounts that also have a photo. The
 emoji is the *fallback*, not the answer.
 
-⛔ **Still open:** post cards show emoji, not photos. The `identity` object on a
-post carries no photo URL — only `conversation_icon` — so rendering avatars in a
-feed would mean a profile lookup per distinct author. `IdentityAvatar` accepts a
-`photoUrl` for when that is worth doing; the profile screen already has the URL
-and renders it.
+✅ **Photos now render everywhere** (2026-09-16). The `identity` on a post
+carries no photo URL — only `conversation_icon` — and neither does `MyIdentity`,
+so *nothing that draws an avatar has the URL in hand*. That is the whole reason
+photos appeared on the profile screen and nowhere else: not a rendering bug, a
+missing field, for the third time in this document.
+
+`icon_url` needs `user_id` **and** `asset_id`, neither of which is in a post
+payload, so there is nothing to construct locally and a profile lookup is the
+only route. `IdentityAvatar` now does that lookup itself rather than making
+every call site thread a URL down — feed cards, comments, quoted posts and the
+"You" tab all got photos by changing nothing.
+
+What makes it affordable is that `useAuthorPhoto` **shares
+`queryKeys.profile`** with the profile screen instead of owning a key:
+
+- twenty posts by one author are one request, deduped by key
+- opening a profile makes every avatar for that author free, and the reverse
+- the cost is bounded by *distinct named authors on screen*, not by posts, and
+  anonymous posts — most of them — ask for nothing
+
+Cached an hour, `retry: false`, no refetch on focus or mount. A username with no
+reachable profile fails once and stays quiet rather than re-asking for every post
+it wrote. The emoji stays as the fallback, which is what it always was.
 
 #### ⛔ Video thumbnails need the worker
 
@@ -626,6 +644,7 @@ which the library added in 2.4.9 for exactly this.
 | `checkEmailVerification()` | Same self-swallowing pattern: every failure, including a 401, surfaces as `"Email is not verified."` | Bypassed |
 | `setAge()` | Throws a hardcoded `"You're too young to use Offsides."` — a different app's name, shown to our users | Bypassed |
 | `getPostComments()` | Calls `json.posts.forEach` with no check, so any body without a `posts` array throws `Cannot read properties of undefined`; its catch then `console.error`s it and rethrows a status-less `SidechatAPIError` | Bypassed — see below |
+| `getUserProfile()` | Reads `json.group` with no status check, so a 401 or a missing user resolves as `undefined` rather than throwing; its catch reports `"Failed to set icon."`, a message from a different method | Tolerated — avatars fall back to the emoji, and `retry: false` stops it re-asking |
 | `searchAvailableGroups()` | Returns `json.results` unconditionally; the endpoint does not use that key, so it silently returns `undefined` rather than a list | Bypassed — `coerceGroupList` in `src/api/groups.ts` reads any envelope |
 | — | No methods at all for save, follow, activity list, report, or awards, though posts carry `is_saved`, `follow_status` and `awards[]`. | Phase 8 |
 

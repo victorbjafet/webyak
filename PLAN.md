@@ -431,6 +431,12 @@ Full checklist and pre-scan findings:
         signed R2 URL, and sending the bearer forced a preflight that cannot
         follow a redirect. Removing the header fixed it
         ([docs/API.md](docs/API.md#profile-photos-icon_url-and-the-bearer-was-breaking-it))
+  - [x] **Photos render everywhere, not just on the profile screen** — nothing
+        that draws an avatar has the URL in hand (`identity` and `MyIdentity`
+        both omit it), so `IdentityAvatar` resolves it itself against the
+        profile screen's own query key. Cost is per distinct named author, not
+        per post
+        ([docs/API.md](docs/API.md#profile-photos-icon_url-and-the-bearer-was-breaking-it))
   - [x] ⛔ **Video thumbnails — settled: not fixable from a browser.** Both
         routes are closed. No header → the endpoint is a hard 401 (verified
         directly, unlike `/v1/assets/profile`). With the header → preflight, then

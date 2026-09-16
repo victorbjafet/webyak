@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 import { AuthedImage } from '../authed-image';
 import { ThemedText } from '../themed-text';
 
+import { useAuthorPhoto } from '@/api/profile-photos';
 import type { Identity } from '@/api/types';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -20,10 +21,15 @@ import { useTheme } from '@/hooks/use-theme';
  * render" partly a self-inflicted wound: there was no code path that could have
  * shown one even with a correct URL.
  *
- * The field turned out to be `icon_url`, and the profile screen passes it. Feed
- * cards still don't: a post's `identity` carries no photo URL, so avatars in a
- * feed would need a profile lookup per distinct author. `photoUrl` is threaded
- * through for whenever that is worth doing.
+ * The field turned out to be `icon_url`, and it lives on the **profile**, not on
+ * a post's `identity` — nor on `MyIdentity`. Nothing that renders an avatar has
+ * the URL in hand, which is why photos appeared on the profile screen and
+ * nowhere else for so long.
+ *
+ * So the lookup happens **here**, once, rather than being threaded through every
+ * call site: feed cards, comments, quoted posts and the "You" tab all get photos
+ * by doing nothing. `photoUrl` stays as an escape hatch for a caller that
+ * already holds a URL and wants to skip the request.
  * See docs/API.md#profile-photos-icon_url-and-the-bearer-was-breaking-it.
  */
 export function IdentityAvatar({
@@ -38,6 +44,16 @@ export function IdentityAvatar({
 }) {
   const theme = useTheme();
   const icon = identity?.conversation_icon;
+
+  /*
+    Only accounts that post under a username have a profile to look up — an
+    anonymous post has no `name` worth asking about, and asking would spend a
+    request per post to learn nothing. Skipped entirely when the caller already
+    supplied a URL.
+  */
+  const username = identity?.posted_with_username ? identity.name : undefined;
+  const looked = useAuthorPhoto(username, !photoUrl);
+  const url = photoUrl ?? looked;
 
   const base = {
     width: size,
@@ -59,11 +75,11 @@ export function IdentityAvatar({
     </View>
   );
 
-  if (!photoUrl) return emojiOrGlyph;
+  if (!url) return emojiOrGlyph;
 
   return (
     <AuthedImage
-      uri={photoUrl}
+      uri={url}
       context="profile-photo"
       fallback={emojiOrGlyph}
       style={[base, { backgroundColor: theme.control }]}
