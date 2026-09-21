@@ -595,11 +595,21 @@ and comment it sees** — effectively a Yik Yak downloader
 - [x] **The scrapers are documented end to end** — resume logic, merge rules,
       thread linkage, and a gap inventory written for the refresh pass
       ([docs/ARCHIVE.md](docs/ARCHIVE.md))
-- [ ] **Refresh pass** — scores and comment counts freeze at first sighting, so
-      posts caught by the catch-up phase are archived minutes old with near-zero
-      votes and never revisited. `sort:top` and any "top of all time" view are
-      wrong until this exists
-      ([docs/ARCHIVE.md](docs/ARCHIVE.md#g1-scores-are-systematically-wrong-in-a-direction-that-matters))
+- [x] **Refresh pass** — posts and comments each re-read a rolling date window,
+      as a phase in front of their normal job. The watermark is per community
+      *and* per kind, sits in the export header, and records a month before the
+      run so every pass re-covers the month before it; only a pass that reached
+      the end of its window may write one
+      ([docs/ARCHIVE.md](docs/ARCHIVE.md#refreshing-what-is-already-archived))
+  - [x] Comment change detection no longer trusts `comment_count` — a thread
+        that loses one and gains one reports the same number. Paired with the
+        newest comment's timestamp, and the flag re-arms on movement in either
+        direction
+  - [x] Deleted comments are flagged rather than dropped, by diffing a re-read
+        thread against what is held — comments have no tombstone, so absence is
+        the only signal there is
+  - [ ] Deep history outside every window ever run is still never refreshed, and
+        no schedule exists — a refresh happens when someone starts one
 - [x] **Quote linkage** — `quote_post_id` stored and indexed, and the original
       embedded in a quote-repost archived as a record of its own. Only applies to
       fresh sightings: the v6 → v7 migration cannot recover a link that was never

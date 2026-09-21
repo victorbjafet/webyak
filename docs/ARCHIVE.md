@@ -474,7 +474,159 @@ noticing, but a low one is normal.
 
 ---
 
-## 6. Import, export, and merging archives
+## 6. Refreshing what is already archived
+
+A record is a **snapshot**, and snapshots go stale: scores move for days after a
+post lands, threads keep growing, and things get taken down. The two frontiers
+only ever *extend* the archive. Refreshing is the third kind of work — walking
+ground already held, on purpose.
+
+Posts and comments refresh **separately**, one job at a time, for the same
+reason they are collected separately: a feed page refreshes ~24 posts in one
+request, while a thread costs one request each. Mixing them would hide a
+multi-day job inside a twenty-minute one.
+
+### The update window
+
+The unit of work is a **date range**, and where it starts is remembered per
+community *and* per kind — refreshing posts says nothing about whether comments
+were refreshed, and one watermark for both would claim it did.
+
+```
+UpdateState { group_id, kind: 'posts' | 'comments', window_start, updated_at }
+```
+
+**`window_start` is where the *next* run begins, not when the last one ran.** A
+finished pass records a month before itself, so every refresh re-covers the month
+its predecessor already did. That overlap is the point: a post that gained votes
+or replies right at the old boundary gets read again instead of being sealed off
+by a date.
+
+Worked through, with the dates that motivated it:
+
+| | |
+|---|---|
+| First scrape ever | 15 Aug |
+| Plain catch-up runs since, archive current to | 21 Sep |
+| Last run that actually **refreshed** anything | 15 Aug |
+| So today's window covers | **15 Jul → now** (a month before that) |
+| And it records, for next time | **21 Aug** (a month before today) |
+
+The watermark is written **only by a pass that reached the end of its window**.
+A stopped or failed run recording coverage it does not have would seal off the
+part it never read — permanently, and silently, since nothing afterwards would
+ever look there again. Verified by simulation: a run stopped mid-window writes
+nothing.
+
+`setMonth` is not used naively for this. Stepping the month back from 31 March
+asks for "31 February", which JavaScript rolls forward to **3 March** — a lookback
+of four days wearing the label of a month. The day is clamped to the target
+month's length, and every field is read and written in UTC so the watermark
+cannot drift by a day depending on where it was computed.
+
+### A missing window is asked about, never guessed
+
+An archive built before refresh tracking has no watermark, and there is nothing
+on disk to derive one from: `first_seen_at` says when a record was archived, not
+when it was last *checked*.
+
+So the UI says the window is missing and asks for a start date. Picking one
+silently would declare everything before it current — the one error that cannot
+be noticed later, because the skipped range never gets read again. A custom range
+is available regardless; the end defaults to now.
+
+The watermarks travel in the **export header** alongside the crawl states, so a
+restored archive knows how current it is. On import the **older** window wins a
+conflict: the importing browser may hold records the export predates, and taking
+the later date would seal off the gap between them. Older exports carry none,
+which reads as "no window recorded" rather than as a guess.
+
+### Refreshing posts
+
+A phase in front of the feed crawl. It pages `recent` from the top exactly like
+catch-up does, but stops on a **date** rather than on duplicates — duplicates are
+the *expected* result of re-reading, so they carry no signal here. Everything it
+sees goes through `mergeArchived`, which is where the actual updating happens:
+scores and reply counts overwrite, tombstones are recorded without destroying
+text, and a changed reply count re-arms `needs_comments`.
+
+It runs **first** because it is the only phase with a deadline — the window ends
+at "now", and every minute spent backfilling first is a minute of new posts
+arriving behind it. Like catch-up, it does not touch `tail_cursor`: it is
+re-reading ground the backfill already passed.
+
+Cost is the window's posts ÷ ~24. A month of a busy community is a few hundred
+requests.
+
+### Refreshing comments
+
+Threads cost one request each, so this is the expensive one. It walks archived
+posts whose `created_at` falls in the window — the compound
+`[group_id, created_at]` index makes that a bounded cursor walk rather than a
+scan — and re-reads each thread.
+
+It shares the **skip-ahead recovery** with the backlog pass, and has to: a run of
+unreadable posts is a property of *those posts*, not of the queue they arrived
+in, so a refresh walking the same posts by date hits the same wall.
+
+One thing it cannot share is how the queue empties.
+
+> **The backlog is self-consuming; a date range is not.** Clearing
+> `needs_comments` removes a post from the index, so the next window naturally
+> starts after the work just done. Re-reading a post does not move it out of a
+> date range, so asking again from the same offset returns the same rows —
+> forever. The refresh phase walks a position that advances by every row handled;
+> the backlog walks one that advances only past rows left unread.
+
+That distinction was found by simulation rather than by reading: the first
+version of the shared loop spun on its first window indefinitely.
+
+When the window is done the pass falls through into the ordinary backlog, so one
+run brings the recent past up to date and then continues working through
+whatever has never been collected.
+
+### Counting comments is not enough
+
+`comment_count` cannot tell you a thread changed.
+
+A thread that **loses one comment and gains another reports the same count.** A
+count comparison calls it unchanged, and the new comment is never collected —
+quietly, and permanently, since nothing would look again.
+
+Two things fix it:
+
+- `comments_last_comment_at` — the newest comment's timestamp, stored with the
+  count. A comment posted now sorts after every comment already seen, so the pair
+  catches an addition, a removal, and one of each together.
+- The flag re-arms on **any** movement in the count, not only a rise. Only a rise
+  used to, which assumed the only thing that happens to a thread is growth.
+
+Neither can be evaluated without fetching the thread, which is exactly why the
+refresh pass works off a date window instead of the flag.
+
+`comments_fetched_count` also now records **what was actually stored** rather than
+what the post claimed. The two diverge the moment a thread is moderated between
+the post being archived and its thread being read, and the claimed number would
+re-arm the flag forever against a thread that can never reach it.
+
+### Deleted comments are flagged, not dropped
+
+The archive's rule — a removal is recorded, not applied — was only half true for
+comments. A post gets it for free, because the API returns a tombstone in its
+place. A comment just stops appearing.
+
+So a re-read compares the thread that came back against what is held, and marks
+anything missing `deleted` / `deleted_at`, keeping its text. Only on a **re-read**:
+a first read has nothing archived that could have gone missing, and the check is
+a cursor walk per thread, not worth paying 180,000 times to learn nothing.
+
+It is also only ever called with a thread that was **fetched successfully**. An
+empty or failed response reaching it would mark an entire thread deleted over a
+network blip.
+
+---
+
+## 7. Import, export, and merging archives
 
 Export is NDJSON — a header line of metadata, then one record per line, streamed
 from a cursor so 157k records never exist in memory at once.
@@ -494,20 +646,25 @@ predates (missing tokens, missing linkage) are rebuilt on the way in.
 
 ---
 
-## 7. What is stale and why
+## 8. What is stale and why
 
-**This is the section for the refresh pass.** Everything below is a real gap in
-the current design, not a hypothetical.
+**This section is what the refresh pass was built from.** Some of it is now
+closed; what remains is marked, and the distinction matters — a closed gap still
+tells you what the data looked like before it closed.
 
-The single sentence version:
+The sentence that used to describe the whole archive:
 
 > The archive is a **record of sightings**, and almost nothing is ever sighted
 > twice. A record's `vote_total` and `comment_count` are frozen at whatever they
 > were the moment the crawler happened to walk past.
 
-### G1: Scores are systematically wrong in a direction that matters
+That is now true only of history **outside the refreshed window**. Everything a
+refresh has covered is current as of that pass, and §6 says how far back that
+reaches.
 
-This is the one that breaks "top posts of all time".
+### G1: Scores freeze at first sighting — CLOSED inside the window
+
+This is the one that broke "top posts of all time".
 
 The two phases archive posts at **completely different ages**:
 
@@ -525,22 +682,28 @@ ranking of the best posts **that happened to be old when the crawler first ran**
 There is a discontinuity in the data at the date the first crawl happened, and
 everything newer than it is scored near zero.
 
-Any "top posts all time" feature has to fix this first, or it will confidently
-report that nothing good has been posted since the archive started.
+Any "top posts all time" feature had to fix this first, or it would confidently
+report that nothing good had been posted since the archive started.
 
-### G2: Nothing revisits an archived post
+**Closed for anything a refresh has covered** (§6). It is *not* closed for
+history older than every window ever run: a post from two years ago still carries
+the score it had when the backfill walked past it, and no automatic pass goes
+back that far. A custom window can, one slice at a time, and that is the only way
+deep history gets corrected.
 
-There is no mechanism that re-fetches an archived post. The only second looks
-that happen at all:
+### G2: Nothing revisits an archived post — CLOSED
+
+A refresh pass is exactly this mechanism. Before it existed, the only second
+looks that happened at all:
 
 1. The **3-page head overlap** each catch-up run — roughly **72 posts** past the
    frontier, and no further.
 2. Whatever you happen to **open in the app**, via the passive write path.
 
-That is the entire refresh surface. A post 80 positions below the frontier at the
-time of a run is never read again by any automated path.
+That was the entire refresh surface: a post 80 positions below the frontier at
+the time of a run was never read again by any automated path.
 
-### G3: Comment counts freeze the same way
+### G3: Comment counts freeze the same way — CLOSED
 
 `needs_comments` is set from `comment_count > 0` **at archive time**. A post
 caught fresh by the catch-up pass has no comments yet, so it is flagged `0` —
@@ -549,21 +712,37 @@ caught fresh by the catch-up pass has no comments yet, so it is flagged `0` —
 It re-arms only if something re-sees the post with a higher count, which means
 only if it falls inside that same ~72-post head overlap on a later run.
 
-**The practical consequence:** posts archived by catch-up largely never get their
-comments collected, and the comment archive is therefore biased toward the older,
-backfilled part of the corpus. The `Threads to fetch` figure in Settings counts
-only posts *known* to have replies, so it understates the real outstanding work.
+**The practical consequence was:** posts archived by catch-up largely never got
+their comments collected, and the comment archive was therefore biased toward the
+older, backfilled part of the corpus. The `Threads to fetch` figure in Settings
+counts only posts *known* to have replies, so it still understates the real
+outstanding work.
 
-### G4: Deletions are almost never noticed
+Closed two ways: a post refresh re-reads `comment_count` and re-arms the flag, and
+a comment refresh ignores the flag entirely inside its window. The subtler half —
+a count that did not move because one comment was deleted and another added — is
+covered in §6 under [counting comments is not
+enough](#counting-comments-is-not-enough).
 
-`deleted` is set only when a tombstone is re-seen for a post already held. Since
-nothing revisits archived posts ([G2](#g2-nothing-revisits-an-archived-post)),
-in practice a post is only marked deleted if it is removed within minutes of
-being archived, while it is still inside the head overlap.
+### G4: Deletions are almost never noticed — CLOSED inside the window
 
-The `deleted` count is therefore a **severe undercount**, and `is:deleted`
-searches a small and unrepresentative sample. The archive is good at preserving
-deleted content; it is bad at *knowing* the content was deleted.
+`deleted` is set when a tombstone is re-seen for a post already held. When
+nothing revisited archived posts, that meant a post was only ever marked deleted
+if it came down within minutes of being archived, while still inside the head
+overlap. The `deleted` count was a **severe undercount** and `is:deleted`
+searched a small, unrepresentative sample.
+
+A refresh re-reads posts, so tombstones inside its window are now caught. Two
+caveats worth keeping:
+
+- **Comments needed separate machinery.** They have no tombstone — a deleted
+  comment simply stops appearing — so they are detected by comparing a re-read
+  thread against what is held (§6).
+- **Absence is still not treated as deletion for posts.** A post missing from a
+  re-paged feed could have been removed, or the page could have been served
+  inconsistently. Inferring deletion from absence would mass-flag on a single bad
+  page, so only an actual tombstone counts. Deletions of posts too old for any
+  window therefore remain unknown.
 
 ### G5: Quote linkage exists now, but only going forward — CLOSED, with a tail
 
@@ -587,20 +766,16 @@ It should stay near zero now that the inline copy is archived; a non-zero count
 means the API returned an id with no embedded post, so those originals are
 fetchable but missing — a closeable gap rather than a corruption.
 
-### G6: `markCommentsFetched` records a stale count
+### G6: `markCommentsFetched` recorded a stale count — CLOSED
 
-It is called with `post.comment_count` as read from the **archive record**, not
-with the number of comments actually returned:
-
-```ts
-await markCommentsFetched(post.id, post.comment_count);
-```
-
-If the post gained replies between being archived and its thread being fetched,
-the recorded `comments_fetched_count` is too low — harmless, it just re-arms
-later. If comments were deleted so the thread returned fewer, the recorded count
-is too high, and the post will not re-arm until it exceeds a count that was never
+It was called with `post.comment_count` as read from the **archive record**,
+rather than with the number of comments actually returned. If comments had been
+deleted so the thread came back shorter, the recorded count was too high and the
+post could never re-arm — it would have had to exceed a number that was never
 real.
+
+It now records `comments.length`, plus `comments_fetched_at` and
+`comments_last_comment_at`. See §6.
 
 ### G7: No index supports "what have I not refreshed recently"
 
@@ -609,14 +784,20 @@ The 15 indexes cover `group_id`, `created_at`, `type`, `parent_post_id`,
 `[group_id, created_at]`, `needs_comments`, `is_reply`, `vote_total` and
 `quote_post_id`.
 
-**`last_seen_at` and `first_seen_at` are not indexed.** So the most natural
-question a refresh pass asks — *which records have not been checked since X* — is
-a full scan of 157k rows today.
+**`last_seen_at` and `first_seen_at` are not indexed**, so *which records have
+not been checked since X* is a full scan.
 
-A refresh pass almost certainly wants an index on `last_seen_at`, or a compound
-`[group_id, last_seen_at]`. That is a `DB_VERSION` bump and a migration over a
-large live store, so it is worth deciding the shape **once**, before writing the
-pass, rather than discovering a second migration is needed.
+**The refresh pass sidesteps this rather than closing it.** It selects by
+`created_at` — when the post was written — using the existing compound
+`[group_id, created_at]` index, not by when it was last checked. That is a
+different question with a useful answer: recency of *authorship* is a good proxy
+for where change happens, since scores and threads move for days after a post
+lands and rarely after that.
+
+The remaining cost is that a refresh cannot skip what it already refreshed
+minutes ago, so overlapping runs redo work. Closing it properly is still a
+`DB_VERSION` bump and a migration over a large live store, and is still worth
+doing **once**, deliberately, rather than twice.
 
 ### G8: Coverage can only be checked statistically
 
@@ -632,31 +813,46 @@ a receipt.
 
 ---
 
-## 8. What a refresh pass needs to decide
+## 9. What the refresh pass decided, and what it left open
 
-Not a design, just the questions this document says are open:
+The open questions §8 posed, and how they were answered:
 
-1. **What to re-read.** Post ids are re-fetchable individually (`getPost`), but
-   that is one request each, at comment-pass cost. Re-paging `top` with a
-   `period` window is far cheaper per post and naturally targets the posts whose
-   scores matter most — at the cost of only ever seeing what the server still
-   ranks.
-2. **How to choose.** With [G7](#g7-no-index-supports-what-have-i-not-refreshed-recently)
-   unfixed there is no cheap "oldest sighting first" query. Decide the index
-   before the pass.
-3. **What a re-read implies.** `mergeArchived` already does the right thing for
-   scores, tombstones and the comment flag — a refresh pass needs **no changes to
-   the merge rules**, only something that feeds it. That is the good news in all
-   of this.
-4. **That a refresh also back-fills quote links.** A re-read writes
-   `quote_post_id` and archives the embedded original, which is the only way the
-   pre-v7 part of the archive ever gains quote linkage
+1. **What to re-read.** Posts are re-paged from `recent` rather than fetched by
+   id. `getPost` per post would have cost one request each — comment-pass
+   pricing for feed-pass work — where a page refreshes ~24 at once. Re-paging
+   `top` with a `period` was the cheaper-still option and was rejected: it only
+   ever returns what the server still ranks, so it would have refreshed the
+   popular posts and silently skipped everything else.
+2. **How to choose.** By `created_at`, on the existing compound index, rather
+   than by when a record was last checked — see
+   [G7](#g7-no-index-supports-what-have-i-not-refreshed-recently). The migration
+   that would answer the better question is still unpaid, and still worth paying
+   once rather than twice.
+3. **What a re-read implies.** Nothing new: `mergeArchived` already handled
+   scores, tombstones and the comment flag, and the pass only had to feed it.
+   That prediction held — the merge rules were not touched.
+4. **Quote links back-fill for free.** Confirmed: a re-read writes
+   `quote_post_id` and archives the embedded original, so a refreshed window
+   gains quote linkage that the pre-v7 archive never had
    ([G5](#g5-quote-linkage-exists-now-but-only-going-forward--closed-with-a-tail)).
-5. **Whether a refresh can re-arm comments.** Re-reading a post updates
-   `comment_count`, which re-arms `needs_comments` automatically. So a score
-   refresh also repairs [G3](#g3-comment-counts-freeze-the-same-way) for free, and
-   the two passes should probably share a schedule.
-6. **How far back to go.** Refreshing everything forever is not finite work.
-   Scores stop moving after a few days; comment counts move for longer; deletions
-   happen at any time. Those three want different cadences and probably different
-   passes.
+5. **Comments re-arm for free.** Also confirmed, and it turned out to be the
+   weaker half of the answer: re-reading a post updates `comment_count`, but a
+   count is not evidence a thread is unchanged. That is what forced
+   `comments_last_comment_at` and the thread-diff for removals (§6).
+6. **How far back to go.** A month of overlap per run, rolling. Deliberately not
+   "everything": scores stop moving after days, comment counts after longer,
+   deletions never. A rolling window keeps the recent past honest at bounded
+   cost, and a custom range exists for the cases it cannot reach.
+
+### Still open
+
+- **Deep history is never refreshed automatically.** Anything older than every
+  window ever run keeps the score it was archived with. Only a custom range
+  reaches it, one slice at a time.
+- **Post deletions outside a window are unknowable**, and absence from a feed is
+  deliberately not treated as evidence ([G4](#g4-deletions-are-almost-never-noticed--closed-inside-the-window)).
+- **Overlapping runs redo work**, because selection is by authorship date rather
+  than by when a record was last checked ([G7](#g7-no-index-supports-what-have-i-not-refreshed-recently)).
+- **No scheduler.** A refresh happens when someone starts one. The watermark
+  makes an occasional run correct, not automatic — and a run that never happens
+  leaves a window that only grows.

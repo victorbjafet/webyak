@@ -8,6 +8,9 @@ import {
   type ArchiveStats,
   type ArchivedContent,
   type CrawlState,
+  type QueuedPost,
+  type UpdateKind,
+  type UpdateState,
 } from './types';
 
 import type { PostOrComment } from '@/api/types';
@@ -326,6 +329,174 @@ export async function listCrawlStates(): Promise<CrawlState[]> {
   return rows.filter((r) => r.key.startsWith('crawl:')).map((r) => r.value);
 }
 
+/* ------------------------------------------------------------------------ *
+ * Update windows
+ * ------------------------------------------------------------------------ */
+
+const updateKey = (kind: UpdateKind, groupId: string) => `update:${kind}:${groupId}`;
+
+export async function getUpdateState(
+  kind: UpdateKind,
+  groupId: string,
+): Promise<UpdateState | undefined> {
+  const db = await openDb();
+  const store = tx(db, [META], 'readonly').objectStore(META);
+  const row = (await asPromise(store.get(updateKey(kind, groupId)))) as
+    | { value: UpdateState }
+    | undefined;
+  return row?.value;
+}
+
+export async function setUpdateState(state: UpdateState): Promise<void> {
+  const db = await openDb();
+  const transaction = tx(db, [META], 'readwrite');
+  transaction
+    .objectStore(META)
+    .put({ key: updateKey(state.kind, state.group_id), value: state });
+  await done(transaction);
+}
+
+export async function listUpdateStates(): Promise<UpdateState[]> {
+  const db = await openDb();
+  const store = tx(db, [META], 'readonly').objectStore(META);
+  const rows = (await asPromise(store.getAll())) as { key: string; value: UpdateState }[];
+  return rows.filter((r) => r.key.startsWith('update:')).map((r) => r.value);
+}
+
+/**
+ * Archived posts created inside a date window, oldest first.
+ *
+ * Serves the comment refresh pass, which walks a window rather than the
+ * `needs_comments` flag — a thread that lost one comment and gained another has
+ * an unchanged count, so the flag cannot know it is stale
+ * (docs/ARCHIVE.md#counting-comments-is-not-enough).
+ *
+ * Group-scoped queries ride the compound `[group_id, created_at]` index, so a
+ * month out of a multi-year archive is a bounded cursor walk rather than a scan.
+ * Unscoped, `created_at` does the same job across every community.
+ */
+export async function listPostsInRange(
+  start: string,
+  end: string,
+  limit = 500,
+  groupId?: string,
+  offset = 0,
+): Promise<QueuedPost[]> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const out: QueuedPost[] = [];
+
+  const index = groupId ? store.index('group_created') : store.index('created_at');
+  const range = groupId
+    ? IDBKeyRange.bound([groupId, start], [groupId, end])
+    : IDBKeyRange.bound(start, end);
+
+  let skipped = 0;
+
+  await new Promise<void>((resolve, reject) => {
+    const request = index.openCursor(range);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || out.length >= limit) {
+        resolve();
+        return;
+      }
+      const record = cursor.value as ArchivedContent;
+      // Comments live in the same store and share the index; only posts have
+      // threads to refresh.
+      if (record.type === 'post') {
+        if (skipped < offset) skipped += 1;
+        else
+          out.push({
+            id: record.id,
+            comment_count: record.comment_count ?? 0,
+            fetched_at: record.comments_fetched_at,
+          });
+      }
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  return out;
+}
+
+/** How many archived posts fall in a window — the refresh pass's denominator. */
+export async function countPostsInRange(
+  start: string,
+  end: string,
+  groupId?: string,
+): Promise<number> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const index = groupId ? store.index('group_created') : store.index('created_at');
+  const range = groupId
+    ? IDBKeyRange.bound([groupId, start], [groupId, end])
+    : IDBKeyRange.bound(start, end);
+
+  let total = 0;
+  await new Promise<void>((resolve, reject) => {
+    const request = index.openCursor(range);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      if ((cursor.value as ArchivedContent).type === 'post') total += 1;
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+  return total;
+}
+
+/**
+ * Flags archived comments that have vanished from a re-fetched thread.
+ *
+ * The archive's rule is that a removal is **recorded, not applied** — the text
+ * stays and `deleted`/`deleted_at` mark what happened. A post gets that for free
+ * because the API returns a tombstone in its place. A comment does not: it is
+ * simply absent from the thread, so the only way to notice is to compare what
+ * came back against what is held.
+ *
+ * Only called with a thread that was **fetched successfully**. An empty or
+ * failed response must never reach this, or a network blip would mark an entire
+ * thread deleted.
+ */
+export async function markMissingCommentsDeleted(
+  parentPostId: string,
+  seenIds: string[],
+  at = Date.now(),
+): Promise<number> {
+  const db = await openDb();
+  const transaction = tx(db, [CONTENT], 'readwrite');
+  const store = transaction.objectStore(CONTENT);
+  const seen = new Set(seenIds);
+  let flagged = 0;
+
+  await new Promise<void>((resolve, reject) => {
+    const request = store.index('parent_post_id').openCursor(IDBKeyRange.only(parentPostId));
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      const record = cursor.value as ArchivedContent;
+      if (!seen.has(record.id) && !record.deleted) {
+        cursor.update({ ...record, deleted: 1, deleted_at: at });
+        flagged += 1;
+      }
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  await done(transaction);
+  return flagged;
+}
+
 /**
  * Streams the whole archive out as NDJSON — one JSON object per line.
  *
@@ -343,11 +514,24 @@ export async function exportArchive(onProgress?: (rows: number) => void): Promis
   const db = await openDb();
   const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
 
+  /*
+    The header carries the update watermarks, so an export is a complete,
+    portable statement of what the archive holds *and how current it is*. Import
+    them back and a refresh knows where to start; leave them out and a restored
+    archive would silently re-read from the beginning of time, or worse, claim
+    to be current.
+
+    Additive keys only — an older importer ignores what it does not recognise,
+    and a newer one treats their absence as "no window recorded" rather than
+    guessing (docs/ARCHIVE.md#the-update-window).
+  */
   const parts: string[] = [
     JSON.stringify({
       _format: 'webyak-archive/ndjson-v1',
       _exported_at: new Date().toISOString(),
       _note: 'One JSON object per line after this header.',
+      _update_windows: await listUpdateStates(),
+      _crawl_states: await listCrawlStates(),
     }) + '\n',
   ];
 
@@ -749,6 +933,7 @@ export async function importArchive(
   const decoder = new TextDecoder();
   let carry = '';
   let batch: ArchivedContent[] = [];
+  const pendingWindows: UpdateState[] = [];
 
   const flush = async () => {
     if (batch.length === 0) return;
@@ -785,7 +970,18 @@ export async function importArchive(
     try {
       const parsed = JSON.parse(trimmed) as Record<string, unknown>;
       // The header line carries metadata, not a record.
-      if (parsed._format || !parsed.id) return;
+      if (parsed._format || !parsed.id) {
+        // Restore the watermarks an export was carrying, so a refresh on the
+        // importing browser knows how current this data is. Older exports have
+        // none, which the UI reports as a missing window rather than inventing
+        // one — a guessed watermark would silently skip everything before it.
+        if (Array.isArray(parsed._update_windows)) {
+          for (const state of parsed._update_windows as UpdateState[]) {
+            if (state?.group_id && state?.kind && state?.window_start) pendingWindows.push(state);
+          }
+        }
+        return;
+      }
       const record = normalizeImported(parsed);
       if (record) batch.push(record);
       else progress.skipped += 1;
@@ -816,6 +1012,23 @@ export async function importArchive(
 
     handleLine(carry);
     await flush();
+
+    /*
+      Watermarks last, and only on a clean finish. A half-imported archive that
+      claimed to be current through some date would make the next refresh skip
+      the very records the interrupted import never wrote.
+
+      The **older** window wins on conflict: the importing browser may already
+      hold records the export predates, and taking the later date would seal off
+      the gap between them.
+    */
+    for (const incoming of pendingWindows) {
+      const existing = await getUpdateState(incoming.kind, incoming.group_id);
+      if (!existing || incoming.window_start < existing.window_start) {
+        await setUpdateState(incoming);
+      }
+    }
+
     progress.finished = true;
   } catch (error) {
     progress.error = error instanceof Error ? error.message : String(error);
@@ -892,10 +1105,10 @@ export async function listPostsNeedingComments(
   limit = 500,
   groupId?: string,
   offset = 0,
-): Promise<{ id: string; comment_count: number }[]> {
+): Promise<QueuedPost[]> {
   const db = await openDb();
   const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
-  const out: { id: string; comment_count: number }[] = [];
+  const out: QueuedPost[] = [];
 
   await new Promise<void>((resolve, reject) => {
     const request = store.index('needs_comments').openCursor(IDBKeyRange.only(1));
@@ -931,7 +1144,11 @@ export async function listPostsNeedingComments(
           cursor.continue();
           return;
         }
-        out.push({ id: record.id, comment_count: record.comment_count ?? 0 });
+        out.push({
+          id: record.id,
+          comment_count: record.comment_count ?? 0,
+          fetched_at: record.comments_fetched_at,
+        });
       }
       cursor.continue();
     };
@@ -972,13 +1189,26 @@ export async function countPostsNeedingComments(groupId?: string): Promise<numbe
  * Records the count at fetch time rather than a boolean, so a post that later
  * gains replies comes back around instead of being permanently considered done.
  */
-export async function markCommentsFetched(postId: string, count: number): Promise<void> {
+export async function markCommentsFetched(
+  postId: string,
+  count: number,
+  lastCommentAt?: string,
+): Promise<void> {
   const db = await openDb();
   const transaction = tx(db, [CONTENT], 'readwrite');
   const store = transaction.objectStore(CONTENT);
   const record = (await asPromise(store.get(postId))) as ArchivedContent | undefined;
   if (record) {
-    store.put({ ...record, needs_comments: 0, comments_fetched_count: count });
+    store.put({
+      ...record,
+      needs_comments: 0,
+      // What was actually stored, not what the post claimed. The two differ
+      // whenever a thread is moderated between the post being archived and its
+      // thread being read, and the claimed number would re-arm the flag forever.
+      comments_fetched_count: count,
+      comments_fetched_at: Date.now(),
+      comments_last_comment_at: lastCommentAt ?? record.comments_last_comment_at,
+    });
   }
   await done(transaction);
 }
@@ -1006,6 +1236,12 @@ const _implements: ArchiveStore = {
   listPostsNeedingComments,
   countPostsNeedingComments,
   markCommentsFetched,
+  getUpdateState,
+  setUpdateState,
+  listUpdateStates,
+  listPostsInRange,
+  countPostsInRange,
+  markMissingCommentsDeleted,
   exportArchive,
   importArchive,
 };

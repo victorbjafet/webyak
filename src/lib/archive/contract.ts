@@ -1,5 +1,12 @@
 import type { ArchiveQuery } from './query';
-import type { ArchiveStats, ArchivedContent, CrawlState } from './types';
+import type {
+  ArchiveStats,
+  ArchivedContent,
+  CrawlState,
+  QueuedPost,
+  UpdateKind,
+  UpdateState,
+} from './types';
 
 /**
  * What every platform implementation of the archive store must provide.
@@ -55,9 +62,26 @@ export interface ArchiveStore {
     groupId?: string,
     /** Flagged posts to pass over — the ones a run could not read. */
     offset?: number,
-  ): Promise<{ id: string; comment_count: number }[]>;
+  ): Promise<QueuedPost[]>;
   countPostsNeedingComments(groupId?: string): Promise<number>;
-  markCommentsFetched(postId: string, count: number): Promise<void>;
+  markCommentsFetched(postId: string, count: number, lastCommentAt?: string): Promise<void>;
+
+  getUpdateState(kind: UpdateKind, groupId: string): Promise<UpdateState | undefined>;
+  setUpdateState(state: UpdateState): Promise<void>;
+  listUpdateStates(): Promise<UpdateState[]>;
+  listPostsInRange(
+    start: string,
+    end: string,
+    limit?: number,
+    groupId?: string,
+    offset?: number,
+  ): Promise<QueuedPost[]>;
+  countPostsInRange(start: string, end: string, groupId?: string): Promise<number>;
+  markMissingCommentsDeleted(
+    parentPostId: string,
+    seenIds: string[],
+    at?: number,
+  ): Promise<number>;
 
   exportArchive(onProgress?: (rows: number) => void): Promise<Blob>;
   importArchive(

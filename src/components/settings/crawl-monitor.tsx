@@ -90,9 +90,11 @@ export function CrawlMonitor({
         ? 'Retrying'
         : progress.recovering
           ? 'Waiting it out'
-          : progress.phase === 'catching-up'
-            ? 'Catching up on new posts'
-            : 'Backfilling history';
+          : progress.phase === 'updating'
+            ? 'Re-reading the update window'
+            : progress.phase === 'catching-up'
+              ? 'Catching up on new posts'
+              : 'Backfilling history';
 
   const live = !stopped && !progress.finished;
 
@@ -107,6 +109,14 @@ export function CrawlMonitor({
           {duration(elapsed)}
         </ThemedText>
       </View>
+
+      {progress.window ? (
+        <ThemedText type="caption" themeColor="textTertiary">
+          {progress.phase === 'updating' ? 'Re-reading' : 'Re-read'}{' '}
+          {progress.window.start.slice(0, 10)} → {progress.window.end.slice(0, 10)}
+          {progress.windowCovered ? ' · window covered' : ''}
+        </ThemedText>
+      ) : null}
 
       {/* Distance covered toward already-archived ground. */}
       {progress.target && !progress.finished ? (

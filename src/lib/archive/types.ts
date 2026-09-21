@@ -101,6 +101,19 @@ export interface ArchivedContent {
   needs_comments: 0 | 1;
   /** `comment_count` at the moment the comments were fetched. */
   comments_fetched_count?: number;
+  /** When the thread was last collected. */
+  comments_fetched_at?: number;
+  /**
+   * `created_at` of the newest comment seen in this post's thread.
+   *
+   * **Counting is not enough to notice change.** A thread that loses one comment
+   * and gains another reports the same `comment_count`, so a count comparison
+   * calls it unchanged and the new comment is never collected. A newly posted
+   * comment always sorts after every comment already seen, so the pair
+   * (count, newest) catches an addition, a removal, and one of each at once —
+   * which a count alone cannot.
+   */
+  comments_last_comment_at?: string;
 
   /**
    * Lowercased word list, used by the `tokens` multiEntry index — IndexedDB's
@@ -341,6 +354,8 @@ export function mergeArchived(
     // Fetched comments stay fetched — unless the post has gained replies since,
     // in which case there is genuinely more to collect.
     comments_fetched_count: existing.comments_fetched_count,
+    comments_fetched_at: existing.comments_fetched_at,
+    comments_last_comment_at: existing.comments_last_comment_at,
     needs_comments: needsComments(existing, incoming),
   };
 }
@@ -349,7 +364,103 @@ function needsComments(existing: ArchivedContent, incoming: ArchivedContent): 0 
   if (incoming.type === 'comment') return 0;
   const count = incoming.comment_count ?? 0;
   if (count === 0) return 0;
-  const fetched = existing.comments_fetched_count;
-  if (fetched === undefined) return 1;
-  return count > fetched ? 1 : 0;
+  // Never collected: obviously outstanding.
+  if (existing.comments_fetched_at === undefined && existing.comments_fetched_count === undefined) {
+    return 1;
+  }
+  const fetched = existing.comments_fetched_count ?? 0;
+  /*
+    Any movement in the count re-arms it, in **either** direction. Only a rise
+    used to, which quietly assumed the only thing that happens to a thread is
+    growth — a drop means a comment was removed, and the archive wants to record
+    that rather than keep serving a thread it knows is stale.
+
+    A count that has not moved is still not proof of stillness: one comment
+    deleted and one added leaves it identical. That case is caught after the
+    fetch, by comparing the newest comment's timestamp — see
+    `comments_last_comment_at`. It cannot be caught from the post payload alone,
+    which is why the refresh pass works off a date window rather than this flag.
+  */
+  return count === fetched ? 0 : 1;
+}
+
+/**
+ * A post queued for its thread to be read.
+ *
+ * `fetched_at` is what tells the pass whether this is a **re-read**. On a first
+ * read there is nothing archived that could have gone missing, so the check for
+ * removed comments — a cursor walk per thread — is skipped; on a re-read it is
+ * the only way a deleted comment is ever noticed.
+ */
+export interface QueuedPost {
+  id: string;
+  comment_count: number;
+  fetched_at?: number;
+}
+
+/* ------------------------------------------------------------------------ *
+ * Update windows
+ * ------------------------------------------------------------------------ */
+
+/** A pass that re-reads what is already archived, rather than extending it. */
+export type UpdateKind = 'posts' | 'comments';
+
+/**
+ * How far back the next refresh of a community should reach.
+ *
+ * Stored **per community and per kind**, because the two passes run
+ * independently: refreshing posts says nothing about whether comments were
+ * refreshed, and a single watermark would claim both.
+ *
+ * `window_start` is the start of the *next* window, not the date of the last
+ * run. After a successful pass it is set to a month before that run, so every
+ * refresh re-covers the month the previous one already did. That overlap is the
+ * point: a post that gained votes or replies right at the old boundary is seen
+ * again instead of being sealed off by a date.
+ */
+export interface UpdateState {
+  group_id: string;
+  kind: UpdateKind;
+  /** ISO. The start of the window the next run should cover. */
+  window_start: string;
+  /** When the last successful pass finished. */
+  updated_at: number;
+  /** What that pass covered, for display. */
+  last_window_start?: string;
+  last_window_end?: string;
+}
+
+/** The overlap every refresh re-covers. */
+export const UPDATE_OVERLAP_MONTHS = 1;
+
+/**
+ * A month before `at` — the watermark a finished pass leaves behind.
+ *
+ * The day is **clamped to the target month's length**, and every field is read
+ * and written in UTC. Both matter more than they look:
+ *
+ * - Naively stepping the month back from 31 March asks for "31 February", which
+ *   JavaScript rolls forward to **3 March** — a lookback of four days wearing
+ *   the label of a month. Clamping gives 28 February.
+ * - Mixing local getters with `toISOString()` shifts the result by a day either
+ *   side of UTC, so a watermark would drift by a day every run depending on
+ *   where it was computed.
+ */
+export function nextWindowStart(at: number | Date = Date.now()): string {
+  const from = new Date(at);
+  const day = from.getUTCDate();
+
+  const target = new Date(from);
+  // Move off the end of the month before changing it, so the month arithmetic
+  // cannot overflow on the way.
+  target.setUTCDate(1);
+  target.setUTCMonth(target.getUTCMonth() - UPDATE_OVERLAP_MONTHS);
+
+  // Day 0 of the following month is the last day of this one.
+  const daysInTarget = new Date(
+    Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0),
+  ).getUTCDate();
+  target.setUTCDate(Math.min(day, daysInTarget));
+
+  return target.toISOString();
 }

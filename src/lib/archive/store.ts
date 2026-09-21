@@ -1,6 +1,13 @@
 import type { ArchiveStore } from './contract';
 import type { ArchiveQuery } from './query';
-import type { ArchiveStats, ArchivedContent, CrawlState } from './types';
+import type {
+  ArchiveStats,
+  ArchivedContent,
+  CrawlState,
+  QueuedPost,
+  UpdateKind,
+  UpdateState,
+} from './types';
 
 import type { PostOrComment } from '@/api/types';
 
@@ -69,7 +76,7 @@ export async function listPostsNeedingComments(
   _limit?: number,
   _groupId?: string,
   _offset?: number,
-): Promise<{ id: string; comment_count: number }[]> {
+): Promise<QueuedPost[]> {
   return [];
 }
 
@@ -77,7 +84,11 @@ export async function countPostsNeedingComments(_groupId?: string): Promise<numb
   return 0;
 }
 
-export async function markCommentsFetched(_postId: string, _count: number): Promise<void> {}
+export async function markCommentsFetched(
+  _postId: string,
+  _count: number,
+  _lastCommentAt?: string,
+): Promise<void> {}
 
 export async function forEachRecord(
   _visit: (record: ArchivedContent) => void,
@@ -122,6 +133,45 @@ export async function searchArchive(_query: ArchiveQuery): Promise<SearchResult>
  * `ArchiveStore` requires. Without it, TypeScript never type-checks this file
  * against the module that callers actually import — see contract.ts.
  * ------------------------------------------------------------------------ */
+export async function getUpdateState(
+  _kind: UpdateKind,
+  _groupId: string,
+): Promise<UpdateState | undefined> {
+  return undefined;
+}
+
+export async function setUpdateState(_state: UpdateState): Promise<void> {}
+
+export async function listUpdateStates(): Promise<UpdateState[]> {
+  return [];
+}
+
+export async function listPostsInRange(
+  _start: string,
+  _end: string,
+  _limit?: number,
+  _groupId?: string,
+  _offset?: number,
+): Promise<QueuedPost[]> {
+  return [];
+}
+
+export async function countPostsInRange(
+  _start: string,
+  _end: string,
+  _groupId?: string,
+): Promise<number> {
+  return 0;
+}
+
+export async function markMissingCommentsDeleted(
+  _parentPostId: string,
+  _seenIds: string[],
+  _at?: number,
+): Promise<number> {
+  return 0;
+}
+
 const _implements: ArchiveStore = {
   archiveAvailable,
   archiveContent,
@@ -138,6 +188,12 @@ const _implements: ArchiveStore = {
   listPostsNeedingComments,
   countPostsNeedingComments,
   markCommentsFetched,
+  getUpdateState,
+  setUpdateState,
+  listUpdateStates,
+  listPostsInRange,
+  countPostsInRange,
+  markMissingCommentsDeleted,
   exportArchive,
   importArchive,
 };

@@ -14,6 +14,11 @@ import { useTheme } from '@/hooks/use-theme';
 import { CommentMonitor } from '@/components/settings/comment-monitor';
 import { CrawlMonitor } from '@/components/settings/crawl-monitor';
 import {
+  UpdateControls,
+  resolveWindow,
+  type UpdateChoice,
+} from '@/components/settings/update-controls';
+import {
   startCommentCrawl,
   startCrawl,
   type CommentCrawlProgress,
@@ -27,12 +32,13 @@ import {
   getArchiveStats,
   importArchive,
   listCrawlStates,
+  listUpdateStates,
   type ImportProgress,
 } from '@/lib/archive/store';
 import { analyseArchive, type IntegrityReport } from '@/lib/archive/integrity';
 import { countPostsNeedingComments, forEachRecord } from '@/lib/archive/store';
 import { pickFile } from '@/lib/pick-file';
-import type { ArchiveStats, CrawlState } from '@/lib/archive/types';
+import type { ArchiveStats, CrawlState, UpdateState } from '@/lib/archive/types';
 import { saveFile } from '@/lib/save-file';
 import { formatCount } from '@/lib/time';
 import { showToast, toastError } from '@/lib/toast';
@@ -75,6 +81,9 @@ export default function SettingsScreen() {
   const [comments, setComments] = useState<CommentCrawlProgress | null>(null);
   const [commentTarget, setCommentTarget] = useState<Group | null>(null);
   const [outstanding, setOutstanding] = useState<Record<string, number>>({});
+  const [updates, setUpdates] = useState<UpdateState[]>([]);
+  const [postUpdate, setPostUpdate] = useState<UpdateChoice>({ enabled: true });
+  const [commentUpdate, setCommentUpdate] = useState<UpdateChoice>({ enabled: true });
   const commentHandle = useRef<CrawlHandle | null>(null);
   const commentsRunning = Boolean(commentHandle.current) && !comments?.finished;
 
@@ -84,9 +93,14 @@ export default function SettingsScreen() {
   const refresh = useCallback(async () => {
     if (!archiveAvailable) return;
     try {
-      const [nextStats, nextCrawls] = await Promise.all([getArchiveStats(), listCrawlStates()]);
+      const [nextStats, nextCrawls, nextUpdates] = await Promise.all([
+        getArchiveStats(),
+        listCrawlStates(),
+        listUpdateStates(),
+      ]);
       setStats(nextStats);
       setCrawls(nextCrawls);
+      setUpdates(nextUpdates);
     } catch (error) {
       toastError(error, "Couldn't read the archive.");
     }
@@ -132,6 +146,10 @@ export default function SettingsScreen() {
     (group: Group | null) => {
       commentHandle.current?.stop();
       setCommentTarget(group);
+      const window = resolveWindow(
+        commentUpdate,
+        updates.find((u) => u.kind === 'comments' && u.group_id === (group?.id ?? '')),
+      );
       setComments({
         startedAt: Date.now(),
         mode: 'working',
@@ -150,13 +168,23 @@ export default function SettingsScreen() {
         windows: 0,
         outstandingAtStart: 0,
         remaining: 0,
+        phase: window ? 'refreshing' : 'backlog',
+        window,
+        refreshed: 0,
+        gained: 0,
+        removed: 0,
+        unchanged: 0,
       });
-      commentHandle.current = startCommentCrawl((next) => {
-        setComments(next);
-        if (next.finished) void refresh();
-      }, group?.id);
+      commentHandle.current = startCommentCrawl(
+        (next) => {
+          setComments(next);
+          if (next.finished) void refresh();
+        },
+        group?.id,
+        window,
+      );
     },
-    [refresh],
+    [commentUpdate, refresh, updates],
   );
 
   const stopComments = useCallback(() => {
@@ -175,8 +203,12 @@ export default function SettingsScreen() {
       handle.current?.stop();
       setTarget(group);
       setStopped(false);
+      const window = resolveWindow(
+        postUpdate,
+        updates.find((u) => u.kind === 'posts' && u.group_id === group.id),
+      );
       setProgress({
-        phase: 'catching-up',
+        phase: window ? 'updating' : 'catching-up',
         run: {
           startedAt: Date.now(),
           pages: 0,
@@ -189,13 +221,19 @@ export default function SettingsScreen() {
         total: { pages: 0, archived: 0 },
         idlePages: 0,
         nextDelayMs: 1500,
+        window,
       });
-      handle.current = startCrawl(group.id, group.name, (next) => {
-        setProgress(next);
-        if (next.finished || next.error) void refresh();
-      });
+      handle.current = startCrawl(
+        group.id,
+        group.name,
+        (next) => {
+          setProgress(next);
+          if (next.finished || next.error) void refresh();
+        },
+        window,
+      );
     },
-    [refresh],
+    [postUpdate, refresh, updates],
   );
 
   const stop = useCallback(() => {
@@ -371,6 +409,14 @@ export default function SettingsScreen() {
               account; an impatient crawler is what gets one flagged.
             </ThemedText>
 
+            <UpdateControls
+              kind="posts"
+              value={postUpdate}
+              onChange={setPostUpdate}
+              state={updates.find((u) => u.kind === 'posts' && u.group_id === (target?.id ?? ''))}
+              disabled={running}
+            />
+
             <View style={styles.groupRow}>
               {crawlable.map((group) => {
                 const saved = crawls.find((c) => c.group_id === group.id);
@@ -433,6 +479,8 @@ export default function SettingsScreen() {
                         exhausted:
                           'Reached the beginning of this community’s feed. Future runs only catch up on new posts.',
                         duplicates: 'Caught up on everything posted since the last run.',
+                        'window-covered':
+                          'Re-read every post in the update window. Scores, reply counts and removals are current through it.',
                         stalled:
                           'Gave up after a long stretch with no new posts and no movement further back, even after waiting it out. Something is off — worth trying again later, and worth looking at if it keeps happening.',
                         stopped: 'Stopped.',
@@ -508,6 +556,16 @@ export default function SettingsScreen() {
                 );
               })}
             </View>
+
+            <UpdateControls
+              kind="comments"
+              value={commentUpdate}
+              onChange={setCommentUpdate}
+              state={updates.find(
+                (u) => u.kind === 'comments' && u.group_id === (commentTarget?.id ?? ''),
+              )}
+              disabled={commentsRunning}
+            />
 
             {comments ? (
               <CommentMonitor

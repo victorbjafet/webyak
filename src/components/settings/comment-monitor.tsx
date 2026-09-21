@@ -72,6 +72,8 @@ export function CommentMonitor({
   const live = !progress.finished;
   const recovering = live && progress.mode !== 'working';
 
+  const refreshing = progress.phase === 'refreshing';
+
   const status = progress.finished
     ? { done: 'Finished', stopped: 'Stopped', error: 'Stopped after an error' }[progress.finished]
     : progress.mode === 'bracketing'
@@ -114,6 +116,40 @@ export function CommentMonitor({
         {Math.round(fraction * 100)}%
         {etaMs !== undefined && live ? ` · ~${duration(etaMs)} left` : ''}
       </ThemedText>
+
+      {progress.window ? (
+        <ThemedText type="caption" themeColor="textTertiary">
+          {refreshing ? 'Refreshing' : 'Refreshed'} {progress.window.start.slice(0, 10)} →{' '}
+          {progress.window.end.slice(0, 10)}
+          {progress.windowCovered ? ' · window covered' : ''}
+        </ThemedText>
+      ) : null}
+
+      {progress.refreshed > 0 ? (
+        <>
+          <Section label="Changes found" />
+          <View style={styles.grid}>
+            <Metric label="Re-read" value={formatCount(progress.refreshed)} hint="threads" />
+            <Metric
+              label="New replies"
+              value={formatCount(progress.gained)}
+              hint="since last read"
+              accent
+            />
+            <Metric
+              label="Removed"
+              value={formatCount(progress.removed)}
+              hint="flagged deleted"
+              warn={progress.removed > 0}
+            />
+            <Metric
+              label="Unchanged"
+              value={formatCount(progress.unchanged)}
+              hint="nothing moved"
+            />
+          </View>
+        </>
+      ) : null}
 
       <Section label="Collected" />
       <View style={styles.grid}>

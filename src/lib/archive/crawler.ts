@@ -1,12 +1,17 @@
 import {
   archiveContent,
+  countPostsInRange,
   countPostsNeedingComments,
   getCrawlState,
   getOldestArchived,
+  listPostsInRange,
   listPostsNeedingComments,
   markCommentsFetched,
+  markMissingCommentsDeleted,
   setCrawlState,
+  setUpdateState,
 } from './store';
+import { nextWindowStart, type QueuedPost, type UpdateKind } from './types';
 
 import { getGroupPosts, getPostComments } from '@/api/client';
 import type { Cursor } from '@/api/types';
@@ -87,7 +92,45 @@ const PAGES_WITHOUT_PROGRESS_BEFORE_GIVING_UP = 40;
 const STUCK_PAUSE_START_MS = 8000;
 const STUCK_PAUSE_MAX_MS = 30_000;
 
-export type CrawlPhase = 'catching-up' | 'backfilling';
+export type CrawlPhase = 'updating' | 'catching-up' | 'backfilling';
+
+/**
+ * A slice of history to re-read.
+ *
+ * Refreshing is a **third kind of work**, distinct from the two frontiers: it
+ * walks ground the archive already holds, on purpose, because a record is a
+ * snapshot and snapshots go stale. Scores move, threads grow, posts come down.
+ * See docs/ARCHIVE.md#refreshing-what-is-already-archived.
+ */
+export interface UpdateWindow {
+  /** ISO. Inclusive. */
+  start: string;
+  /** ISO. Defaults to the moment the run starts. */
+  end: string;
+}
+
+/**
+ * Records that a refresh finished, leaving the start for the *next* one.
+ *
+ * Written only on a pass that actually completed its window — a stopped or
+ * failed run must not claim coverage it does not have, or the gap it left is
+ * sealed off permanently.
+ */
+async function recordUpdate(
+  kind: UpdateKind,
+  groupId: string,
+  window: UpdateWindow,
+  at = Date.now(),
+) {
+  await setUpdateState({
+    group_id: groupId,
+    kind,
+    window_start: nextWindowStart(at),
+    updated_at: at,
+    last_window_start: window.start,
+    last_window_end: window.end,
+  });
+}
 
 /**
  * Why a pass ended.
@@ -103,6 +146,8 @@ export type CrawlEnding =
   | 'exhausted'
   /** The catch-up pass met content already held. Expected, and its job done. */
   | 'duplicates'
+  /** A refresh reached the start of its window. Its job done. */
+  | 'window-covered'
   /** Budget spent without progress. Something is wrong; a human should look. */
   | 'stalled'
   | 'stopped'
@@ -149,6 +194,10 @@ export interface CrawlProgress {
   intoNewHistory?: boolean;
   /** Set while pushing through an unproductive stretch rather than giving up. */
   recovering?: boolean;
+  /** The slice of history being re-read, when this run is refreshing. */
+  window?: UpdateWindow;
+  /** True once the refresh has covered its whole window. */
+  windowCovered?: boolean;
   /** Consecutive pages that neither archived anything nor reached further back. */
   idlePages: number;
   /** The wait before the next request, so the pacing is visible rather than felt. */
@@ -176,12 +225,17 @@ export function startCrawl(
   groupId: string,
   groupName: string | undefined,
   onProgress: (progress: CrawlProgress) => void,
+  /** When set, the run re-reads this window before extending the archive. */
+  update?: UpdateWindow,
 ): CrawlHandle {
   let stopped = false;
 
   void (async () => {
     const progress: CrawlProgress = {
-      phase: 'catching-up',
+      // Labelled from the start so the first frame does not claim to be doing
+      // something the run has not begun.
+      phase: update ? 'updating' : 'catching-up',
+      window: update,
       run: {
         startedAt: Date.now(),
         pages: 0,
@@ -216,6 +270,8 @@ export function startCrawl(
         /** Catch-up stops here; backfill passes `undefined` and never does. */
         stopAfterDuplicatePages: number | undefined,
         onPage: (cursor: Cursor | undefined) => Promise<void>,
+        /** Refresh stops on a date instead: once the page is older than this. */
+        stopWhenOlderThan?: string,
       ): Promise<CrawlEnding> => {
         let cursor = start;
         let duplicatePages = 0;
@@ -324,6 +380,16 @@ export function startCrawl(
 
           if (!cursor) return 'exhausted';
 
+          /*
+            A refresh walks by date, not by duplicates — duplicates are the
+            *expected* result of re-reading, so they carry no signal here. The
+            page's oldest post crossing the window's start is the only thing
+            that means "done".
+          */
+          if (stopWhenOlderThan && oldestOnPage && oldestOnPage < stopWhenOlderThan) {
+            return 'window-covered';
+          }
+
           // Catch-up is *supposed* to end here: meeting known content is how it
           // knows the gap since the last run is closed.
           if (stopAfterDuplicatePages !== undefined && duplicatePages >= stopAfterDuplicatePages) {
@@ -366,6 +432,53 @@ export function startCrawl(
           archived: progress.total.archived,
           updated_at: Date.now(),
         });
+
+      /* ---- phase 0: refresh the window ---------------------------------- */
+      /*
+        Before anything is extended, what is already held is brought up to date.
+        First on purpose: a refresh is the only phase with a *deadline* — the
+        window ends at "now", and every minute spent backfilling first is a
+        minute of new posts arriving behind it.
+
+        This walk deliberately does not touch `tail_cursor`. It is re-reading
+        ground the backfill has already passed, exactly like the catch-up pass,
+        and letting it write the tail would throw away real depth.
+      */
+      if (update) {
+        progress.phase = 'updating';
+        progress.window = update;
+        onProgress({ ...progress });
+
+        const outcome = await walk(
+          undefined,
+          undefined,
+          async () => {
+            await save();
+          },
+          update.start,
+        );
+
+        if (outcome === 'error' || outcome === 'stopped') return;
+        if (outcome === 'stalled') {
+          progress.finished = 'stalled';
+          onProgress({ ...progress });
+          return;
+        }
+        // Only a pass that reached the start of its window may claim it.
+        // 'exhausted' counts: running out of feed above the window start means
+        // there was nothing older to read, not that coverage is incomplete.
+        if (outcome === 'window-covered' || outcome === 'exhausted') {
+          await recordUpdate('posts', groupId, update);
+          progress.windowCovered = true;
+          onProgress({ ...progress });
+        }
+        if (outcome === 'exhausted') {
+          progress.finished = 'exhausted';
+          await save({ tail_cursor: undefined, tail_exhausted: true });
+          onProgress({ ...progress });
+          return;
+        }
+      }
 
       /* ---- phase 1: catch up from the top ------------------------------- */
       // Skipped on a first run: with nothing archived, "walk until duplicates"
@@ -504,9 +617,32 @@ const MAX_PROBES_PER_RECOVERY = 24;
 /** What the pass is doing right now — see the probing note above. */
 export type CommentCrawlMode = 'working' | 'bracketing' | 'bisecting';
 
+/**
+ * Which queue the pass is draining.
+ *
+ * `refreshing` walks a **date window** of posts whose threads are already held;
+ * `backlog` walks the `needs_comments` flag, as it always has. A run does the
+ * refresh first and then falls through to the backlog, because the window ends
+ * at "now" and everything spent elsewhere first widens it.
+ */
+export type CommentCrawlPhase = 'refreshing' | 'backlog';
+
 export interface CommentCrawlProgress {
   startedAt: number;
   mode: CommentCrawlMode;
+  phase: CommentCrawlPhase;
+  /** The slice being re-read, when refreshing. */
+  window?: UpdateWindow;
+  /** True once the refresh phase has covered its whole window. */
+  windowCovered?: boolean;
+  /** Threads re-read this run that were already held. */
+  refreshed: number;
+  /** Comments found on a re-read that the archive had never seen. */
+  gained: number;
+  /** Archived comments found missing from a re-read, flagged deleted. */
+  removed: number;
+  /** Re-read threads that came back byte-for-byte the same size and shape. */
+  unchanged: number;
   /** Threads fetched this run. */
   threads: number;
   /** Comment rows never seen before. */
@@ -553,6 +689,8 @@ export interface CommentCrawlProgress {
 export function startCommentCrawl(
   onProgress: (progress: CommentCrawlProgress) => void,
   groupId?: string,
+  /** When set, threads in this window are re-read before the backlog is worked. */
+  update?: UpdateWindow,
 ): CrawlHandle {
   let stopped = false;
 
@@ -560,6 +698,12 @@ export function startCommentCrawl(
     const progress: CommentCrawlProgress = {
       startedAt: Date.now(),
       mode: 'working',
+      phase: update ? 'refreshing' : 'backlog',
+      window: update,
+      refreshed: 0,
+      gained: 0,
+      removed: 0,
+      unchanged: 0,
       threads: 0,
       archived: 0,
       duplicates: 0,
@@ -590,15 +734,56 @@ export function startCommentCrawl(
      * 401 and 429 throw, because those are facts about the session rather than
      * about the post, and retrying either is how an account gets flagged.
      */
-    const fetchThread = async (post: { id: string; comment_count: number }) => {
+    const fetchThread = async (post: QueuedPost) => {
       progress.requests += 1;
       try {
         const comments = await getPostComments(post.id);
         const { added, updated } = await archiveContent(comments);
+
+        /*
+          The newest comment's timestamp, stored alongside the count.
+
+          A thread that loses one comment and gains another has an identical
+          count, so counting alone reports it unchanged and the new comment is
+          never collected. A comment posted now sorts after every comment
+          already seen, so the pair (count, newest) catches an addition, a
+          removal, and one of each together.
+        */
+        const newest = comments.reduce<string | undefined>(
+          (latest, comment) =>
+            comment.created_at && (!latest || comment.created_at > latest)
+              ? comment.created_at
+              : latest,
+          undefined,
+        );
+
+        /*
+          A removal is recorded, never applied. A post gets that for free — the
+          API returns a tombstone in its place — but a comment simply stops
+          appearing, so the only way to notice is to compare the thread that came
+          back against the one that is held.
+
+          Only on a **re-read**: a first read has nothing archived that could
+          have gone missing, and the check is a cursor walk per thread, which is
+          not worth paying 180,000 times to learn nothing.
+        */
+        let removed = 0;
+        if (post.fetched_at !== undefined) {
+          removed = await markMissingCommentsDeleted(
+            post.id,
+            comments.map((comment) => comment.id),
+          );
+          progress.removed += removed;
+          progress.refreshed += 1;
+          if (added === 0 && removed === 0) progress.unchanged += 1;
+          else progress.gained += added;
+        }
+
         // Cleared even when the thread came back empty: the post claimed
         // replies and the server disagrees, and asking again every run
-        // would loop on it forever.
-        await markCommentsFetched(post.id, post.comment_count);
+        // would loop on it forever. Recorded as what was actually stored, not
+        // what the post claimed — those differ once a thread is moderated.
+        await markCommentsFetched(post.id, comments.length, newest);
 
         progress.threads += 1;
         progress.archived += added;
@@ -634,53 +819,109 @@ export function startCommentCrawl(
     const pace = () => sleep(COMMENT_DELAY_MS + Math.random() * COMMENT_JITTER_MS);
 
     try {
-      progress.outstandingAtStart = await countPostsNeedingComments(groupId);
-      progress.remaining = progress.outstandingAtStart;
-      emit();
+      /**
+       * Works a queue to the end, or until stopped. Returns whether it finished.
+       *
+       * Both phases share this — and, more to the point, share the skip-ahead
+       * recovery. A window of unreadable posts is not a property of the
+       * `needs_comments` queue; it is a property of *those posts*, so a refresh
+       * walking the same posts by date hits exactly the same wall and needs
+       * exactly the same way out.
+       */
+      const drain = async (
+        next: (offset: number) => Promise<QueuedPost[]>,
+        /**
+         * Whether reading a row removes it from the queue.
+         *
+         * The backlog is **self-consuming**: clearing `needs_comments` takes the
+         * post out of the index, so the next window naturally starts after the
+         * work just done, and the only offset needed is the count of rows left
+         * behind unread.
+         *
+         * A date range is not. Re-reading a post does not move it out of the
+         * window, so asking again from the same offset returns the same rows —
+         * forever. The refresh phase therefore walks a position that advances by
+         * every row handled, read or not.
+         */
+        selfConsuming: boolean,
+      ) => {
+        progress.behind = 0;
+        let base = 0;
 
-      while (!stopped) {
-        /*
-          Fetched at `behind`, because everything this run failed to read is
-          still flagged and would otherwise be handed back first, forever.
-        */
-        const window = await listPostsNeedingComments(COMMENT_BATCH, groupId, progress.behind);
-        progress.windows += 1;
+        while (!stopped) {
+          const window = await next(selfConsuming ? progress.behind : base);
+          progress.windows += 1;
 
-        if (window.length === 0) {
-          progress.remaining = progress.behind;
-          progress.finished = 'done';
+          if (window.length === 0) return true;
+          base += window.length;
+
+          let j = 0;
+          while (j < window.length && !stopped) {
+            const ok = await fetchThread(window[j]);
+            emit();
+
+            if (ok) {
+              j += 1;
+              await pace();
+              continue;
+            }
+
+            // Failed: it stays in the queue, so the offset has to move past it.
+            progress.behind += 1;
+            j += 1;
+
+            if (progress.errorStreak < ERRORS_BEFORE_PROBE) {
+              await sleep(backoff);
+              backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
+              emit();
+              continue;
+            }
+
+            j = await recover(window, j);
+            emit();
+          }
+        }
+        return false;
+      };
+
+      /* ---- phase 1: refresh the window ---------------------------------- */
+      if (update) {
+        progress.phase = 'refreshing';
+        progress.outstandingAtStart = await countPostsInRange(update.start, update.end, groupId);
+        progress.remaining = progress.outstandingAtStart;
+        emit();
+
+        const covered = await drain(
+          (offset) => listPostsInRange(update.start, update.end, COMMENT_BATCH, groupId, offset),
+          false,
+        );
+
+        if (!covered) {
+          progress.finished = 'stopped';
           emit();
           return;
         }
 
-        let j = 0;
-        while (j < window.length && !stopped) {
-          const ok = await fetchThread(window[j]);
-          emit();
-
-          if (ok) {
-            j += 1;
-            await pace();
-            continue;
-          }
-
-          // Failed: it stays flagged, so the queue offset has to move past it.
-          progress.behind += 1;
-          j += 1;
-
-          if (progress.errorStreak < ERRORS_BEFORE_PROBE) {
-            await sleep(backoff);
-            backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
-            emit();
-            continue;
-          }
-
-          j = await recover(window, j);
-          emit();
-        }
+        // Only a pass that reached the end of its window may claim it. A window
+        // recorded after a stop would seal off the part that was never read.
+        await recordUpdate('comments', groupId ?? '', update);
+        progress.windowCovered = true;
+        emit();
       }
 
-      progress.finished = 'stopped';
+      /* ---- phase 2: the outstanding backlog ----------------------------- */
+      progress.phase = 'backlog';
+      progress.outstandingAtStart = await countPostsNeedingComments(groupId);
+      progress.remaining = progress.outstandingAtStart;
+      emit();
+
+      const finished = await drain(
+        (offset) => listPostsNeedingComments(COMMENT_BATCH, groupId, offset),
+        true,
+      );
+
+      progress.remaining = progress.behind;
+      progress.finished = finished ? 'done' : 'stopped';
       emit();
     } catch (error) {
       if (error !== HALT) {
@@ -700,10 +941,7 @@ export function startCommentCrawl(
      * and comes back on a later run, which is what makes guessing the boundary
      * an acceptable thing to do at all.
      */
-    async function recover(
-      window: { id: string; comment_count: number }[],
-      from: number,
-    ): Promise<number> {
+    async function recover(window: QueuedPost[], from: number): Promise<number> {
       progress.recoveries += 1;
       let attempted = 0;
       let cleared = 0;
