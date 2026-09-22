@@ -6,7 +6,7 @@ import { DateField } from '../ui/date-field';
 
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import type { UpdateState } from '@/lib/archive/types';
+import { nextWindowStart, type UpdateState } from '@/lib/archive/types';
 import { normalizeDate } from '@/lib/time';
 
 /**
@@ -24,13 +24,18 @@ import { normalizeDate } from '@/lib/time';
  * the last run that actually refreshed anything — and then records **21 Aug** as
  * where the next one starts.
  *
- * ## Why a missing window is not guessed
+ * ## When nothing has been refreshed yet
  *
- * An archive built before refreshing existed has no watermark, and there is
- * nothing on disk to derive one from: `first_seen_at` says when a record was
- * archived, not when the archive was last *checked*. Picking a date silently
- * would declare everything before it current, which is the one error that cannot
- * be noticed later — the gap simply never gets read. So it asks.
+ * An archive built before refresh tracking has no watermark for that kind of
+ * pass — and they are **per kind**, so refreshing posts leaves comments with
+ * none. The window then falls back to the same month-back default, shown in the
+ * box and editable like any other.
+ *
+ * Defaulting it is safe, which is not obvious. The worry would be that a guessed
+ * start declares everything before it current — but the watermark a finished run
+ * records is `now - 1 month` **regardless of the window it covered**, so the
+ * start date never becomes a claim about history. The rolling window reaches a
+ * month back whatever happens; deeper history is what the full re-scrape is for.
  */
 export interface UpdateChoice {
   enabled: boolean;
@@ -38,15 +43,24 @@ export interface UpdateChoice {
   end?: string;
 }
 
-/** Resolves the controls into the window a run should cover, or nothing. */
+/**
+ * Resolves the controls into the window a run should cover.
+ *
+ * Falls back to a month back when nothing has been recorded, so a refresh always
+ * has somewhere sensible to start rather than refusing.
+ */
 export function resolveWindow(
   choice: UpdateChoice,
   state: UpdateState | undefined,
 ): { start: string; end: string } | undefined {
+  // `enabled` is authoritative: a start date left over from a full re-scrape
+  // must not resurrect a refresh the box says is off. The UI keeps the two in
+  // step by forcing `enabled` on whenever it sets a whole-archive start.
   if (!choice.enabled) return undefined;
-  const start = choice.start || state?.window_start;
-  if (!start) return undefined;
-  return { start, end: choice.end || new Date().toISOString() };
+  return {
+    start: choice.start || state?.window_start || nextWindowStart(),
+    end: choice.end || new Date().toISOString(),
+  };
 }
 
 function asDate(iso: string | undefined) {
@@ -89,81 +103,82 @@ export function UpdateControls({
   const theme = useTheme();
 
   const resolved = resolveWindow(value, state);
-  const missing = value.enabled && !resolved;
-  /*
-    "Custom" means differing from the recorded watermark, not merely set.
-
-    The From box **shows** the default window rather than leaving it to a
-    placeholder, because `<input type="date">` ignores placeholders — it renders
-    `mm/dd/yyyy` regardless. That left the default invisible and the only
-    concrete date on screen belonging to the full re-scrape button, which made
-    the rare, expensive option look like the normal one.
-
-    Compared on the date rather than the instant: the watermark carries a real
-    time of day, and a picker can only ever produce midnight, so picking the day
-    that is already the default should not count as an override.
-  */
-  const defaultStart = state?.window_start;
   const everything = Boolean(earliest && value.start === earliest);
+  const noun = kind === 'posts' ? 'posts' : 'threads';
+
+  /*
+    The From box shows the window that will actually run — `<input type="date">`
+    ignores placeholders, so anything left to one renders `mm/dd/yyyy` and the
+    default looks absent.
+  */
+  const defaultStart = state?.window_start ?? nextWindowStart();
   const custom =
     Boolean(value.end) || Boolean(value.start && asDate(value.start) !== asDate(defaultStart));
+
   // A saved position only applies to the window it was taken from.
   const resumable =
     Boolean(state?.resume) &&
     state?.resume?.window_start === resolved?.start &&
     state?.resume?.window_end === resolved?.end;
-  const noun = kind === 'posts' ? 'posts' : 'threads';
 
   return (
-    <View style={[styles.wrap, { borderColor: theme.border }]}>
-      <Pressable
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: value.enabled, disabled }}
-        disabled={disabled}
+    <View style={[styles.wrap, { backgroundColor: theme.background, borderColor: theme.border }]}>
+      {/*
+        Re-scrape-everything **implies** re-reading, so with it ticked this one
+        is forced on and locked rather than left as a control that cannot change
+        anything. A checkbox you can click that does nothing is worse than one
+        that is visibly not yours to set.
+      */}
+      <Check
+        checked={value.enabled || everything}
+        disabled={disabled || everything}
+        label={`Re-read existing ${noun} first`}
+        hint={
+          kind === 'posts'
+            ? 'Refreshes scores, reply counts and removals for everything already archived in the window.'
+            : 'Re-reads threads already collected, picking up new replies and flagging ones that have been deleted.'
+        }
         onPress={() => onChange({ ...value, enabled: !value.enabled })}
-        style={({ hovered }) => [styles.checkRow, hovered && { opacity: 0.85 }]}>
-        <Ionicons
-          name={value.enabled ? 'checkbox' : 'square-outline'}
-          size={18}
-          color={value.enabled ? theme.brand : theme.textTertiary}
-        />
-        <View style={styles.checkText}>
-          <ThemedText type="smallBold">Re-read existing {noun} first</ThemedText>
-          <ThemedText type="caption" themeColor="textSecondary">
-            {kind === 'posts'
-              ? 'Refreshes scores, reply counts and removals for everything already archived in the window.'
-              : 'Re-reads threads already collected, picking up new replies and flagging ones that have been deleted.'}
-          </ThemedText>
-        </View>
-      </Pressable>
+      />
 
-      {value.enabled ? (
+      {earliest ? (
+        <Check
+          checked={everything}
+          disabled={disabled}
+          danger
+          label={`Re-scrape everything — back to ${asDate(earliest)}`}
+          hint={
+            everything
+              ? 'Days of requests. It saves its position, so it can be stopped and picked up.'
+              : 'Ignores the window and re-reads the whole archive.'
+          }
+          // Derived from the dates rather than held as its own flag, so the two
+          // cannot disagree: ticking widens the window, editing a date unticks.
+          onPress={() =>
+            onChange(
+              everything ? { enabled: true } : { enabled: true, start: earliest, end: undefined },
+            )
+          }
+        />
+      ) : null}
+
+      {value.enabled || everything ? (
         <>
-          {missing ? (
-            <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
-              <ThemedText type="caption" style={{ color: theme.danger }}>
-                No update window recorded{scopeName ? ` for ${scopeName}` : ''}.
-              </ThemedText>
-              <ThemedText type="caption" themeColor="textSecondary">
-                This archive predates refresh tracking, so there is nothing on disk saying how
-                current it is — and guessing would mark everything before the guess as up to date.
-                Pick a start date: the safest choice is a month before your first ever scrape.
-              </ThemedText>
-            </View>
-          ) : (
-            <ThemedText type="caption" themeColor="textSecondary">
-              {scopeName ? `${scopeName}: ` : ''}Covering{' '}
-              <ThemedText type="caption" style={{ color: theme.brand }}>
-                {asDate(resolved?.start)} → {value.end ? asDate(value.end) : 'now'}
-              </ThemedText>
-              {state && !custom
+          <ThemedText type="caption" themeColor="textSecondary">
+            {scopeName ? `${scopeName}: ` : ''}Covering{' '}
+            <ThemedText type="caption" style={{ color: theme.brand }}>
+              {asDate(resolved?.start)} → {value.end ? asDate(value.end) : 'now'}
+            </ThemedText>
+            {everything
+              ? ' · the whole archive'
+              : state && !custom
                 ? ` · the default: a month before your last refresh on ${asDate(
                     new Date(state.updated_at).toISOString(),
                   )}`
-                : ''}
-              {custom ? ' · custom range' : ''}
-            </ThemedText>
-          )}
+                : !state && !custom
+                  ? ' · the default: the last month, since nothing has been refreshed yet'
+                  : ' · custom range'}
+          </ThemedText>
 
           <View style={styles.dates}>
             <DateField
@@ -182,7 +197,8 @@ export function UpdateControls({
             {custom ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Use the recorded window"
+                accessibilityLabel="Use the default window"
+                disabled={disabled}
                 onPress={() => onChange({ enabled: true })}
                 style={({ hovered }) => [styles.reset, hovered && { opacity: 0.7 }]}>
                 <ThemedText type="caption" themeColor="textTertiary">
@@ -191,43 +207,6 @@ export function UpdateControls({
               </Pressable>
             ) : null}
           </View>
-
-          {/*
-            Derived from the dates rather than held as its own flag, so it cannot
-            disagree with them: ticking it sets the window to the whole archive,
-            and editing either date unticks it on its own.
-          */}
-          {earliest ? (
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: everything, disabled }}
-              accessibilityLabel="Re-scrape everything"
-              disabled={disabled}
-              onPress={() =>
-                onChange(
-                  everything
-                    ? { enabled: true }
-                    : { enabled: true, start: earliest, end: undefined },
-                )
-              }
-              style={({ hovered }) => [styles.checkRow, hovered && { opacity: 0.85 }]}>
-              <Ionicons
-                name={everything ? 'checkbox' : 'square-outline'}
-                size={16}
-                color={everything ? theme.danger : theme.textTertiary}
-              />
-              <View style={styles.checkText}>
-                <ThemedText type="caption" style={{ color: everything ? theme.danger : theme.text }}>
-                  Re-scrape everything — back to {asDate(earliest)}
-                </ThemedText>
-                <ThemedText type="caption" themeColor="textTertiary">
-                  {everything
-                    ? 'Days of requests. It saves its position, so it can be stopped and picked up.'
-                    : 'Ignores the window and re-reads the whole archive.'}
-                </ThemedText>
-              </View>
-            </Pressable>
-          ) : null}
 
           {resumable ? (
             <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
@@ -256,6 +235,53 @@ export function UpdateControls({
         </>
       ) : null}
     </View>
+  );
+}
+
+/** One checkbox row, so both read at the same weight. */
+function Check({
+  checked,
+  disabled,
+  label,
+  hint,
+  danger,
+  onPress,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  label: string;
+  hint: string;
+  danger?: boolean;
+  onPress: () => void;
+}) {
+  const theme = useTheme();
+  const tint = danger ? theme.danger : theme.brand;
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked, disabled }}
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ hovered }) => [
+        styles.checkRow,
+        hovered && !disabled ? { opacity: 0.85 } : null,
+        disabled ? { opacity: 0.6 } : null,
+      ]}>
+      <Ionicons
+        name={checked ? 'checkbox' : 'square-outline'}
+        size={18}
+        color={checked ? tint : theme.textTertiary}
+      />
+      <View style={styles.checkText}>
+        <ThemedText type="smallBold" style={checked && danger ? { color: tint } : undefined}>
+          {label}
+        </ThemedText>
+        <ThemedText type="caption" themeColor="textSecondary">
+          {hint}
+        </ThemedText>
+      </View>
+    </Pressable>
   );
 }
 
@@ -289,11 +315,5 @@ const styles = StyleSheet.create({
   reset: {
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.two,
-  },
-  preset: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.one,
-    alignSelf: 'flex-start',
   },
 });

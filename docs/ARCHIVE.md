@@ -533,8 +533,11 @@ belonged to the full re-scrape control. The cheap, normal option was invisible
 and the expensive, rare one looked like the default.
 
 So: the fields show the window that will actually run, the summary line names it
-as the default and where it came from, and full re-scrape is a separate checkbox
-that says what it costs. Re-reading years of history against a private API is a
+as the default and where it came from, and full re-scrape is a second checkbox
+directly beneath the first, at the same weight, saying what it costs. Ticking it
+forces the re-read box on and locks it — re-scraping everything *is* re-reading,
+and a checkbox you can click that changes nothing is worse than one that is
+visibly not yours to set. Re-reading years of history against a private API is a
 thing to reach for knowingly. That checkbox is derived from the dates rather than
 held as its own flag, so the two cannot disagree — ticking it widens the window
 to the whole archive, and editing either date unticks it.
@@ -551,16 +554,23 @@ the date rather than the instant — a watermark carries a real time of day and 
 picker can only produce midnight, so choosing the day that is already the default
 is not an override.
 
-### A missing window is asked about, never guessed
+### When nothing has been refreshed yet
 
-An archive built before refresh tracking has no watermark, and there is nothing
-on disk to derive one from: `first_seen_at` says when a record was archived, not
-when it was last *checked*.
+Watermarks are per kind, so refreshing posts leaves comments without one — and an
+archive built before refresh tracking has neither. The window then falls back to
+**a month back from now**, shown in the box and editable like any other.
 
-So the UI says the window is missing and asks for a start date. Picking one
-silently would declare everything before it current — the one error that cannot
-be noticed later, because the skipped range never gets read again. A custom range
-is available regardless; the end defaults to now.
+An earlier version refused to pick a date here, on the reasoning that a guessed
+start would declare everything before it current. That reasoning was wrong, and
+it is worth writing down why: the watermark a finished run records is
+`now - 1 month` **regardless of the window it covered**. The start date never
+becomes a claim about history. A narrower first window costs one pass's worth of
+coverage, not a permanent hole, and the rolling window was never going to reach
+deep history anyway — that is what the full re-scrape is for.
+
+The cost of refusing, meanwhile, was concrete: the panel showed a red error and
+two empty date boxes on a perfectly healthy archive, and the only control with a
+date on it was the expensive one.
 
 The watermarks travel in the **export header** alongside the crawl states, so a
 restored archive knows how current it is. On import the **older** window wins a
