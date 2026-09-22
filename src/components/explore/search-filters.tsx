@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '../themed-text';
+import { DateField } from '../ui/date-field';
 
 import { readFlag, readOperator, writeFlag, writeOperator } from '@/lib/archive/query';
 import { Radius, Spacing, Typography } from '@/constants/theme';
@@ -73,16 +74,11 @@ export function SearchFilters({
 
       <Row label="Dates">
         <View style={styles.pair}>
-          <Field
-            value={since}
-            placeholder="from 2026-01-01"
-            onChangeText={(next) => set(['since'], next)}
-          />
-          <Field
-            value={until}
-            placeholder="to 2026-12-31"
-            onChangeText={(next) => set(['until'], next)}
-          />
+          {/* The grammar already speaks bare `YYYY-MM-DD`, so these write the
+              picker's value straight into `since:` / `until:` with no
+              conversion — the query string stays the single source of truth. */}
+          <DateField value={since} onChange={(next) => set(['since'], next)} />
+          <DateField value={until} onChange={(next) => set(['until'], next)} />
         </View>
       </Row>
 

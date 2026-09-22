@@ -372,3 +372,32 @@ consecutive posts come from different places.
 chevron, that pushes the chevrons to different x positions and the column looks
 broken. Any right-aligned numeric column gets `minWidth` and `textAlign: right`
 — the yakarma panel is the case that surfaced it.
+
+
+## Dates are picked, not typed
+
+Every date input in the app is `DateField`
+([src/components/ui/date-field.tsx](../src/components/ui/date-field.tsx)), which
+on web is a real `<input type="date">` — the browser's own calendar, locale-aware
+display, arrow-key stepping and keyboard entry, none of which a styled text box
+gets. A `.web.tsx` split keeps the native build on a plain `TextInput`; the
+native file is also the typed surface, since tsc only ever resolves the bare
+import (see ARCHITECTURE.md).
+
+It speaks **plain `YYYY-MM-DD`**, never ISO timestamps. Callers that need a
+moment convert on the way in and out: archive search wants the bare date because
+that is what its query grammar accepts, while a refresh window wants
+start-of-day and end-of-day — so a window of "3rd to 3rd" contains the 3rd
+instead of matching only midnight.
+
+**The text version it replaced could not be typed into at all.** Its value was
+round-tripped through a date parser, so `2`, `20` and `2026-0` were all
+incomplete, all parsed to nothing, and the box stayed empty no matter what was
+pressed. A controlled input whose value is derived by validating its own text
+only accepts complete input — which for a date means it only accepts a paste.
+A native date input holds its own partial state and reports only a finished
+date, which is the contract the callers actually wanted.
+
+`colorScheme` is set on the element. Without it the browser paints the calendar
+icon and picker panel for a light page, leaving a near-invisible icon on a dark
+background.

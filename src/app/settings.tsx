@@ -85,30 +85,57 @@ export default function SettingsScreen() {
   const [postUpdate, setPostUpdate] = useState<UpdateChoice>({ enabled: true });
   const [commentUpdate, setCommentUpdate] = useState<UpdateChoice>({ enabled: true });
   const commentHandle = useRef<CrawlHandle | null>(null);
-  const commentsRunning = Boolean(commentHandle.current) && !comments?.finished;
-
   const handle = useRef<CrawlHandle | null>(null);
-  const running = Boolean(handle.current) && !stopped && !progress?.finished && !progress?.error;
+
+  /*
+    Derived from the progress each run publishes, not from whether the handle
+    ref is set. A ref read during render is not tracked by React, so the screen
+    would not necessarily re-render when it changed — and the progress object
+    already says everything the ref did: it exists once a run has started, and
+    carries how that run ended.
+  */
+  const commentsRunning = Boolean(comments) && !comments?.finished;
+  const running = Boolean(progress) && !stopped && !progress?.finished && !progress?.error;
+
+  /** Reads the archive's current shape. Pure — the caller decides what to do. */
+  const read = useCallback(
+    () => Promise.all([getArchiveStats(), listCrawlStates(), listUpdateStates()]),
+    [],
+  );
 
   const refresh = useCallback(async () => {
     if (!archiveAvailable) return;
     try {
-      const [nextStats, nextCrawls, nextUpdates] = await Promise.all([
-        getArchiveStats(),
-        listCrawlStates(),
-        listUpdateStates(),
-      ]);
+      const [nextStats, nextCrawls, nextUpdates] = await read();
       setStats(nextStats);
       setCrawls(nextCrawls);
       setUpdates(nextUpdates);
     } catch (error) {
       toastError(error, "Couldn't read the archive.");
     }
-  }, []);
+  }, [read]);
 
+  // The initial load. Written as a subscription to an external system rather
+  // than a call into `refresh`, so the state lands in the async callback and a
+  // screen left before the read finishes does not set state after unmounting.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    if (!archiveAvailable) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [nextStats, nextCrawls, nextUpdates] = await read();
+        if (cancelled) return;
+        setStats(nextStats);
+        setCrawls(nextCrawls);
+        setUpdates(nextUpdates);
+      } catch (error) {
+        if (!cancelled) toastError(error, "Couldn't read the archive.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [read]);
 
   // Outstanding threads per community, so the picker shows how much work each
   // one actually represents rather than one lump figure.
@@ -723,31 +750,44 @@ export default function SettingsScreen() {
       />
     </Screen>
   );
+}
 
-  function Card({ children }: { children: React.ReactNode }) {
-    return (
-      <View
-        style={[
-          styles.card,
-          { backgroundColor: theme.backgroundElement, borderColor: theme.border },
-        ]}>
-        {children}
-      </View>
-    );
-  }
+/*
+  Module scope, and this one was load-bearing.
 
-  function Stat({ label, value }: { label: string; value: string }) {
-    return (
-      <View style={[styles.stat, { backgroundColor: theme.background }]}>
-        <ThemedText type="subtitle" style={{ color: theme.brand }}>
-          {value}
-        </ThemedText>
-        <ThemedText type="caption" themeColor="textTertiary">
-          {label}
-        </ThemedText>
-      </View>
-    );
-  }
+  A component declared inside another is a new type on every render, so React
+  unmounts and remounts it rather than updating it. `Card` wraps every section of
+  this screen, so each keystroke in any field here tore down the whole card and
+  built a fresh one: the input lost focus after one character, and the scroll
+  position reset to the top because the node under it had been replaced.
+
+  It was listed as one of the harmless nested helpers — true only for as long as
+  nothing inside a Card held state. A single date field made it false.
+  See docs/ARCHITECTURE.md#helper-components-go-at-module-scope-never-inside-another-component.
+*/
+
+function Card({ children }: { children: React.ReactNode }) {
+  const theme = useTheme();
+  return (
+    <View
+      style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+      {children}
+    </View>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  const theme = useTheme();
+  return (
+    <View style={[styles.stat, { backgroundColor: theme.background }]}>
+      <ThemedText type="subtitle" style={{ color: theme.brand }}>
+        {value}
+      </ThemedText>
+      <ThemedText type="caption" themeColor="textTertiary">
+        {label}
+      </ThemedText>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

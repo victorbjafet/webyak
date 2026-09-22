@@ -775,11 +775,18 @@ subtree and mounts a fresh one. The state inside it is discarded — and for a
 `TextInput` that means the DOM node is replaced, which takes keyboard focus with
 it.
 
-This shipped twice and produced the same symptom both times: typing in the
-archive **filter panel** or in **profile edit** dropped focus after every single
-character, so each keystroke needed a fresh click. Both were nested `Field`
-helpers wrapping the inputs. They now live at module scope and take `useTheme()`
-themselves rather than closing over the parent's.
+This shipped three times. The first two were nested `Field` helpers wrapping the
+inputs in the archive **filter panel** and in **profile edit**: typing dropped
+focus after every single character, so each keystroke needed a fresh click.
+
+The third was worse and is the instructive one. `Card` in **settings** wraps
+every section of that screen, so once a date field went inside one, each
+keystroke tore down the whole card and built a fresh one — the input lost focus
+*and* the page jumped back to the top, because the node the scroll position was
+anchored to had been replaced.
+
+All now live at module scope and take `useTheme()` themselves rather than
+closing over the parent's.
 
 It is a tempting pattern precisely because it reads well — a small `Row`, `Chip`
 or `Field` next to the markup that uses it, with the parent's `theme` already in
@@ -787,14 +794,30 @@ scope. The cost is invisible until something in the subtree holds state.
 
 **It also blinds the linter.** `react-hooks`, running in its React Compiler-aware
 mode, bails out on a file containing nested component declarations and reports
-nothing else in it. Hoisting the helpers out of `src/app/me/edit.tsx` immediately
-surfaced a pre-existing `set-state-in-effect` error that had been sitting there
-unreported: the username availability check wrote `available` and `checking` from
-an effect. Those are now derived during render, and the server's answer is stored
-**keyed by the name it is about** — a bare boolean plus a separate `checking`
-flag can disagree, showing last name's "taken" against the name now in the box.
+nothing else in it — so the nesting hides every other defect in the same file,
+and hoisting reveals them all at once. Twice now:
 
-Still nested elsewhere, harmlessly, because nothing in them holds state:
-`settings.tsx`, `compose.tsx`, `me/index.tsx`, the two crawl monitors,
-`karma-panel.tsx` and `post-actions.tsx`. Worth moving on sight, but only the
-input-wrapping cases were bugs.
+- `me/edit.tsx` had an unreported `set-state-in-effect`: the username
+  availability check wrote `available` and `checking` from an effect. Those are
+  now derived during render, and the server's answer is stored **keyed by the
+  name it is about** — a bare boolean plus a separate `checking` flag can
+  disagree, showing the last name's "taken" against the name now in the box.
+- `settings.tsx` had three: two ref reads during render (`handle.current` to
+  decide whether a crawl is running, which React does not track, so the screen
+  was not guaranteed to re-render when it changed) and the same
+  `set-state-in-effect` on its initial load. Running state is now derived from
+  the progress each run publishes, and the initial load sets state inside its
+  async callback with a cancellation guard.
+
+The pattern is worth naming: **a file with a nested component has no lint
+coverage at all**, so the nesting is never the only thing wrong with it.
+
+**"Harmless for now" is not a category worth keeping.** `settings.tsx` was on
+exactly that list one commit before a date field was added to it, and the note
+saying so was the reason nobody looked. A nested helper is a latent bug that
+arms itself the moment anything stateful is rendered inside it — and the thing
+rendered inside it is usually added by someone who never reads the helper.
+
+Still nested: `compose.tsx`, `me/index.tsx`, `karma-panel.tsx` and
+`post-actions.tsx`. Move them on sight rather than auditing whether they are
+currently safe.

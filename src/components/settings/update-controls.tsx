@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '../themed-text';
+import { DateField, normalizeDate } from '../ui/date-field';
 
-import { Radius, Spacing, Typography } from '@/constants/theme';
+import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { UpdateState } from '@/lib/archive/types';
 
@@ -51,12 +52,17 @@ function asDate(iso: string | undefined) {
   return iso ? iso.slice(0, 10) : '';
 }
 
+/**
+ * A picked day widened into a moment.
+ *
+ * `start` takes the first instant of the day and `end` the last, so a window of
+ * "3rd to 3rd" contains the 3rd rather than being empty — `created_at` is a full
+ * timestamp, and a bare date would only ever match midnight.
+ */
 function toIso(value: string, endOfDay = false): string | undefined {
-  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(value.trim());
-  if (!match) return undefined;
-  const [, y, m, d] = match;
-  const iso = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  return endOfDay ? `${iso}T23:59:59.999Z` : `${iso}T00:00:00.000Z`;
+  const date = normalizeDate(value);
+  if (!date) return undefined;
+  return endOfDay ? `${date}T23:59:59.999Z` : `${date}T00:00:00.000Z`;
 }
 
 export function UpdateControls({
@@ -130,21 +136,19 @@ export function UpdateControls({
           )}
 
           <View style={styles.dates}>
-            <Field
+            <DateField
               label="From"
-              value={value.start ? asDate(value.start) : ''}
+              value={asDate(value.start)}
               placeholder={asDate(state?.window_start) || 'YYYY-MM-DD'}
-              onChangeText={(next) =>
-                onChange({ ...value, start: next ? toIso(next) : undefined })
-              }
+              disabled={disabled}
+              onChange={(next) => onChange({ ...value, start: toIso(next) })}
             />
-            <Field
+            <DateField
               label="To"
-              value={value.end ? asDate(value.end) : ''}
+              value={asDate(value.end)}
               placeholder="now"
-              onChangeText={(next) =>
-                onChange({ ...value, end: next ? toIso(next, true) : undefined })
-              }
+              disabled={disabled}
+              onChange={(next) => onChange({ ...value, end: toIso(next, true) })}
             />
             {custom ? (
               <Pressable
@@ -167,40 +171,6 @@ export function UpdateControls({
           ) : null}
         </>
       ) : null}
-    </View>
-  );
-}
-
-function Field({
-  label,
-  value,
-  placeholder,
-  onChangeText,
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  onChangeText: (next: string) => void;
-}) {
-  const theme = useTheme();
-  return (
-    <View style={styles.field}>
-      <ThemedText type="caption" themeColor="textTertiary">
-        {label}
-      </ThemedText>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={theme.textTertiary}
-        autoCapitalize="none"
-        autoCorrect={false}
-        style={[
-          styles.input,
-          Typography.caption,
-          { color: theme.text, backgroundColor: theme.background, borderColor: theme.border },
-        ]}
-      />
     </View>
   );
 }
@@ -231,17 +201,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-end',
     gap: Spacing.two,
-  },
-  field: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  input: {
-    paddingVertical: Spacing.one,
-    paddingHorizontal: Spacing.two,
-    borderRadius: Radius.sm,
-    borderWidth: 1,
   },
   reset: {
     paddingVertical: Spacing.one,
