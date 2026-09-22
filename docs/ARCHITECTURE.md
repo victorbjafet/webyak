@@ -321,6 +321,38 @@ query cache ever held.
   `deleted_at` is when we **noticed**, not when it happened — the API gives no
   removal timestamp — so treat it as an upper bound.
 
+### Open a transaction only when the next thing you do is use it
+
+An IndexedDB transaction **commits itself** as soon as control returns to the
+event loop with no requests outstanding against it. There is no explicit commit
+to forget; the danger is the opposite, a transaction finishing while you still
+think you hold it.
+
+`exportArchive` hit this the moment the update watermarks were added to its
+header:
+
+```ts
+const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);   // opened
+…
+_update_windows: await listUpdateStates(),   // opens its own transaction
+_crawl_states: await listCrawlStates(),      // …and so does this
+…
+store.openCursor();   // DOMException: The transaction has finished
+```
+
+Awaiting anything that touches the database hands control back, and the export
+transaction — given nothing to do yet — quietly commits. **The export failed
+outright on an archive of 594,000 records that had no other backup.**
+
+The error names the cursor, which is the last thing to touch the transaction and
+not the thing that ended it, so it reads as a cursor problem rather than a
+lifetime one. The rule that avoids the whole class: **gather everything you need
+to await first, then open the transaction.**
+
+Awaiting a request *on the transaction you hold* is fine and is used throughout
+— `archiveContent` does read-then-write per record inside one transaction. The
+distinction is whether the await is on that transaction or on another one.
+
 ### Writes are fire-and-forget
 
 Archiving happens inside the feed, post and comment `queryFn`s, with the promise

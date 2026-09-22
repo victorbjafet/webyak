@@ -511,9 +511,6 @@ export async function markMissingCommentsDeleted(
  * at once.
  */
 export async function exportArchive(onProgress?: (rows: number) => void): Promise<Blob> {
-  const db = await openDb();
-  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
-
   /*
     The header carries the update watermarks, so an export is a complete,
     portable statement of what the archive holds *and how current it is*. Import
@@ -525,13 +522,37 @@ export async function exportArchive(onProgress?: (rows: number) => void): Promis
     and a newer one treats their absence as "no window recorded" rather than
     guessing (docs/ARCHIVE.md#the-update-window).
   */
+
+  /*
+    Read **before** the export transaction is opened, not inside it.
+
+    An IndexedDB transaction commits itself as soon as control returns to the
+    event loop with no requests outstanding against it. These two open
+    transactions of their own, so awaiting them hands control back — and the
+    export transaction, which has been given nothing to do yet, quietly
+    finishes. The cursor then fails with "The transaction has finished", after
+    the header has already been built, so it looks like a cursor problem rather
+    than a lifetime one.
+
+    The rule this file follows: **open a transaction only when the next thing
+    you do is use it.** Anything that has to be awaited first gets awaited
+    first.
+  */
+  const [updateWindows, crawlStates] = await Promise.all([
+    listUpdateStates(),
+    listCrawlStates(),
+  ]);
+
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+
   const parts: string[] = [
     JSON.stringify({
       _format: 'webyak-archive/ndjson-v1',
       _exported_at: new Date().toISOString(),
       _note: 'One JSON object per line after this header.',
-      _update_windows: await listUpdateStates(),
-      _crawl_states: await listCrawlStates(),
+      _update_windows: updateWindows,
+      _crawl_states: crawlStates,
     }) + '\n',
   ];
 
