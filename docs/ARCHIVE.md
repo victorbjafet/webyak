@@ -558,6 +558,71 @@ re-reading ground the backfill already passed.
 Cost is the window's posts ÷ ~24. A month of a busy community is a few hundred
 requests.
 
+### The watermark moves only on a completed rescrape
+
+Two conditions, both necessary:
+
+1. **Rescrape was enabled.** A plain catch-up or backfill run never calls
+   `recordUpdate` — it is reached only from inside the `if (update)` branch. A
+   new-posts-only scrape leaves the watermark exactly where it was, which is
+   what makes the worked example above come out right: the window is measured
+   from the last run that actually *refreshed* something, not from the last run.
+2. **The window was finished.** A stopped or failed pass records nothing.
+   Claiming coverage it does not have would seal off the unread part
+   permanently, since nothing afterwards would look there again.
+
+Verified by simulation for both passes, in both states.
+
+### Two things a date window cannot reach
+
+A window is a good proxy for where change happens, and it is wrong in two
+specific, predictable ways. Both are handled as extra queues rather than by
+widening the window, because widening it multiplies the cost of the common case
+to catch a rare one.
+
+**The all-time top posts.** A community's best posts keep collecting votes and
+replies long after everything around them has gone quiet — they get linked,
+screenshotted and resurfaced. So a post refresh begins by sweeping `top` with
+`period=all_time` for at least a hundred posts, regardless of age. It is a
+handful of requests, and it happens *first*, because a pass that is stopped
+early should still have done the cheap high-value part.
+
+**Posts that newer posts quote.** A quote-repost is evidence of renewed
+attention on something old: it has been deliberately resurfaced, which is
+exactly when a post that had gone quiet starts moving again. Its own date puts
+it outside the window, so nothing else would ever go back for it.
+
+- Post refresh gets this for free: `expandQuoted` archives the embedded original
+  on sight, and that copy is a current snapshot.
+- Comment refresh needs a query, `listQuotedTargets` — on the `quote_post_id`
+  index added in v7 — which collects the targets referenced from inside the
+  window and keeps the ones older than it. They are drained as a third phase
+  after the window itself.
+
+### Pausing is not losing
+
+A refresh saves where it got to, per window, in `UpdateState.resume`.
+
+Without it a refresh restarts from the top of the feed every time. Over a month
+that is wasteful; over a **full re-scrape of several years it is fatal** — the
+job could only ever finish in one uninterrupted sitting, which for a
+multi-hundred-thousand-record archive is not a thing that happens.
+
+| | |
+|---|---|
+| Posts | the feed cursor, plus the oldest date reached, saved every page |
+| Comments | the queue position, saved every window of 250 |
+
+Three rules keep it honest:
+
+- **The window is stored with the position.** A resume is only valid for the
+  range it was taken from; ask for different dates and it is discarded rather
+  than silently resuming into the wrong place.
+- **A resume never moves the watermark.** Only completing the window does that,
+  so an interrupted run cannot invent coverage.
+- **Completing clears it.** A stale position would make the next run skip
+  everything before it.
+
 ### Refreshing comments
 
 Threads cost one request each, so this is the expensive one. It walks archived
@@ -584,6 +649,33 @@ version of the shared loop spun on its first window indefinitely.
 When the window is done the pass falls through into the ordinary backlog, so one
 run brings the recent past up to date and then continues working through
 whatever has never been collected.
+
+### A full re-scrape of an archive that predates quote linkage
+
+The reference archive was built before `quote_post_id` existed, so none of its
+records carry it. Re-reading everything is the only way to fill that in, and it
+is safe to do — what follows is what actually happens to a record on the way
+through, because "re-read everything" is an alarming sentence to act on without
+knowing that.
+
+| Field | On a re-read |
+|---|---|
+| `quote_post_id` | **Written.** `mergeArchived` spreads the incoming record, and the v7 index picks each record up as it is rewritten |
+| The quoted original | **Archived**, from the copy embedded in the quoting post |
+| `text`, `vote_total`, `tokens` | Overwritten — *unless* the incoming copy is a tombstone, in which case the originals are kept |
+| `deleted` / `deleted_at` | Preserved once set. A post already known removed stays removed |
+| `first_seen_at` | Preserved. Only `last_seen_at` moves |
+| `comments_fetched_*` | Preserved, so a re-scrape of posts does not discard comment progress |
+| Cached media | Preserved, including assets that have since vanished from the payload |
+
+**Nothing is destroyed by a re-read.** The one thing to expect is a **larger
+comment backlog**: re-reading a post updates `comment_count`, which re-arms
+`needs_comments` wherever it has moved since the thread was collected. That is
+the system working, but on a corpus this size it can add tens of thousands of
+threads to the queue, which is days of comment collection.
+
+Run it from the Full re-scrape preset, which sets the window to the archive's
+oldest post, and expect to pause and resume it several times.
 
 ### Counting comments is not enough
 

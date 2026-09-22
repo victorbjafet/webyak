@@ -77,6 +77,12 @@ export interface ArchiveStore {
     offset?: number,
   ): Promise<QueuedPost[]>;
   countPostsInRange(start: string, end: string, groupId?: string): Promise<number>;
+  listQuotedTargets(
+    start: string,
+    end: string,
+    groupId?: string,
+    limit?: number,
+  ): Promise<QueuedPost[]>;
   markMissingCommentsDeleted(
     parentPostId: string,
     seenIds: string[],

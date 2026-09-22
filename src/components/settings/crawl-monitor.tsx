@@ -82,6 +82,33 @@ export function CrawlMonitor({
   const fraction =
     !progress.intoNewHistory && toTarget > 0 ? Math.min(1, Math.max(0, span / toTarget)) : 1;
 
+  /*
+    A refresh has a real denominator the other phases do not: it knows both ends
+    of its window, so "how far through" is a fact rather than a guess.
+
+    Worth spelling out because a refresh looks stalled when it is working
+    perfectly — nearly every post is one it already holds, so the only counter
+    moving is `duplicates`. Progress through the window is the number that
+    actually says something.
+  */
+  const refreshing = progress.phase === 'updating' && Boolean(progress.window);
+  const windowSpan = progress.window
+    ? Date.parse(progress.window.end) - Date.parse(progress.window.start)
+    : 0;
+  const windowDone =
+    progress.window && run.oldestReached
+      ? Date.parse(progress.window.end) - Date.parse(run.oldestReached)
+      : 0;
+  const windowFraction =
+    windowSpan > 0 ? Math.min(1, Math.max(0, windowDone / windowSpan)) : 0;
+
+  // Days of window covered per minute, projected onto what is left. Built from
+  // the rate achieved rather than the configured delay, which diverge the
+  // moment anything is retried.
+  const daysPerMin = minutes > 0.05 ? windowDone / DAY_MS / minutes : 0;
+  const daysLeft = windowSpan > 0 ? (windowSpan - windowDone) / DAY_MS : 0;
+  const windowEtaMs = daysPerMin > 0.0001 ? (daysLeft / daysPerMin) * 60_000 : undefined;
+
   const status = stopped
     ? 'Stopped'
     : progress.finished
@@ -111,11 +138,33 @@ export function CrawlMonitor({
       </View>
 
       {progress.window ? (
-        <ThemedText type="caption" themeColor="textTertiary">
-          {progress.phase === 'updating' ? 'Re-reading' : 'Re-read'}{' '}
-          {progress.window.start.slice(0, 10)} → {progress.window.end.slice(0, 10)}
-          {progress.windowCovered ? ' · window covered' : ''}
-        </ThemedText>
+        <>
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${Math.round(windowFraction * 100)}%`,
+                  backgroundColor: progress.windowCovered ? theme.brand : theme.brandMuted,
+                },
+              ]}
+            />
+          </View>
+          <ThemedText type="caption" themeColor="textTertiary">
+            {progress.windowCovered ? 'Re-read' : 'Re-reading'}{' '}
+            {progress.window.start.slice(0, 10)} → {progress.window.end.slice(0, 10)} ·{' '}
+            {Math.round(windowFraction * 100)}%
+            {refreshing && windowEtaMs !== undefined && !progress.windowCovered
+              ? ` · ~${duration(windowEtaMs)} left`
+              : ''}
+          </ThemedText>
+          {progress.resumedFrom ? (
+            <ThemedText type="caption" style={{ color: theme.brand }}>
+              Resumed from {progress.resumedFrom.slice(0, 10)} — the earlier run&rsquo;s position was
+              kept.
+            </ThemedText>
+          ) : null}
+        </>
       ) : null}
 
       {/* Distance covered toward already-archived ground. */}
@@ -160,6 +209,43 @@ export function CrawlMonitor({
           warn={progress.idlePages >= 5}
         />
       </View>
+
+      {progress.window ? (
+        <View style={styles.grid}>
+          <Metric
+            label="Now reading"
+            value={day(run.oldestReached)}
+            hint="position in window"
+            accent
+          />
+          <Metric
+            label="Window left"
+            value={daysLeft > 0 ? `${Math.max(0, Math.round(daysLeft))}d` : '0d'}
+            hint={`of ${Math.round(windowSpan / DAY_MS)}d`}
+          />
+          <Metric
+            label="Days/min"
+            value={daysPerMin > 0.0001 ? daysPerMin.toFixed(1) : '—'}
+            hint="window covered"
+          />
+          <Metric
+            label="Refreshed"
+            value={formatCount(run.duplicates)}
+            hint="already held, updated"
+          />
+          <Metric
+            label="New here"
+            value={formatCount(run.archived)}
+            hint="missed first time"
+            accent={run.archived > 0}
+          />
+          <Metric
+            label="Top sweep"
+            value={progress.topSwept ? formatCount(progress.topSwept) : '—'}
+            hint="all-time best"
+          />
+        </View>
+      ) : null}
 
       <View style={[styles.rangeRow, { borderTopColor: theme.border }]}>
         <Row

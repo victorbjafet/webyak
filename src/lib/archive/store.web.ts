@@ -452,6 +452,72 @@ export async function countPostsInRange(
 }
 
 /**
+ * Posts quoted by something inside a window, that are themselves outside it.
+ *
+ * A quote-repost is evidence of **renewed attention on an old post**: someone
+ * found it worth resurfacing, which is exactly when a post that had gone quiet
+ * starts collecting votes and replies again. Its own date puts it outside the
+ * refresh window, so nothing else would ever go back for it.
+ *
+ * Only targets older than the window are returned — anything inside it is
+ * already being refreshed, and returning it twice would just double the work.
+ */
+export async function listQuotedTargets(
+  start: string,
+  end: string,
+  groupId?: string,
+  limit = 500,
+): Promise<QueuedPost[]> {
+  const db = await openDb();
+
+  // Collect the ids first, in their own transaction. Fetching them from inside
+  // the cursor's transaction would mean awaiting across it — see
+  // docs/ARCHITECTURE.md#open-a-transaction-only-when-the-next-thing-you-do-is-use-it.
+  const targets = new Set<string>();
+  {
+    const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+    const index = groupId ? store.index('group_created') : store.index('created_at');
+    const range = groupId
+      ? IDBKeyRange.bound([groupId, start], [groupId, end])
+      : IDBKeyRange.bound(start, end);
+
+    await new Promise<void>((resolve, reject) => {
+      const request = index.openCursor(range);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor || targets.size >= limit) {
+          resolve();
+          return;
+        }
+        const record = cursor.value as ArchivedContent;
+        if (record.quote_post_id) targets.add(record.quote_post_id);
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  if (targets.size === 0) return [];
+
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const out: QueuedPost[] = [];
+  await Promise.all(
+    [...targets].map(async (id) => {
+      const record = (await asPromise(store.get(id))) as ArchivedContent | undefined;
+      // Older than the window only; anything inside it is already queued.
+      if (record && record.type === 'post' && record.created_at < start) {
+        out.push({
+          id: record.id,
+          comment_count: record.comment_count ?? 0,
+          fetched_at: record.comments_fetched_at,
+        });
+      }
+    }),
+  );
+  return out;
+}
+
+/**
  * Flags archived comments that have vanished from a re-fetched thread.
  *
  * The archive's rule is that a removal is **recorded, not applied** — the text
@@ -1262,6 +1328,7 @@ const _implements: ArchiveStore = {
   listUpdateStates,
   listPostsInRange,
   countPostsInRange,
+  listQuotedTargets,
   markMissingCommentsDeleted,
   exportArchive,
   importArchive,

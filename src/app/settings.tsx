@@ -441,6 +441,7 @@ export default function SettingsScreen() {
               value={postUpdate}
               onChange={setPostUpdate}
               state={updates.find((u) => u.kind === 'posts' && u.group_id === (target?.id ?? ''))}
+              earliest={stats?.oldest}
               disabled={running}
             />
 
@@ -591,6 +592,7 @@ export default function SettingsScreen() {
               state={updates.find(
                 (u) => u.kind === 'comments' && u.group_id === (commentTarget?.id ?? ''),
               )}
+              earliest={stats?.oldest}
               disabled={commentsRunning}
             />
 

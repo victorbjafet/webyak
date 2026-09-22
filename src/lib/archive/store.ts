@@ -164,6 +164,15 @@ export async function countPostsInRange(
   return 0;
 }
 
+export async function listQuotedTargets(
+  _start: string,
+  _end: string,
+  _groupId?: string,
+  _limit?: number,
+): Promise<QueuedPost[]> {
+  return [];
+}
+
 export async function markMissingCommentsDeleted(
   _parentPostId: string,
   _seenIds: string[],
@@ -193,6 +202,7 @@ const _implements: ArchiveStore = {
   listUpdateStates,
   listPostsInRange,
   countPostsInRange,
+  listQuotedTargets,
   markMissingCommentsDeleted,
   exportArchive,
   importArchive,

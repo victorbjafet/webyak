@@ -71,6 +71,7 @@ export function UpdateControls({
   value,
   onChange,
   state,
+  earliest,
   disabled,
 }: {
   kind: 'posts' | 'comments';
@@ -78,6 +79,8 @@ export function UpdateControls({
   onChange: (next: UpdateChoice) => void;
   /** The watermark for the selected community, if one has been recorded. */
   state: UpdateState | undefined;
+  /** Oldest post held, so "everything" is an offerable window. */
+  earliest?: string;
   disabled?: boolean;
 }) {
   const theme = useTheme();
@@ -85,6 +88,11 @@ export function UpdateControls({
   const resolved = resolveWindow(value, state);
   const missing = value.enabled && !resolved;
   const custom = Boolean(value.start || value.end);
+  // A saved position only applies to the window it was taken from.
+  const resumable =
+    Boolean(state?.resume) &&
+    state?.resume?.window_start === resolved?.start &&
+    state?.resume?.window_end === resolved?.end;
   const noun = kind === 'posts' ? 'posts' : 'threads';
 
   return (
@@ -164,6 +172,38 @@ export function UpdateControls({
             ) : null}
           </View>
 
+          {earliest ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Re-read the entire archive"
+              disabled={disabled}
+              onPress={() => onChange({ enabled: true, start: earliest, end: undefined })}
+              style={({ hovered }) => [styles.preset, hovered && { opacity: 0.7 }]}>
+              <Ionicons name="repeat-outline" size={13} color={theme.textTertiary} />
+              <ThemedText type="caption" themeColor="textTertiary">
+                Full re-scrape — everything back to {asDate(earliest)}
+              </ThemedText>
+            </Pressable>
+          ) : null}
+
+          {resumable ? (
+            <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
+              <ThemedText type="caption" style={{ color: theme.brand }}>
+                Paused part-way through this window.
+              </ThemedText>
+              <ThemedText type="caption" themeColor="textSecondary">
+                {state?.resume?.through
+                  ? `Reached ${asDate(state.resume.through)}. `
+                  : state?.resume?.offset !== undefined
+                    ? `Reached thread ${state.resume.offset}. `
+                    : ''}
+                Starting again picks up from there rather than from the top — the saved position
+                is kept until the window finishes. Changing either date discards it, since a
+                position only means something for the range it was taken from.
+              </ThemedText>
+            </View>
+          ) : null}
+
           {state?.last_window_start ? (
             <ThemedText type="caption" themeColor="textTertiary">
               Last refresh covered {asDate(state.last_window_start)} →{' '}
@@ -206,5 +246,11 @@ const styles = StyleSheet.create({
   reset: {
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.two,
+  },
+  preset: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    alignSelf: 'flex-start',
   },
 });

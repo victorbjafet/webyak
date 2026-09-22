@@ -428,6 +428,33 @@ export interface UpdateState {
   /** What that pass covered, for display. */
   last_window_start?: string;
   last_window_end?: string;
+
+  /**
+   * Where an interrupted pass got to.
+   *
+   * Without this a refresh restarts from the top of the feed every time, which
+   * is merely wasteful over a month and completely impractical over a full
+   * re-scrape of several years — the job would never finish unless it finished
+   * in one sitting.
+   *
+   * The window it belongs to is stored alongside, because a resume is only
+   * valid for the range it was taken from. Ask for a different window and this
+   * is discarded rather than silently resuming into the wrong place.
+   *
+   * Cleared when a pass completes its window: a stale resume would make the
+   * next run skip everything before it.
+   */
+  resume?: {
+    window_start: string;
+    window_end: string;
+    /** Feed cursor, for a post refresh. */
+    cursor?: string;
+    /** Queue position, for a comment refresh. */
+    offset?: number;
+    /** Oldest `created_at` reached so far, for display. */
+    through?: string;
+    updated_at: number;
+  };
 }
 
 /** The overlap every refresh re-covers. */

@@ -608,8 +608,16 @@ and comment it sees** — effectively a Yik Yak downloader
   - [x] Deleted comments are flagged rather than dropped, by diffing a re-read
         thread against what is held — comments have no tombstone, so absence is
         the only signal there is
-  - [ ] Deep history outside every window ever run is still never refreshed, and
-        no schedule exists — a refresh happens when someone starts one
+  - [x] Refreshes are **resumable** — cursor and queue position saved per
+        window, so a full re-scrape can be paused and picked up rather than
+        needing one uninterrupted sitting. A resume never moves the watermark,
+        and is discarded if the window changes
+  - [x] Two queues a date window cannot reach: the **all-time top 100**, swept
+        first regardless of age, and **posts that newer posts quote**, which are
+        evidence of renewed attention on something old
+  - [ ] Deep history outside every window ever run is still never refreshed
+        except by an explicit full re-scrape, and no schedule exists — a refresh
+        happens when someone starts one
 - [x] **Quote linkage** — `quote_post_id` stored and indexed, and the original
       embedded in a quote-repost archived as a record of its own. Only applies to
       fresh sightings: the v6 → v7 migration cannot recover a link that was never

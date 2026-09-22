@@ -1,6 +1,8 @@
 import {
   archiveContent,
   countPostsInRange,
+  getUpdateState,
+  listQuotedTargets,
   countPostsNeedingComments,
   getCrawlState,
   getOldestArchived,
@@ -129,8 +131,71 @@ async function recordUpdate(
     updated_at: at,
     last_window_start: window.start,
     last_window_end: window.end,
+    // Completed, so any saved position is stale. Leaving it would make the next
+    // run resume past ground it is supposed to re-cover.
+    resume: undefined,
   });
 }
+
+/**
+ * A saved position, but only if it belongs to the window being asked for.
+ *
+ * Resuming into a different range is worse than starting over: the run would
+ * skip everything before the saved point and then claim the whole window.
+ */
+async function resumeFor(
+  kind: UpdateKind,
+  groupId: string,
+  window: UpdateWindow,
+): Promise<{ cursor?: string; offset?: number; through?: string } | undefined> {
+  const state = await getUpdateState(kind, groupId);
+  const resume = state?.resume;
+  if (!resume) return undefined;
+  if (resume.window_start !== window.start || resume.window_end !== window.end) return undefined;
+  return resume;
+}
+
+/** Saves where a refresh has got to, so stopping is not losing. */
+async function saveResume(
+  kind: UpdateKind,
+  groupId: string,
+  window: UpdateWindow,
+  position: { cursor?: string; offset?: number; through?: string },
+) {
+  const existing = await getUpdateState(kind, groupId);
+  await setUpdateState({
+    group_id: groupId,
+    kind,
+    // A resume must never move the watermark — only completing the window does
+    // that. Preserve whatever was there, or leave it at the window's own start
+    // so an interrupted first refresh does not invent coverage.
+    window_start: existing?.window_start ?? window.start,
+    updated_at: existing?.updated_at ?? Date.now(),
+    last_window_start: existing?.last_window_start,
+    last_window_end: existing?.last_window_end,
+    resume: {
+      window_start: window.start,
+      window_end: window.end,
+      ...position,
+      updated_at: Date.now(),
+    },
+  });
+}
+
+/**
+ * Posts the feed ranks highest of all time, re-read regardless of age.
+ *
+ * A community's best posts keep collecting votes and replies long past the
+ * point where everything else has gone quiet — they are linked, screenshotted
+ * and resurfaced — so the date window that works for ordinary posts is exactly
+ * wrong for them. This is a small, fixed sweep: one extra page or four, and it
+ * covers the records most likely to be stale and most likely to be looked at.
+ *
+ * A floor rather than a limit — the check runs between pages, so a page that
+ * crosses it is still taken whole. Stopping mid-page to hit a round number
+ * would mean discarding posts already paid for.
+ */
+const TOP_SWEEP_POSTS = 100;
 
 /**
  * Why a pass ended.
@@ -198,6 +263,10 @@ export interface CrawlProgress {
   window?: UpdateWindow;
   /** True once the refresh has covered its whole window. */
   windowCovered?: boolean;
+  /** Posts re-read from the all-time top, regardless of age. */
+  topSwept?: number;
+  /** Where a resumed refresh picked up, when it did. */
+  resumedFrom?: string;
   /** Consecutive pages that neither archived anything nor reached further back. */
   idlePages: number;
   /** The wait before the next request, so the pacing is visible rather than felt. */
@@ -421,6 +490,51 @@ export function startCrawl(
         return 'stopped';
       };
 
+      /** Re-reads the all-time top posts. Small, fixed, and age-blind. */
+      const sweepTop = async (): Promise<CrawlEnding> => {
+        let cursor: Cursor | undefined;
+        let seen = 0;
+
+        while (!stopped && seen < TOP_SWEEP_POSTS) {
+          progress.run.requests += 1;
+          let page;
+          try {
+            page = await getGroupPosts(groupId, 'top', cursor, 'all_time');
+          } catch (error) {
+            const status = (error as { status?: number })?.status;
+            if (status === 401 || status === 429) {
+              progress.error =
+                status === 401
+                  ? 'Session expired — sign in again before resuming.'
+                  : 'Rate limited. Stopping rather than pushing harder.';
+              onProgress({ ...progress });
+              return 'error';
+            }
+            // A failed top sweep is not worth ending the run over; the window
+            // walk is the main event.
+            progress.run.errors += 1;
+            return 'duplicates';
+          }
+
+          const posts = page?.posts ?? [];
+          if (posts.length === 0) break;
+
+          const { added } = await archiveContent(posts);
+          progress.run.pages += 1;
+          progress.run.archived += added;
+          progress.run.duplicates += posts.length - added;
+          progress.run.lastPageAt = Date.now();
+          seen += posts.length;
+          progress.topSwept = seen;
+          onProgress({ ...progress });
+
+          cursor = page?.cursor;
+          if (!cursor) break;
+          await sleep(PAGE_DELAY_MS + Math.random() * JITTER_MS);
+        }
+        return stopped ? 'stopped' : 'duplicates';
+      };
+
       const save = (patch: Partial<Awaited<ReturnType<typeof getCrawlState>>> = {}) =>
         setCrawlState({
           group_id: groupId,
@@ -447,13 +561,34 @@ export function startCrawl(
       if (update) {
         progress.phase = 'updating';
         progress.window = update;
+
+        /*
+          Top of all time first, and only a hundred posts of it.
+
+          Those are the records most likely to still be moving and least likely
+          to be inside any date window — a two-year-old post that still gets
+          linked collects votes long after everything around it went quiet. It
+          is a handful of requests, so it happens before the long walk rather
+          than after, where a stop would always cut it off.
+        */
+        const topOutcome = await sweepTop();
+        if (topOutcome === 'stopped' || topOutcome === 'error') return;
+
+        const saved = await resumeFor('posts', groupId, update);
+        progress.resumedFrom = saved?.through;
         onProgress({ ...progress });
 
         const outcome = await walk(
+          saved?.cursor,
           undefined,
-          undefined,
-          async () => {
+          async (cursor) => {
             await save();
+            // Position saved per page: stopping a full re-scrape three days in
+            // must not mean starting it again from the top.
+            await saveResume('posts', groupId, update, {
+              cursor,
+              through: progress.run.oldestReached,
+            });
           },
           update.start,
         );
@@ -625,7 +760,7 @@ export type CommentCrawlMode = 'working' | 'bracketing' | 'bisecting';
  * refresh first and then falls through to the backlog, because the window ends
  * at "now" and everything spent elsewhere first widens it.
  */
-export type CommentCrawlPhase = 'refreshing' | 'backlog';
+export type CommentCrawlPhase = 'refreshing' | 'quoted' | 'backlog';
 
 export interface CommentCrawlProgress {
   startedAt: number;
@@ -643,6 +778,10 @@ export interface CommentCrawlProgress {
   removed: number;
   /** Re-read threads that came back byte-for-byte the same size and shape. */
   unchanged: number;
+  /** Old posts pulled in because something in the window quotes them. */
+  quotedFound?: number;
+  /** Where a resumed pass picked up, when it did. */
+  resumedFrom?: string;
   /** Threads fetched this run. */
   threads: number;
   /** Comment rows never seen before. */
@@ -844,9 +983,13 @@ export function startCommentCrawl(
          * every row handled, read or not.
          */
         selfConsuming: boolean,
+        /** Where to pick up, for a queue that survives being stopped. */
+        startAt = 0,
+        /** Called at each window boundary so a stop loses at most one window. */
+        checkpoint?: (offset: number) => Promise<void>,
       ) => {
         progress.behind = 0;
-        let base = 0;
+        let base = startAt;
 
         while (!stopped) {
           const window = await next(selfConsuming ? progress.behind : base);
@@ -854,6 +997,7 @@ export function startCommentCrawl(
 
           if (window.length === 0) return true;
           base += window.length;
+          await checkpoint?.(base);
 
           let j = 0;
           while (j < window.length && !stopped) {
@@ -886,14 +1030,20 @@ export function startCommentCrawl(
 
       /* ---- phase 1: refresh the window ---------------------------------- */
       if (update) {
+        const scope = groupId ?? '';
         progress.phase = 'refreshing';
         progress.outstandingAtStart = await countPostsInRange(update.start, update.end, groupId);
         progress.remaining = progress.outstandingAtStart;
+
+        const saved = await resumeFor('comments', scope, update);
+        progress.resumedFrom = saved?.offset ? String(saved.offset) : undefined;
         emit();
 
         const covered = await drain(
           (offset) => listPostsInRange(update.start, update.end, COMMENT_BATCH, groupId, offset),
           false,
+          saved?.offset ?? 0,
+          (offset) => saveResume('comments', scope, update, { offset }),
         );
 
         if (!covered) {
@@ -902,9 +1052,41 @@ export function startCommentCrawl(
           return;
         }
 
+        /*
+          Then the posts those quote.
+
+          A quote-repost is evidence of renewed attention on something old: it
+          has been resurfaced, so it is collecting replies again at an age where
+          nothing else is. Its own date puts it outside the window, so this is
+          the only pass that will ever go back for it.
+        */
+        progress.phase = 'quoted';
+        emit();
+
+        const quoted = await listQuotedTargets(update.start, update.end, groupId);
+        progress.quotedFound = quoted.length;
+        emit();
+
+        if (quoted.length > 0) {
+          let served = false;
+          const finishedQuoted = await drain(
+            () => {
+              if (served) return Promise.resolve([]);
+              served = true;
+              return Promise.resolve(quoted);
+            },
+            false,
+          );
+          if (!finishedQuoted) {
+            progress.finished = 'stopped';
+            emit();
+            return;
+          }
+        }
+
         // Only a pass that reached the end of its window may claim it. A window
         // recorded after a stop would seal off the part that was never read.
-        await recordUpdate('comments', groupId ?? '', update);
+        await recordUpdate('comments', scope, update);
         progress.windowCovered = true;
         emit();
       }

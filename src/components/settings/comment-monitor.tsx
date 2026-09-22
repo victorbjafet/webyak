@@ -72,7 +72,7 @@ export function CommentMonitor({
   const live = !progress.finished;
   const recovering = live && progress.mode !== 'working';
 
-  const refreshing = progress.phase === 'refreshing';
+  const refreshing = progress.phase === 'refreshing' || progress.phase === 'quoted';
 
   const status = progress.finished
     ? { done: 'Finished', stopped: 'Stopped', error: 'Stopped after an error' }[progress.finished]
@@ -118,11 +118,19 @@ export function CommentMonitor({
       </ThemedText>
 
       {progress.window ? (
-        <ThemedText type="caption" themeColor="textTertiary">
-          {refreshing ? 'Refreshing' : 'Refreshed'} {progress.window.start.slice(0, 10)} →{' '}
-          {progress.window.end.slice(0, 10)}
-          {progress.windowCovered ? ' · window covered' : ''}
-        </ThemedText>
+        <>
+          <ThemedText type="caption" themeColor="textTertiary">
+            {refreshing ? 'Refreshing' : 'Refreshed'} {progress.window.start.slice(0, 10)} →{' '}
+            {progress.window.end.slice(0, 10)}
+            {progress.windowCovered ? ' · window covered' : ''}
+          </ThemedText>
+          {progress.resumedFrom ? (
+            <ThemedText type="caption" style={{ color: theme.brand }}>
+              Resumed at thread {formatCount(Number(progress.resumedFrom))} — the earlier run&rsquo;s
+              position was kept.
+            </ThemedText>
+          ) : null}
+        </>
       ) : null}
 
       {progress.refreshed > 0 ? (
@@ -130,6 +138,11 @@ export function CommentMonitor({
           <Section label="Changes found" />
           <View style={styles.grid}>
             <Metric label="Re-read" value={formatCount(progress.refreshed)} hint="threads" />
+            <Metric
+              label="Quoted"
+              value={progress.quotedFound !== undefined ? formatCount(progress.quotedFound) : '—'}
+              hint="old posts resurfaced"
+            />
             <Metric
               label="New replies"
               value={formatCount(progress.gained)}
