@@ -533,9 +533,18 @@ belonged to the full re-scrape control. The cheap, normal option was invisible
 and the expensive, rare one looked like the default.
 
 So: the fields show the window that will actually run, the summary line names it
-as the default and where it came from, and full re-scrape is a plain line of text
-at the bottom that says it is days of work. Re-reading years of history against a
-private API is a thing to reach for knowingly.
+as the default and where it came from, and full re-scrape is a separate checkbox
+that says what it costs. Re-reading years of history against a private API is a
+thing to reach for knowingly. That checkbox is derived from the dates rather than
+held as its own flag, so the two cannot disagree — ticking it widens the window
+to the whole archive, and editing either date unticks it.
+
+**The panel needs a community before a run starts.** The community chips *are*
+the start button, so the screen had nothing to look a window up for until one was
+pressed — and reported "none recorded" even where one existed. It falls back to
+the community being viewed, and names whose window it is showing, so a
+multi-community archive cannot be misread. Whichever chip is pressed still runs
+against its own recorded window.
 
 "Custom" means *differing from the watermark*, not merely set, and is compared on
 the date rather than the instant — a watermark carries a real time of day and a

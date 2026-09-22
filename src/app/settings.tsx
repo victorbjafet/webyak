@@ -66,7 +66,7 @@ function formatBytes(bytes?: number) {
 export default function SettingsScreen() {
   const theme = useTheme();
   const router = useRouter();
-  const { groups } = useCurrentGroup();
+  const { groups, current } = useCurrentGroup();
 
   const [stats, setStats] = useState<ArchiveStats | null>(null);
   const [crawls, setCrawls] = useState<CrawlState[]>([]);
@@ -224,6 +224,23 @@ export default function SettingsScreen() {
   // Crawlable communities only: For You is a combined view, not a feed with its
   // own cursor to walk.
   const crawlable = groups.filter((g) => !isForYouFeed(g));
+
+  /*
+    Which community's window the panel shows.
+
+    `target` is only set when a run *starts*, and the community chips are the
+    start button — so before pressing anything there was no community to look a
+    window up for, and the panel always reported "none recorded" even when one
+    existed. Falling back to the community being viewed makes the common case
+    right, and the panel names whose window it is so a multi-community archive
+    cannot be misread. Whichever chip is pressed still runs against its own
+    recorded window.
+  */
+  // For You is a combined view with no cursor of its own, so it is never a
+  // scope a crawl or a window can belong to.
+  const viewing = current && !isForYouFeed(current) ? current : null;
+  const postScope = target ?? viewing ?? crawlable[0] ?? null;
+  const commentScope = commentTarget ?? viewing ?? null;
 
   const begin = useCallback(
     (group: Group) => {
@@ -440,8 +457,11 @@ export default function SettingsScreen() {
               kind="posts"
               value={postUpdate}
               onChange={setPostUpdate}
-              state={updates.find((u) => u.kind === 'posts' && u.group_id === (target?.id ?? ''))}
+              state={updates.find(
+                (u) => u.kind === 'posts' && u.group_id === (postScope?.id ?? ''),
+              )}
               earliest={stats?.oldest}
+              scopeName={postScope ? groupDisplayName(postScope) : undefined}
               disabled={running}
             />
 
@@ -590,9 +610,10 @@ export default function SettingsScreen() {
               value={commentUpdate}
               onChange={setCommentUpdate}
               state={updates.find(
-                (u) => u.kind === 'comments' && u.group_id === (commentTarget?.id ?? ''),
+                (u) => u.kind === 'comments' && u.group_id === (commentScope?.id ?? ''),
               )}
               earliest={stats?.oldest}
+              scopeName={commentScope ? groupDisplayName(commentScope) : 'All communities'}
               disabled={commentsRunning}
             />
 

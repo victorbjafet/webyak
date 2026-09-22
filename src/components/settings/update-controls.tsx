@@ -72,6 +72,7 @@ export function UpdateControls({
   onChange,
   state,
   earliest,
+  scopeName,
   disabled,
 }: {
   kind: 'posts' | 'comments';
@@ -81,6 +82,8 @@ export function UpdateControls({
   state: UpdateState | undefined;
   /** Oldest post held, so "everything" is an offerable window. */
   earliest?: string;
+  /** Which community the shown window belongs to. */
+  scopeName?: string;
   disabled?: boolean;
 }) {
   const theme = useTheme();
@@ -101,6 +104,7 @@ export function UpdateControls({
     that is already the default should not count as an override.
   */
   const defaultStart = state?.window_start;
+  const everything = Boolean(earliest && value.start === earliest);
   const custom =
     Boolean(value.end) || Boolean(value.start && asDate(value.start) !== asDate(defaultStart));
   // A saved position only applies to the window it was taken from.
@@ -138,7 +142,7 @@ export function UpdateControls({
           {missing ? (
             <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>
               <ThemedText type="caption" style={{ color: theme.danger }}>
-                No update window recorded for this community.
+                No update window recorded{scopeName ? ` for ${scopeName}` : ''}.
               </ThemedText>
               <ThemedText type="caption" themeColor="textSecondary">
                 This archive predates refresh tracking, so there is nothing on disk saying how
@@ -148,7 +152,7 @@ export function UpdateControls({
             </View>
           ) : (
             <ThemedText type="caption" themeColor="textSecondary">
-              Covering{' '}
+              {scopeName ? `${scopeName}: ` : ''}Covering{' '}
               <ThemedText type="caption" style={{ color: theme.brand }}>
                 {asDate(resolved?.start)} → {value.end ? asDate(value.end) : 'now'}
               </ThemedText>
@@ -189,20 +193,39 @@ export function UpdateControls({
           </View>
 
           {/*
-            Deliberately understated, and last. Re-reading years of history is
-            days of requests against a private API — a thing to reach for
-            knowingly, not the option that happens to have a date printed on it.
+            Derived from the dates rather than held as its own flag, so it cannot
+            disagree with them: ticking it sets the window to the whole archive,
+            and editing either date unticks it on its own.
           */}
           {earliest ? (
             <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Re-read the entire archive"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: everything, disabled }}
+              accessibilityLabel="Re-scrape everything"
               disabled={disabled}
-              onPress={() => onChange({ enabled: true, start: earliest, end: undefined })}
-              style={({ hovered }) => [styles.preset, hovered && { opacity: 0.7 }]}>
-              <ThemedText type="caption" themeColor="textTertiary">
-                Or re-read everything back to {asDate(earliest)} — days of work
-              </ThemedText>
+              onPress={() =>
+                onChange(
+                  everything
+                    ? { enabled: true }
+                    : { enabled: true, start: earliest, end: undefined },
+                )
+              }
+              style={({ hovered }) => [styles.checkRow, hovered && { opacity: 0.85 }]}>
+              <Ionicons
+                name={everything ? 'checkbox' : 'square-outline'}
+                size={16}
+                color={everything ? theme.danger : theme.textTertiary}
+              />
+              <View style={styles.checkText}>
+                <ThemedText type="caption" style={{ color: everything ? theme.danger : theme.text }}>
+                  Re-scrape everything — back to {asDate(earliest)}
+                </ThemedText>
+                <ThemedText type="caption" themeColor="textTertiary">
+                  {everything
+                    ? 'Days of requests. It saves its position, so it can be stopped and picked up.'
+                    : 'Ignores the window and re-reads the whole archive.'}
+                </ThemedText>
+              </View>
             </Pressable>
           ) : null}
 
