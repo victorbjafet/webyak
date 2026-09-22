@@ -767,6 +767,42 @@ Both are scoped per community, because a job measured in days should be aimable
 at one community rather than being all-or-nothing.
 
 
+## A `.web` file must never import its own specifier
+
+The other face of the platform split, and this one takes the whole app down.
+
+Inside `date-field.web.tsx`, the specifier `./date-field` does **not** mean the
+native file. Metro resolves it for the platform being built, which on web is
+`date-field.web.tsx` — the file doing the importing. So:
+
+```ts
+export { normalizeDate } from './date-field';   // re-exports itself
+```
+
+is a module that re-exports itself, forever. The failure is `Maximum call stack
+size exceeded` at import time, which means **every** route dies, not just the one
+using the component.
+
+**The build stays green**, because a cycle is a runtime property. `tsc`, `expo
+lint` and `expo export` all passed on the commit that shipped this.
+
+TypeScript and Metro disagree here on purpose, and the disagreement is the trap:
+
+| | `./date-field` from inside `date-field.web.tsx` |
+|---|---|
+| tsc | `date-field.tsx` — the native file |
+| Metro, web | `date-field.web.tsx` — itself |
+
+So a **type-only** self-import is fine and is how the existing splits share their
+contracts — `storage.web.ts` and `image-picker.web.ts` both do it, tsc resolves
+them to the native file, and the import is erased before it can cycle. A
+**value** import is fatal. Since nothing in the syntax distinguishes them at a
+glance, anything two platform files share belongs in a third module neither of
+them is: `date-field-props.ts` for the props, `@/lib/time` for `normalizeDate`.
+
+Worth scanning for after touching a split — a platform file importing its own
+basename, with a value rather than a type, is always this bug.
+
 ## Helper components go at module scope, never inside another component
 
 A component declared **inside** another component is a different function object

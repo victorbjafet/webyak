@@ -50,3 +50,16 @@ export function preciseDelta(iso: string, now = Date.now()): string {
   parts.push(`${seconds}s`);
   return parts.join(' ');
 }
+
+/**
+ * `2026-9-3` → `2026-09-03`. Returns '' for anything that is not a date.
+ *
+ * The padded form is what `<input type="date">` requires and what the archive's
+ * query grammar accepts, so it is the shape every date crosses a boundary in.
+ */
+export function normalizeDate(input: string): string {
+  const match = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(input.trim());
+  if (!match) return '';
+  const [, y, m, d] = match;
+  return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+}

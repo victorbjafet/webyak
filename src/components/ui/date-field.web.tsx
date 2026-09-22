@@ -5,9 +5,7 @@ import { ThemedText } from '../themed-text';
 import { Radius, Spacing } from '@/constants/theme';
 import { useColorScheme, useTheme } from '@/hooks/use-theme';
 
-import type { DateFieldProps } from './date-field';
-
-export { normalizeDate } from './date-field';
+import type { DateFieldProps } from './date-field-props';
 
 /**
  * A date input backed by the browser's own `<input type="date">`.
@@ -24,6 +22,11 @@ export { normalizeDate } from './date-field';
  * value stays empty and the character never appears. A native date input holds
  * its own partial state and only reports a **complete** date, which is exactly
  * the contract the callers want.
+ *
+ * Nothing here imports `./date-field`. On web that specifier resolves to **this
+ * file**, so a re-export from it is a module that re-exports itself — which is
+ * a stack overflow at import time, not a build error, and therefore takes the
+ * whole app down at runtime with a green build behind it.
  *
  * ## Why it is hand-styled
  *

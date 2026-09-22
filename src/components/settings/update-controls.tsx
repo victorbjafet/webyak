@@ -2,11 +2,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '../themed-text';
-import { DateField, normalizeDate } from '../ui/date-field';
+import { DateField } from '../ui/date-field';
 
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import type { UpdateState } from '@/lib/archive/types';
+import { normalizeDate } from '@/lib/time';
 
 /**
  * The refresh window for a scrape run.
