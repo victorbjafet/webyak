@@ -524,6 +524,24 @@ of four days wearing the label of a month. The day is clamped to the target
 month's length, and every field is read and written in UTC so the watermark
 cannot drift by a day depending on where it was computed.
 
+### The default is the recorded window, and it says so
+
+The From box is **pre-filled with the watermark**, not left to a placeholder.
+`<input type="date">` ignores placeholders — it renders `mm/dd/yyyy` whatever you
+pass — so a defaulted field looked empty, and the only concrete date on screen
+belonged to the full re-scrape control. The cheap, normal option was invisible
+and the expensive, rare one looked like the default.
+
+So: the fields show the window that will actually run, the summary line names it
+as the default and where it came from, and full re-scrape is a plain line of text
+at the bottom that says it is days of work. Re-reading years of history against a
+private API is a thing to reach for knowingly.
+
+"Custom" means *differing from the watermark*, not merely set, and is compared on
+the date rather than the instant — a watermark carries a real time of day and a
+picker can only produce midnight, so choosing the day that is already the default
+is not an override.
+
 ### A missing window is asked about, never guessed
 
 An archive built before refresh tracking has no watermark, and there is nothing

@@ -87,7 +87,22 @@ export function UpdateControls({
 
   const resolved = resolveWindow(value, state);
   const missing = value.enabled && !resolved;
-  const custom = Boolean(value.start || value.end);
+  /*
+    "Custom" means differing from the recorded watermark, not merely set.
+
+    The From box **shows** the default window rather than leaving it to a
+    placeholder, because `<input type="date">` ignores placeholders — it renders
+    `mm/dd/yyyy` regardless. That left the default invisible and the only
+    concrete date on screen belonging to the full re-scrape button, which made
+    the rare, expensive option look like the normal one.
+
+    Compared on the date rather than the instant: the watermark carries a real
+    time of day, and a picker can only ever produce midnight, so picking the day
+    that is already the default should not count as an override.
+  */
+  const defaultStart = state?.window_start;
+  const custom =
+    Boolean(value.end) || Boolean(value.start && asDate(value.start) !== asDate(defaultStart));
   // A saved position only applies to the window it was taken from.
   const resumable =
     Boolean(state?.resume) &&
@@ -137,9 +152,11 @@ export function UpdateControls({
               <ThemedText type="caption" style={{ color: theme.brand }}>
                 {asDate(resolved?.start)} → {value.end ? asDate(value.end) : 'now'}
               </ThemedText>
-              {state && !custom ? ` · a month before the last refresh on ${asDate(
-                new Date(state.updated_at).toISOString(),
-              )}` : ''}
+              {state && !custom
+                ? ` · the default: a month before your last refresh on ${asDate(
+                    new Date(state.updated_at).toISOString(),
+                  )}`
+                : ''}
               {custom ? ' · custom range' : ''}
             </ThemedText>
           )}
@@ -147,8 +164,7 @@ export function UpdateControls({
           <View style={styles.dates}>
             <DateField
               label="From"
-              value={asDate(value.start)}
-              placeholder={asDate(state?.window_start) || 'YYYY-MM-DD'}
+              value={asDate(value.start ?? defaultStart)}
               disabled={disabled}
               onChange={(next) => onChange({ ...value, start: toIso(next) })}
             />
@@ -172,6 +188,11 @@ export function UpdateControls({
             ) : null}
           </View>
 
+          {/*
+            Deliberately understated, and last. Re-reading years of history is
+            days of requests against a private API — a thing to reach for
+            knowingly, not the option that happens to have a date printed on it.
+          */}
           {earliest ? (
             <Pressable
               accessibilityRole="button"
@@ -179,9 +200,8 @@ export function UpdateControls({
               disabled={disabled}
               onPress={() => onChange({ enabled: true, start: earliest, end: undefined })}
               style={({ hovered }) => [styles.preset, hovered && { opacity: 0.7 }]}>
-              <Ionicons name="repeat-outline" size={13} color={theme.textTertiary} />
               <ThemedText type="caption" themeColor="textTertiary">
-                Full re-scrape — everything back to {asDate(earliest)}
+                Or re-read everything back to {asDate(earliest)} — days of work
               </ThemedText>
             </Pressable>
           ) : null}
