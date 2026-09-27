@@ -38,6 +38,20 @@ export default function ProfileScreen() {
     );
   }
 
+  // An answer, not a failure: the API has no public profile under this name.
+  // offsides 1.0 gives the same two reasons (docs/API.md#a-user-profile-is-a-group).
+  if (profile.data === null) {
+    return (
+      <Screen title={username ? `@${username}` : 'Profile'} back>
+        <EmptyState
+          icon="person-outline"
+          title="This profile isn't available"
+          body="They may have changed their username or made their profile private."
+        />
+      </Screen>
+    );
+  }
+
   const icon = profile.data?.conversation_icon;
   // The Profile typedef says the icon is emoji + color, but that came from
   // sidechat.js's JSDoc which has been wrong before, so handle an image URL too

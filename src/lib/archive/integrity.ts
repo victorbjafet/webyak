@@ -1,4 +1,4 @@
-import type { ArchivedContent } from './types';
+import { DELETED_ALIAS, isTombstoneText, type ArchivedContent } from './types';
 
 /**
  * Checks the archive for holes.
@@ -97,6 +97,24 @@ export interface IntegrityReport {
     orphanQuotes: number;
     /** Two records sharing a share code — should never happen. */
     duplicateIndexCodes: number;
+    /**
+     * Records holding a placeholder text without being flagged deleted.
+     *
+     * Should be 0. Sightings and imports flag placeholders on the way in, and
+     * `repairTombstones` flagged everything written before they did, so a
+     * non-zero count means a write path that bypasses both.
+     */
+    unflaggedPlaceholders: number;
+    /**
+     * Records with the alias a deleted comment is served with, but a text the
+     * archive does not know as a placeholder.
+     *
+     * The case the placeholder list cannot catch by itself: the API changing its
+     * text. Until the new text is added to `TOMBSTONE_TEXTS`, every re-read of a
+     * deleted comment writes it over the real one — the bug that went unnoticed
+     * for weeks. Could also be a comment kept up after its author's account went.
+     */
+    unknownPlaceholders: number;
     /** Posts with replies whose threads have not been collected. */
     threadsUncollected: number;
     mediaPending: number;
@@ -159,6 +177,8 @@ export function analyseArchive(
     quotes: 0,
     orphanQuotes: 0,
     duplicateIndexCodes: 0,
+    unflaggedPlaceholders: 0,
+    unknownPlaceholders: 0,
     threadsUncollected: 0,
     mediaPending: 0,
   };
@@ -187,6 +207,11 @@ export function analyseArchive(
     }
 
     if (!record.group_id) structural.missingGroup += 1;
+    if (isTombstoneText(record.text)) {
+      if (!record.deleted) structural.unflaggedPlaceholders += 1;
+    } else if (record.alias === DELETED_ALIAS) {
+      structural.unknownPlaceholders += 1;
+    }
     if (!record.tokens || record.tokens.length === 0) structural.untokenized += 1;
     if (record.needs_comments) structural.threadsUncollected += 1;
     if (record.media_pending) structural.mediaPending += 1;

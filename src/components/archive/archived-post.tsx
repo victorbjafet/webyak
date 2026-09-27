@@ -6,7 +6,7 @@ import { Button } from '../ui/button';
 
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import type { ArchivedContent } from '@/lib/archive/types';
+import { isTombstoneText, type ArchivedContent } from '@/lib/archive/types';
 import { formatCount } from '@/lib/time';
 
 /**
@@ -97,7 +97,13 @@ export function ArchivedPost({
           </ThemedText>
         </View>
 
-        <ThemedText type="body">{record.text || '(no text)'}</ThemedText>
+        {isTombstoneText(record.text) ? (
+          <ThemedText type="body" themeColor="textTertiary" style={styles.removedText}>
+            Removed before it was archived
+          </ThemedText>
+        ) : (
+          <ThemedText type="body">{record.text || '(no text)'}</ThemedText>
+        )}
 
         {record.has_media ? (
           <View style={styles.media}>
@@ -135,7 +141,8 @@ export function ArchivedPost({
       ) : null}
       {removedComments > 0 ? (
         <ThemedText type="caption" themeColor="textTertiary">
-          {formatCount(removedComments)} of these were removed individually before the post was.
+          {formatCount(removedComments)} of these were removed individually
+          {reason === 'gone' ? ' before the post was' : ''}.
         </ThemedText>
       ) : null}
 
@@ -178,6 +185,14 @@ function Byline({ record }: { record: ArchivedContent }) {
 
 function ArchivedComment({ comment }: { comment: ArchivedContent }) {
   const theme = useTheme();
+  /*
+    Still the placeholder: the comment was already deleted the first time the
+    comment pass read its thread, so its words were never captured. A comment
+    deleted *after* being archived keeps its real text and shows it, tagged.
+    The placeholder's alias ("Deleted") and zero score describe the
+    placeholder, not the comment, so neither is shown.
+  */
+  const neverCaptured = isTombstoneText(comment.text);
   return (
     <View
       style={[
@@ -186,7 +201,7 @@ function ArchivedComment({ comment }: { comment: ArchivedContent }) {
         { borderColor: comment.deleted ? theme.danger : theme.border },
       ]}>
       <View style={styles.head}>
-        <Byline record={comment} />
+        {neverCaptured ? null : <Byline record={comment} />}
         <View style={styles.spacer} />
         {comment.deleted ? (
           <ThemedText type="caption" style={{ color: theme.danger }}>
@@ -197,11 +212,19 @@ function ArchivedComment({ comment }: { comment: ArchivedContent }) {
           {comment.created_at?.slice(0, 10)}
         </ThemedText>
       </View>
-      <ThemedText type="small">{comment.text || '(no text)'}</ThemedText>
-      <ThemedText type="caption" style={{ color: theme.brand }}>
-        {comment.vote_total > 0 ? '+' : ''}
-        {formatCount(comment.vote_total)}
-      </ThemedText>
+      {neverCaptured ? (
+        <ThemedText type="small" themeColor="textTertiary" style={styles.removedText}>
+          Removed before it was archived
+        </ThemedText>
+      ) : (
+        <>
+          <ThemedText type="small">{comment.text || '(no text)'}</ThemedText>
+          <ThemedText type="caption" style={{ color: theme.brand }}>
+            {comment.vote_total > 0 ? '+' : ''}
+            {formatCount(comment.vote_total)}
+          </ThemedText>
+        </>
+      )}
     </View>
   );
 }
@@ -267,5 +290,8 @@ const styles = StyleSheet.create({
   },
   reply: {
     marginLeft: Spacing.four,
+  },
+  removedText: {
+    fontStyle: 'italic',
   },
 });

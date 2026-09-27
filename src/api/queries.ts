@@ -16,6 +16,7 @@ import {
   getUpdates,
   getUpvotedPosts,
   getUserContent,
+  getUserProfile,
 } from './client';
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
@@ -37,7 +38,6 @@ import type {
   Karma,
   MyIdentity,
   PostOrComment,
-  Profile,
   TopPeriod,
 } from './types';
 
@@ -148,11 +148,19 @@ export function useGroupFeed(
   return { ...query, posts };
 }
 
+/**
+ * A public profile. `null` means the API has none for this name — private, or
+ * the username changed — which the screen shows as unavailable, not as an error.
+ *
+ * Shares `queryKeys.profile` with `useAuthorPhoto`, so both must use the same
+ * query function: two functions on one key means whichever mounts first decides
+ * what the other reads.
+ */
 export function useUserProfile(username: string | undefined) {
   return useQuery({
     queryKey: queryKeys.profile(username ?? ''),
     enabled: Boolean(username),
-    queryFn: async () => (await api.getUserProfile(username as string)) as unknown as Profile,
+    queryFn: () => getUserProfile(username as string),
   });
 }
 
@@ -378,6 +386,21 @@ export type { Group };
  * From `getUpdates().user`, not `/v1/users/me` — the latter returns ids,
  * memberships and email domains but no username or bio, which is the whole
  * point of this query.
+ *
+ * ## The bio may live on your public profile instead
+ *
+ * offsides 1.0 reads the bio from here and, when it is not, from your public
+ * profile's `description` — commented *"The bio lives on the public profile
+ * object"* (docs/OFFSIDES.md). Reading only `user.bio` would show "No bio yet"
+ * and open Edit Profile empty for an account that has one. So when the updates
+ * payload carries neither key, the profile is asked — once, through the same
+ * fetcher as every other profile — and its bio folded in here, keeping
+ * `bio` the one field the You tab and Edit Profile read. Edit Profile then
+ * compares against the real bio, so an unchanged one is still not re-sent.
+ *
+ * The same test offsides uses, `typeof === 'string'`: an empty string is an
+ * answer, `null` is not. A failed profile read leaves the bio unknown rather
+ * than failing the whole identity.
  */
 export function useMyIdentity() {
   return useQuery({
@@ -385,7 +408,22 @@ export function useMyIdentity() {
     staleTime: 1000 * 60 * 5,
     queryFn: async (): Promise<MyIdentity> => {
       const updates = await getUpdates();
-      return (updates?.user ?? {}) as MyIdentity;
+      const user = (updates?.user ?? {}) as MyIdentity & { description?: unknown };
+      if (typeof user.bio === 'string') return user;
+      if (typeof user.description === 'string') return { ...user, bio: user.description };
+      if (!user.username) return user;
+      try {
+        const profile = (await getUserProfile(user.username)) as { description?: unknown; bio?: unknown } | null;
+        const bio =
+          typeof profile?.description === 'string'
+            ? profile.description
+            : typeof profile?.bio === 'string'
+              ? profile.bio
+              : undefined;
+        return bio === undefined ? user : { ...user, bio };
+      } catch {
+        return user;
+      }
     },
   });
 }

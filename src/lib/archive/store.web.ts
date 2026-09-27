@@ -3,6 +3,7 @@ import { type ArchiveQuery } from './query';
 import {
   expandQuoted,
   isEmbeddedCopy,
+  isTombstoneText,
   mergeArchived,
   toArchived,
   tokenize,
@@ -10,6 +11,7 @@ import {
   type ArchivedContent,
   type CrawlState,
   type QueuedPost,
+  type RepairOutcome,
   type UpdateKind,
   type UpdateState,
 } from './types';
@@ -727,6 +729,117 @@ export async function markMissingCommentsDeleted(
   return flagged;
 }
 
+/* ------------------------------------------------------------------------ *
+ * One-off repairs of data written by older versions
+ * ------------------------------------------------------------------------ */
+
+/** Records per read transaction when a repair walks the whole archive. */
+const REPAIR_SCAN_CHUNK = 2000;
+/** Records per write transaction when it rewrites what it found. */
+const REPAIR_WRITE_CHUNK = 500;
+
+/**
+ * Flags every record still holding a placeholder text as deleted.
+ *
+ * Until `"Comment Deleted"` was recognised, every deleted comment was archived
+ * as live — 309 of them in a 600k-record archive — and only a re-read would ever
+ * flag one, which most never get.
+ *
+ * ## Two phases, many small transactions
+ *
+ * Text is not indexed, so finding them is a full read. It is done as a run of
+ * short read-only transactions rather than one cursor: a read-write transaction
+ * **waits for every earlier transaction on the same store to finish**,
+ * read-only ones included, so one long scan would stall a running crawl's writes
+ * until it ended. Only then are the few ids found rewritten, each re-checked
+ * inside the write, since a crawl may have got there first.
+ *
+ * `deleted_at` is the record's `last_seen_at`: the placeholder is what was seen
+ * then, so that is the tightest bound the archive can honestly give.
+ */
+export async function flagTombstonedRecords(): Promise<number> {
+  const db = await openDb();
+
+  const found: string[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+    const range = after === undefined ? null : IDBKeyRange.lowerBound(after, true);
+    const rows = (await asPromise(store.getAll(range, REPAIR_SCAN_CHUNK))) as ArchivedContent[];
+    for (const record of rows) {
+      if (!record.deleted && isTombstoneText(record.text)) found.push(record.id);
+    }
+    if (rows.length < REPAIR_SCAN_CHUNK) break;
+    after = rows[rows.length - 1].id;
+  }
+
+  let flagged = 0;
+  for (let i = 0; i < found.length; i += REPAIR_WRITE_CHUNK) {
+    const transaction = tx(db, [CONTENT], 'readwrite');
+    const store = transaction.objectStore(CONTENT);
+    await Promise.all(
+      found.slice(i, i + REPAIR_WRITE_CHUNK).map(async (id) => {
+        const record = (await asPromise(store.get(id))) as ArchivedContent | undefined;
+        if (!record || record.deleted || !isTombstoneText(record.text)) return;
+        store.put({
+          ...record,
+          deleted: 1,
+          deleted_at: record.last_seen_at,
+          deleted_via: 'tombstone',
+          // Only a post can be waiting on its thread; a comment's flag is 0 already.
+          needs_comments: 0,
+        });
+        flagged += 1;
+      }),
+    );
+    await done(transaction);
+  }
+  return flagged;
+}
+
+/** Marks the tombstone repair done, so it runs once per archive rather than once per visit. */
+const TOMBSTONE_REPAIR_KEY = 'repair:tombstones:1';
+
+let tombstoneRepair: Promise<RepairOutcome> | null = null;
+
+/**
+ * `flagTombstonedRecords`, once per archive, for the settings screen to start
+ * in the background.
+ *
+ * Gated by a key in `meta` rather than by rescanning until nothing turns up:
+ * the scan reads every record, which is not something to repeat on each visit.
+ * One pass is all it ever needs — everything written since is flagged on the
+ * way in, a sighting by `toArchived` and an import by `normalizeImported`.
+ * Clearing the archive clears the key with it.
+ *
+ * Concurrent callers share one run. A screen mounted twice in development would
+ * otherwise scan twice, and the second run — finding nothing left — would record
+ * an outcome of zero over the real one.
+ */
+export function repairTombstones(): Promise<RepairOutcome> {
+  if (!tombstoneRepair) {
+    const run = (async (): Promise<RepairOutcome> => {
+      const db = await openDb();
+      const held = (await asPromise(
+        tx(db, [META], 'readonly').objectStore(META).get(TOMBSTONE_REPAIR_KEY),
+      )) as { value: Omit<RepairOutcome, 'fresh'> } | undefined;
+      if (held) return { ...held.value, fresh: false };
+
+      const outcome = { flagged: await flagTombstonedRecords(), ran_at: Date.now() };
+      const transaction = tx(db, [META], 'readwrite');
+      transaction.objectStore(META).put({ key: TOMBSTONE_REPAIR_KEY, value: outcome });
+      await done(transaction);
+      return { ...outcome, fresh: true };
+    })();
+    tombstoneRepair = run;
+    // A failure is not an outcome: the next call tries again.
+    run.catch(() => {
+      if (tombstoneRepair === run) tombstoneRepair = null;
+    });
+  }
+  return tombstoneRepair;
+}
+
 /**
  * Streams the whole archive out as NDJSON — one JSON object per line.
  *
@@ -815,6 +928,8 @@ export async function clearArchive(): Promise<void> {
   transaction.objectStore(MEDIA).clear();
   transaction.objectStore(META).clear();
   await done(transaction);
+  // The repair's key went with `meta`; forget the in-memory outcome too.
+  tombstoneRepair = null;
 }
 
 
@@ -1110,6 +1225,22 @@ function normalizeImported(raw: Record<string, unknown>): ArchivedContent | null
   const text = typeof raw.text === 'string' ? raw.text : '';
   const seen = typeof raw.last_seen_at === 'number' ? raw.last_seen_at : Date.now();
 
+  /*
+    Deletion, by the same rule a sighting uses. Exports written before
+    "Comment Deleted" was recognised hold hundreds of placeholders with
+    `deleted: 0`, and a record new to this browser is stored as-is — it never
+    meets `mergeArchived` — so without this a restore would bring every one of
+    them back unflagged. Dated at `last_seen_at`, like `flagTombstonedRecords`.
+  */
+  const placeholder = isTombstoneText(text);
+  const deleted = Boolean(raw.deleted) || placeholder;
+  const deletedVia =
+    raw.deleted_via === 'tombstone' || raw.deleted_via === 'missing'
+      ? raw.deleted_via
+      : placeholder
+        ? 'tombstone'
+        : undefined;
+
   return {
     id,
     type: isComment ? 'comment' : 'post',
@@ -1119,6 +1250,14 @@ function normalizeImported(raw: Record<string, unknown>): ArchivedContent | null
     reply_post_id: replyPostId,
     reply_comment_post_id:
       typeof raw.reply_comment_post_id === 'string' ? raw.reply_comment_post_id : undefined,
+    /*
+      Every field is copied explicitly, so **a field added to `ArchivedContent`
+      needs a line here too.** `quote_post_id`, `deleted_via` and the two
+      thread-read fields were added to the record and not here: exports carried
+      them, and a restore into an empty browser dropped them — every quote link,
+      how each deletion was noticed, and which threads had been read.
+    */
+    quote_post_id: typeof raw.quote_post_id === 'string' ? raw.quote_post_id : undefined,
     is_reply:
       (raw.is_reply as 0 | 1) ??
       (isComment && replyPostId && parentPostId && replyPostId !== parentPostId ? 1 : 0),
@@ -1135,12 +1274,25 @@ function normalizeImported(raw: Record<string, unknown>): ArchivedContent | null
       (raw.media_pending as 0 | 1) ?? (Array.isArray(raw.media) && raw.media.length ? 1 : 0),
     first_seen_at: typeof raw.first_seen_at === 'number' ? raw.first_seen_at : seen,
     last_seen_at: seen,
-    deleted: (raw.deleted as 0 | 1) ?? 0,
-    deleted_at: typeof raw.deleted_at === 'number' ? raw.deleted_at : undefined,
-    needs_comments:
-      (raw.needs_comments as 0 | 1) ?? (!isComment && (commentCount ?? 0) > 0 ? 1 : 0),
+    deleted: deleted ? 1 : 0,
+    deleted_at: !deleted
+      ? undefined
+      : typeof raw.deleted_at === 'number'
+        ? raw.deleted_at
+        : placeholder
+          ? seen
+          : undefined,
+    deleted_via: deleted ? deletedVia : undefined,
+    // A thread under something gone cannot be read.
+    needs_comments: deleted
+      ? 0
+      : ((raw.needs_comments as 0 | 1) ?? (!isComment && (commentCount ?? 0) > 0 ? 1 : 0)),
     comments_fetched_count:
       typeof raw.comments_fetched_count === 'number' ? raw.comments_fetched_count : undefined,
+    comments_fetched_at:
+      typeof raw.comments_fetched_at === 'number' ? raw.comments_fetched_at : undefined,
+    comments_last_comment_at:
+      typeof raw.comments_last_comment_at === 'string' ? raw.comments_last_comment_at : undefined,
     tokens: Array.isArray(raw.tokens)
       ? (raw.tokens as string[])
       : tokenize(text, typeof raw.author === 'string' ? raw.author : undefined,
@@ -1498,6 +1650,8 @@ const _implements: ArchiveStore = {
   countUnseenInRange,
   markPostsDeleted,
   listArchivedThread,
+  flagTombstonedRecords,
+  repairTombstones,
   exportArchive,
   importArchive,
 };

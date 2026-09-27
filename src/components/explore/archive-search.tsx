@@ -17,7 +17,7 @@ import {
   searchArchive,
 } from '@/lib/archive/store';
 import type { SearchResult } from '@/lib/archive/store';
-import type { ArchivedContent } from '@/lib/archive/types';
+import { isTombstoneText, type ArchivedContent } from '@/lib/archive/types';
 import { formatCount } from '@/lib/time';
 
 /**
@@ -287,6 +287,9 @@ function Result({ record }: { record: ArchivedContent }) {
   const router = useRouter();
   // Comments open their parent post; a comment has no page of its own.
   const target = record.type === 'comment' ? record.parent_post_id : record.id;
+  // Archived only as the placeholder — deleted before its words were captured.
+  // Its alias ("Deleted") and zero score describe the placeholder, not the comment.
+  const neverCaptured = isTombstoneText(record.text);
 
   return (
     <Pressable
@@ -310,7 +313,7 @@ function Result({ record }: { record: ArchivedContent }) {
           <ThemedText type="caption" style={{ color: theme.brand }}>
             @{record.author}
           </ThemedText>
-        ) : record.alias ? (
+        ) : record.alias && !neverCaptured ? (
           <ThemedText type="caption" themeColor="textTertiary">
             {record.alias}
           </ThemedText>
@@ -323,18 +326,26 @@ function Result({ record }: { record: ArchivedContent }) {
         {record.deleted ? <Tag label="deleted" danger /> : null}
       </View>
 
-      <ThemedText type="small" numberOfLines={6}>
-        {record.text || '(no text)'}
-      </ThemedText>
+      {neverCaptured ? (
+        <ThemedText type="small" themeColor="textTertiary" style={styles.removedText}>
+          Removed before it was archived
+        </ThemedText>
+      ) : (
+        <ThemedText type="small" numberOfLines={6}>
+          {record.text || '(no text)'}
+        </ThemedText>
+      )}
 
       <View style={styles.resultFoot}>
         <ThemedText type="caption" themeColor="textTertiary">
           {record.created_at?.slice(0, 10)}
         </ThemedText>
-        <ThemedText type="caption" style={{ color: theme.brand }}>
-          {record.vote_total > 0 ? '+' : ''}
-          {formatCount(record.vote_total)}
-        </ThemedText>
+        {neverCaptured ? null : (
+          <ThemedText type="caption" style={{ color: theme.brand }}>
+            {record.vote_total > 0 ? '+' : ''}
+            {formatCount(record.vote_total)}
+          </ThemedText>
+        )}
         {record.comment_count ? (
           <ThemedText type="caption" themeColor="textTertiary">
             {formatCount(record.comment_count)} replies
@@ -450,5 +461,8 @@ const styles = StyleSheet.create({
   tag: {
     paddingHorizontal: Spacing.one,
     borderRadius: Radius.sm,
+  },
+  removedText: {
+    fontStyle: 'italic',
   },
 });

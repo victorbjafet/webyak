@@ -33,15 +33,35 @@ import {
   importArchive,
   listCrawlStates,
   listUpdateStates,
+  repairTombstones,
   type ImportProgress,
 } from '@/lib/archive/store';
 import { analyseArchive, type IntegrityReport } from '@/lib/archive/integrity';
 import { countPostsNeedingComments, forEachRecord } from '@/lib/archive/store';
 import { pickFile } from '@/lib/pick-file';
-import type { ArchiveStats, CrawlState, UpdateState } from '@/lib/archive/types';
+import type { ArchiveStats, CrawlState, RepairOutcome, UpdateState } from '@/lib/archive/types';
 import { saveFile } from '@/lib/save-file';
 import { formatCount } from '@/lib/time';
 import { showToast, toastError } from '@/lib/toast';
+
+/** The integrity report's structural problems, as short phrases — empty when there are none. */
+function structuralIssues(report: IntegrityReport): string[] {
+  const s = report.structural;
+  const issues: [number, string][] = [
+    [s.untokenized, 'unsearchable'],
+    [s.missingCreatedAt, 'undated'],
+    [s.missingGroup, 'without a community'],
+    [s.orphanComments, 'comments whose post is missing'],
+    [s.orphanQuotes, 'quoted posts not held'],
+    [s.duplicateIndexCodes, 'duplicate share codes'],
+    [s.unflaggedPlaceholders, 'deleted comments not flagged'],
+    [
+      s.unknownPlaceholders,
+      'comments with the “Deleted” alias but text the archive doesn’t recognise — possibly a new placeholder',
+    ],
+  ];
+  return issues.filter(([count]) => count > 0).map(([count, label]) => `${formatCount(count)} ${label}`);
+}
 
 /** ~1.2s per thread plus jitter; rounded coarsely because it is an estimate. */
 function estimateHours(threads: number) {
@@ -84,6 +104,7 @@ export default function SettingsScreen() {
   const [updates, setUpdates] = useState<UpdateState[]>([]);
   const [postUpdate, setPostUpdate] = useState<UpdateChoice>({ enabled: true });
   const [commentUpdate, setCommentUpdate] = useState<UpdateChoice>({ enabled: true });
+  const [repair, setRepair] = useState<RepairOutcome | null>(null);
   const commentHandle = useRef<CrawlHandle | null>(null);
   const handle = useRef<CrawlHandle | null>(null);
 
@@ -136,6 +157,37 @@ export default function SettingsScreen() {
       cancelled = true;
     };
   }, [read]);
+
+  /*
+    A one-off repair, started in the background the first time this screen
+    opens: flag the deleted comments archived before "Comment Deleted" was
+    recognised as a placeholder. It reads every record once, in short
+    transactions a running crawl can interleave with, and never again — a key in
+    the archive records that it ran (store.web.ts, `repairTombstones`).
+  */
+  useEffect(() => {
+    if (!archiveAvailable) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const outcome = await repairTombstones();
+        if (cancelled) return;
+        setRepair(outcome);
+        if (outcome.fresh && outcome.flagged > 0) {
+          showToast(
+            `Flagged ${formatCount(outcome.flagged)} deleted comments that were archived as live.`,
+            'info',
+          );
+          await refresh();
+        }
+      } catch (error) {
+        if (!cancelled) toastError(error, "Couldn't check the archive for deleted comments.");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [refresh]);
 
   // Outstanding threads per community, so the picker shows how much work each
   // one actually represents rather than one lump figure.
@@ -414,6 +466,14 @@ export default function SettingsScreen() {
                 {formatBytes(stats?.bytes)} used
                 {stats?.quota ? ` of ~${formatBytes(stats.quota)} available` : ''}
               </ThemedText>
+
+              {repair && repair.flagged > 0 ? (
+                <ThemedText type="caption" themeColor="textTertiary">
+                  {formatCount(repair.flagged)} of the deleted were comments archived as live before
+                  Yik Yak&rsquo;s &ldquo;Comment Deleted&rdquo; placeholder was recognised — flagged on{' '}
+                  {new Date(repair.ran_at).toISOString().slice(0, 10)}.
+                </ThemedText>
+              ) : null}
 
               {/*
                 Media bytes aren't downloaded yet — only flagged. Posts carrying
@@ -765,36 +825,13 @@ export default function SettingsScreen() {
                   </>
                 )}
 
-                {report.structural.untokenized +
-                  report.structural.missingCreatedAt +
-                  report.structural.missingGroup +
-                  report.structural.orphanComments +
-                  report.structural.orphanQuotes +
-                  report.structural.duplicateIndexCodes ===
-                0 ? (
+                {structuralIssues(report).length === 0 ? (
                   <ThemedText type="caption" themeColor="textTertiary">
                     Every record is complete and searchable.
                   </ThemedText>
                 ) : (
                   <ThemedText type="caption" style={{ color: theme.danger }}>
-                    {report.structural.untokenized > 0
-                      ? `${formatCount(report.structural.untokenized)} unsearchable · `
-                      : ''}
-                    {report.structural.missingCreatedAt > 0
-                      ? `${formatCount(report.structural.missingCreatedAt)} undated · `
-                      : ''}
-                    {report.structural.missingGroup > 0
-                      ? `${formatCount(report.structural.missingGroup)} without a community · `
-                      : ''}
-                    {report.structural.orphanComments > 0
-                      ? `${formatCount(report.structural.orphanComments)} comments whose post is missing · `
-                      : ''}
-                    {report.structural.orphanQuotes > 0
-                      ? `${formatCount(report.structural.orphanQuotes)} quoted posts not held · `
-                      : ''}
-                    {report.structural.duplicateIndexCodes > 0
-                      ? `${formatCount(report.structural.duplicateIndexCodes)} duplicate share codes`
-                      : ''}
+                    {structuralIssues(report).join(' · ')}
                   </ThemedText>
                 )}
               </View>

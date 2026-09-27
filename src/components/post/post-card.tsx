@@ -103,8 +103,13 @@ export function PostCard({
       {username ? (
         <Pressable
           accessibilityRole="link"
-          accessibilityLabel={`View ${username}'s profile`}
-          onPress={() => router.push({ pathname: '/u/[username]', params: { username } })}
+          accessibilityLabel={post.authored_by_user ? 'Open your profile' : `View ${username}'s profile`}
+          // Your own name opens the You tab — see the same choice in comment-item.
+          onPress={() =>
+            post.authored_by_user
+              ? router.push('/me')
+              : router.push({ pathname: '/u/[username]', params: { username } })
+          }
           style={({ hovered }) => [styles.author, hovered && styles.authorHovered]}>
           <IdentityAvatar identity={post.identity} size={24} />
           <ThemedText type="smallBold" themeColor="textSecondary" numberOfLines={1}>

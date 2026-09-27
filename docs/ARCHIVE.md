@@ -260,16 +260,22 @@ understand before building anything that refreshes.
 - `vote_total`
 - `comment_count`
 - `text` and `tokens` (unless the incoming copy is a tombstone)
-- `media` (with cached bytes preserved)
-- `alias`, `author`, `group_name`
+- `media` (with cached bytes preserved), unless the incoming copy is a tombstone
+- `alias` (unless the incoming copy is a tombstone), `author`, `group_name`
 - `last_seen_at`
 
 ### Never overwritten
 
-- `first_seen_at` — when this client first recorded it
-- `text` / `vote_total` / `tokens`, **when the incoming copy is a tombstone**
+- `first_seen_at` — when this client first recorded it; on import, the earlier
+  of the two copies
+- `text` / `vote_total` / `tokens` / `alias` / `media`, **when the incoming copy
+  is a tombstone** — everything the placeholder blanks
+  ([below](#deleted-comments-are-flagged-not-dropped))
 - `cached` media flags, and any asset whose bytes are held even if it has since
   vanished from the payload
+- the thread-read state (`comments_fetched_at`, `_count`, `comments_last_comment_at`)
+  — kept as a set from whichever copy was **read** more recently, which for a
+  fresh sighting is always the held one, since a payload never carries it
 
 ### A re-sighting may update a fact, never erase one
 
@@ -318,7 +324,7 @@ different weight:
 | `deleted_via` | Evidence | Where it comes from |
 |---|---|---|
 | `missing` | Looked up **by id**, and the API answered without it | The refresh's deletion check (§6), and opening a post whose lookup comes back empty |
-| `tombstone` | Served with its text replaced by a placeholder | **Comments**, as `"Comment Deleted"` — ⛔ not yet recognised; the code matches `"Deleted Post"`, which nothing has been seen to send ([below](#deleted-comments-are-flagged-not-dropped)) |
+| `tombstone` | Served with its text replaced by a placeholder (`isTombstoneText`) | **Comments**, as `"Comment Deleted"` with alias `"Deleted"` ([below](#deleted-comments-are-flagged-not-dropped)). `"Deleted Post"` is still on the list but has never been seen |
 
 **Absence from a feed is never enough on its own.** A feed can skip; a post
 missing from a re-read window is only a *candidate*, and nothing is flagged
@@ -329,7 +335,7 @@ alone.
 Either way, nothing is thrown away:
 
 ```
-text, score, tokens, author, thread position, quote link → kept
+text, score, tokens, author, alias, attachments, thread position, quote link → kept
 deleted = 1, deleted_at = when noticed, deleted_via = how
 needs_comments = 0     (its thread cannot be read any more)
 ```
@@ -935,15 +941,55 @@ re-arm the flag forever against a thread that can never reach it.
 
 ### Deleted comments are flagged, not dropped
 
-**⛔ Corrected 2026-09-27 — this section described the wrong mechanism, and no
-comment has ever been flagged by it.** It said a deleted comment *stops
-appearing* in its thread. It doesn't: it stays, with its text replaced by
-**`"Comment Deleted"`**, votes zeroed and username stripped, so that replies
-keep something to hang off ([API.md](API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)).
-Being present, it is never missing, so the diff below cannot see it — and the
-tombstone check in §4 matches only `"Deleted Post"`. Measured on a
-232,062-comment export: 309 placeholders, none flagged, and one real comment
-text already overwritten by a re-read. Not yet fixed.
+A deleted comment **stays in its thread**, served as a placeholder so its replies
+keep something to hang off: text `"Comment Deleted"`, alias `"Deleted"`, votes
+zeroed, no author, no attachments
+([API.md](API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)).
+`isTombstoneText` recognises the text, so a re-read flags it `deleted_via:
+'tombstone'` and keeps everything the placeholder blanks — text, tokens, score,
+alias, attachments — per §4.
+
+**Fixed 2026-09-27, after weeks of silent loss.** Until then only `"Deleted
+Post"` was recognised — a string nothing sends — and this section described the
+wrong mechanism, saying a deleted comment stops appearing. So no comment was ever
+flagged, and a re-read of one archived *before* its deletion wrote the
+placeholder over its real text. Measured on a 232,062-comment export: 309
+placeholders, none flagged, one real text already overwritten. The fix came in
+four parts:
+
+- **New sightings** — `toArchived` and `mergeArchived` recognise the text.
+  The merge also counts a placeholder already *held* as evidence at its
+  `last_seen_at`, flagged or not, so its result does not depend on the order
+  in which a sighting and the repair below happen.
+- **What was already stored** — `repairTombstones` in `store.web.ts`, started in
+  the background the first time Settings opens. It reads every record once, in
+  2,000-record read-only transactions rather than one cursor — a read-write
+  transaction waits for *every* earlier transaction on its store, read-only
+  included, so one long scan would stall a running crawl — then rewrites only
+  the ids it found, re-checking each. `deleted_at` is the record's
+  `last_seen_at`, the tightest bound the archive can honestly give. A key in
+  `meta` (`repair:tombstones:1`) makes it run once per archive; clearing the
+  archive clears the key.
+- **Imports** — `normalizeImported` flags a placeholder arriving as a new
+  record, and the merge treats placeholder text as a deletion even with
+  `deleted: 0`. Every export written before the fix carries those.
+- **The overwritten text** — it survived in an older export, and importing that
+  one record restores it: the browser's copy is newer, so it merges *into* the
+  file's, and the tombstone rule keeps the file's text. The recovery file
+  carries a bare header, because an export's `_update_windows` would otherwise
+  restore that export's older watermark and silently widen the next refresh.
+
+A placeholder the archive only ever saw as a placeholder has no words to keep;
+the archived thread and search show it as "Removed before it was archived", and
+a live thread as a muted "Comment deleted" with no vote or reply controls.
+
+**Two integrity counts guard it** ([integrity.ts](../src/lib/archive/integrity.ts)):
+records holding a placeholder but not flagged (should be 0 — non-zero means a
+write path bypassing both rules), and records with the `"Deleted"` alias whose
+text is *not* a known placeholder. The second is what would catch the API
+changing its placeholder text, which the list alone never could. The alias is
+deliberately not used to *decide* a deletion: a comment left up after its
+author's account was deleted could plausibly carry it with its text intact.
 
 The diff is kept for the case it does cover — a comment removed outright rather
 than replaced. A re-read compares the thread that came back against what is
@@ -980,6 +1026,20 @@ existing.last_seen_at >= record.last_seen_at
 So importing an old export into a current archive cannot roll anything back, and
 importing a newer export into a stale one upgrades it. Records an older export
 predates (missing tokens, missing linkage) are rebuilt on the way in.
+
+Two merge fields do not follow that ordering, because it is ordering by *last
+seen*: `first_seen_at` takes the earlier of the two copies, and the thread-read
+state comes as a set from whichever copy was *read* more recently. Taking both
+from the older-seen side, as the merge used to, rolled every post's read back
+to the export's when an old export was imported over a current browser.
+
+**Every field is copied by name** in `normalizeImported`, so a field added to
+`ArchivedContent` needs a line there too. Four were missed — `quote_post_id`,
+`deleted_via`, `comments_fetched_at` and `comments_last_comment_at` — so until
+2026-09-27 the exports carried them but a restore into an empty browser dropped
+them: every quote link, how each deletion was noticed, and which threads had
+been read. Exports were never affected, only the restore; nothing needs
+re-exporting.
 
 ---
 
@@ -1195,10 +1255,51 @@ The open questions §8 posed, and how they were answered:
   ([G4](#g4-deletions-are-almost-never-noticed--closed-inside-the-window)).
 - **What `include_deleted=true` returns is unknown.** It might offer a direct
   deletion signal — or the post's final state — for one lookup instead of
-  inferring it from an empty answer. Worth a probe
-  ([API.md](API.md#deleted-posts-are-omitted-not-tombstoned)).
+  inferring it from an empty answer; if the feed honours it too, a refresh
+  could see deletions on pages it already reads. Diagnostics → Run probes
+  answers both halves (PLAN Q13).
+- **A comment removed outright is only noticed on a non-empty re-read.** The
+  diff skips an empty thread, because that is almost always the post being gone
+  ([above](#deleted-comments-are-flagged-not-dropped)). Since deleted comments
+  stay as placeholders, a thread whose comments were *all* deleted is not empty,
+  so this bites only if comments can also vanish entirely — not yet seen. If it
+  appears: on an empty re-read with comments held, look the parent up by id;
+  gone means flag the post, live means the comments went.
 - **Overlapping runs redo work**, because selection is by authorship date rather
   than by when a record was last checked ([G7](#g7-no-index-supports-what-have-i-not-refreshed-recently)).
 - **No scheduler.** A refresh happens when someone starts one. The watermark
   makes an occasional run correct, not automatic — and a run that never happens
   leaves a window that only grows.
+
+---
+
+## 10. Testing a change to the archive
+
+Nothing in the repo tests the archive, and `tsc`, lint and a production build
+have all been green on changes that failed at runtime. So archive changes are
+checked by running the **real** `store.web.ts`, `types.ts` and `crawler.ts` under
+Node against [fake-indexeddb](https://github.com/dumbmatter/fakeIndexedDB), in a
+scratch directory outside the repo:
+
+1. `npm install fake-indexeddb` there, and transpile the four modules with
+   `ts.transpileModule` (TypeScript resolved from the repo:
+   `require.resolve('typescript', { paths: [process.cwd()] })`, run from the repo
+   root). Rewrite `require("./store")` → `./store.js` and the same for `types`
+   and `query`; `require("./contract")` and `require("@/api/types")` → `({})`;
+   `require("@/api/client")` → a fake API.
+2. The fake API exports what the crawler imports — `getGroupPosts`,
+   `getPostComments`, `lookupPost`, `PostGone` — backed by an in-memory world
+   (posts, a set of deleted ids), so a test states what Yik Yak would serve.
+3. **A fresh database per scenario:** `global.indexedDB = new (require('fake-indexeddb').IDBFactory)()`
+   and re-require the store. `deleteDatabase` blocks forever on the previous
+   scenario's open connection.
+4. **Collapse the pacing:** `global.setTimeout = (fn) => realTimeout(fn, 0)`.
+5. To seed records as an older version wrote them, open a second connection to
+   `webyak-archive` after the store has created it and `put` raw objects —
+   anything through `archiveContent` gets today's rules applied.
+6. **Run every new test once against the unfixed code** (`git show HEAD:<file>`
+   into the transpiler). A test that passes either way proves nothing.
+
+If you patch `Module._resolveFilename` instead of rewriting requires, resolve
+every path before patching — `require.resolve` inside the hook recurses.
+

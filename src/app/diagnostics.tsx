@@ -4,10 +4,14 @@ import { StyleSheet, View } from 'react-native';
 
 import {
   runAllProbes,
+  runLengthProbes,
   runUploadProbe,
+  SAMPLE_GROUP_ID,
   type ProbeResult,
   type ProbeStatus,
 } from '@/api/diagnostics';
+import { groupDisplayName, isForYouFeed } from '@/api/groups';
+import { useSession } from '@/api/session';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
@@ -28,6 +32,13 @@ export default function DiagnosticsScreen() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmingUpload, setConfirmingWrites] = useState(false);
+  const [confirmingLengths, setConfirmingLengths] = useState(false);
+  const { userId, primaryGroup } = useSession();
+  // Your own community when the session knows it: posting where you are not a
+  // member would be refused for that, and read as a length limit.
+  const home = primaryGroup && !isForYouFeed(primaryGroup) ? primaryGroup : null;
+  const lengthGroupId = home?.id ?? SAMPLE_GROUP_ID;
+  const lengthGroupName = home ? groupDisplayName(home) : 'Virginia Tech';
 
   const statusColor: Record<ProbeStatus, string> = {
     pass: theme.success,
@@ -57,6 +68,17 @@ export default function DiagnosticsScreen() {
     }
   }, []);
 
+  const runLengthProbesNow = useCallback(async () => {
+    setConfirmingLengths(false);
+    setBusy(true);
+    setCopied(false);
+    try {
+      setResults(await runLengthProbes(lengthGroupId, userId));
+    } finally {
+      setBusy(false);
+    }
+  }, [lengthGroupId, userId]);
+
   const copy = useCallback(async () => {
     if (!results) return;
     const report = results
@@ -80,9 +102,10 @@ export default function DiagnosticsScreen() {
       <View
         style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <ThemedText type="small" themeColor="textSecondary">
-          Read-only. Five probes, each on a question that is still open: share-code resolution
-          (Blocker 1), the chat message types, video thumbnails, and whatever failed to render
-          this page load. Settled questions were retired — their answers are in docs/API.md.
+          Read-only. Seven probes, each on a question that is still open: share-code resolution
+          (Blocker 1), the chat message types, video thumbnails, whatever failed to render this
+          page load, whether deleted posts can be asked for directly, and where your bio lives.
+          Settled questions were retired — their answers are in docs/API.md.
         </ThemedText>
         <ThemedText type="caption" themeColor="textTertiary">
           For the image probes, browse a feed and a profile first — the failure log is per page
@@ -118,6 +141,34 @@ export default function DiagnosticsScreen() {
           />
         </View>
       </View>
+
+      <View
+        style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+        <ThemedText type="bodyBold">Length limits</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          Writes, and undoes them. Posts anonymous test posts of 257, 300 and 301 characters to{' '}
+          {lengthGroupName}, deleting each within seconds, then sets your bio to 151, 200 and 201
+          characters and puts the original back. Settles whether webyak&rsquo;s 300 and 150 match
+          what the server enforces.
+        </ThemedText>
+        <View style={styles.actions}>
+          <Button
+            label="Run length probes"
+            variant="secondary"
+            onPress={() => setConfirmingLengths(true)}
+            disabled={busy}
+          />
+        </View>
+      </View>
+
+      <ConfirmDialog
+        visible={confirmingLengths}
+        title="Post and edit your bio to test limits?"
+        body={`This posts up to three anonymous test posts to ${lengthGroupName} — each deleted within seconds, but visible until then — and briefly changes your public bio before restoring it. If your current bio can't be read with certainty, the bio half is skipped.`}
+        confirmLabel="Run them"
+        onCancel={() => setConfirmingLengths(false)}
+        onConfirm={runLengthProbesNow}
+      />
 
       <ConfirmDialog
         visible={confirmingUpload}

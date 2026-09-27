@@ -12,12 +12,6 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `⛔` blocked/ga
 [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) (secret hygiene, release audit).
 The rule for keeping them current is in [CLAUDE.md](CLAUDE.md).
 
-> **⛔ Queued fixes, verified but not applied — start here:
-> [docs/PENDING-FIXES.md](docs/PENDING-FIXES.md).** Deleted comments are never
-> flagged and a re-read overwrites their text; plus the fixes from the offsides
-> 1.0 re-analysis. Written 2026-09-27 as a self-contained handoff. Remove this
-> note when that file is empty.
-
 ---
 
 ## 1. Current state
@@ -195,7 +189,7 @@ are mostly plumbing; three need a probe before they can be estimated.
 | B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Unblocked 2026-08-28.** `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. Finding the acknowledge endpoint needs a sweep, and testing the whole flow still needs a post that actually gets removed |
 | B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing beyond B2 |
 | B7 | **Sort your own posts/comments by top of all time** | **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
-| B6 | **Style deleted comments properly** | *Answered 2026-09-27.* A deleted comment stays in its thread with text **`"Comment Deleted"`**, zero votes and no username, so its replies keep their parent. Today that renders as if someone typed it. Should be muted, with no vote or reply controls | Nothing to probe — confirmed from 309 archived placeholders ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)) |
+| B6 | **Style deleted comments properly** | ✅ **Done 2026-09-27.** A deleted comment stays in its thread with text **`"Comment Deleted"`**, alias `"Deleted"`, zero votes and no username, so its replies keep their parent. It now renders as a muted *Comment deleted* with no vote, reply or action controls, its replies intact; in the archive, a placeholder whose words were never captured reads *Removed before it was archived* | — ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)) |
 | B5 | **Yakarma over time** on the You tab, per-post and overall | Karma is at `getUpdates().karma` as `{post, comment, groups}` — and the same payload also carries **`quarterly_karma`, `season_karma` and `season`**, so there may be period-scoped values to read rather than sampling a single lifetime number. Worth inspecting those before building a sampler | Inspect the three season/quarter fields. If they hold real history this gets much cheaper; if not, fall back to client-side sampling, which is per-device and should say so rather than look like lost data |
 
 Two things worth deciding before any of these start:
@@ -641,16 +635,23 @@ and comment it sees** — effectively a Yik Yak downloader
   - [x] Pause/resume never worked for the default window — its end is "now", so
         no saved position ever matched and a paused re-scrape restarted from the
         top. Fixed, with the first session's start carried through
-  - [ ] ⛔ **Deleted comments are never flagged, and a re-read overwrites their
-        text.** The placeholder is `"Comment Deleted"`, not `"Deleted Post"` —
-        309 in the archive, none flagged, one real text already replaced. Fix:
-        recognise the placeholder as a tombstone (text, score and author kept,
-        flagged), treat placeholder text as deletion on import too, and flag the
-        309 already held. After that, importing an older export restores any
-        text lost to an overwrite ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted))
-  - [ ] Probe `include_deleted=true` — on `/v1/posts/get` against a known-deleted
+  - [x] **Deleted comments were never flagged, and a re-read overwrote their
+        text.** The placeholder is `"Comment Deleted"` (alias `"Deleted"`), not
+        `"Deleted Post"` — 309 in the archive, none flagged, one real text
+        replaced. Fixed 2026-09-27: recognised as a tombstone with text, score,
+        alias and attachments kept; treated as a deletion on import; the ones
+        already held flagged by a one-off background repair; the overwritten
+        text recoverable from an older export
+        ([docs/ARCHIVE.md](docs/ARCHIVE.md#deleted-comments-are-flagged-not-dropped))
+  - [x] **Restoring an export into an empty browser dropped four fields** —
+        quote links, deletion provenance and both thread-read fields — because
+        the importer copies fields by name and they were never added. Found
+        while fixing the above; exports were always complete
+        ([docs/ARCHIVE.md](docs/ARCHIVE.md#7-import-export-and-merging-archives))
+  - [~] Probe `include_deleted=true` — on `/v1/posts/get` against a known-deleted
         post, and on the *feed*: if feeds accept it, deletions would arrive on
-        pages already being read, with no per-post lookups at all
+        pages already being read, with no per-post lookups at all. The probe is
+        written (Q13); it needs running
   - [ ] Deep history outside every window ever run is still never refreshed
         except by an explicit full re-scrape, and no schedule exists — a refresh
         happens when someone starts one
@@ -684,10 +685,13 @@ and comment it sees** — effectively a Yik Yak downloader
       author deprecated offsides on 2026-09-14 in favour of the official Android
       app, and 2.6.6 (2026-07-10) looks like the final release. Bypassing is the
       fix ([docs/OFFSIDES.md](docs/OFFSIDES.md))
-- [ ] Parity with offsides 1.0: a **"YOU" badge** on your own comments, and your
+- [x] Parity with offsides 1.0: a **"You" badge** on your own comments, and your
       own name linking to the **You tab** rather than your public profile — both
-      from `authored_by_user`, which we already read
+      from `authored_by_user`
       ([docs/OFFSIDES.md](docs/OFFSIDES.md#round-7--the-10-release-and-the-end-of-the-project-2026-09-27))
+- [x] A private or renamed profile shows as *unavailable* rather than an error,
+      and no longer raises the "data cannot be undefined" overlay once per card
+      ([docs/API.md](docs/API.md#a-user-profile-is-a-group))
 
 ### Phase 9 — polish & ship
 - [ ] Accessibility pass (focus order, labels, contrast, reduced motion)
@@ -730,21 +734,34 @@ Resolved ones are kept with their answer so they don't get re-asked.
   — they crashed on it. Both suggest `groups` omits communities the account is
   still associated with, most plausibly ones it has left
   ([docs/API.md](docs/API.md#yakarma)).
-- **Q10 — does the bio actually load?** From the offsides 1.0 pass. offsides
+- **Q10 — where does the bio live?** From the offsides 1.0 pass. offsides
   reads your bio from `getUpdates().user` and, when it is not there, from your
   public profile's `description` — commented *"The bio lives on the public
-  profile object."* webyak reads `getUpdates().user.bio` only, so the You tab may
-  show "No bio yet" and Edit Profile may open empty for an account that has one.
-  Check with a real bio; the fix is the same fallback
+  profile object."* **The fallback is in** (2026-09-27): `useMyIdentity` does
+  the same, with offsides' own `typeof === 'string'` tests, so the You tab and
+  Edit Profile read the real bio either way. What is still open is only which
+  path an account takes — **Diagnostics → Run probes → "Profile — where your bio
+  lives"** reports it by field shape, never the bio
   ([docs/API.md](docs/API.md#a-user-profile-is-a-group)).
 - **Q11 — what does the server actually enforce on length?** Two disagreements,
   neither backed by the server: a **post** is capped at 300 by webyak while
   offsides shows a 256 counter (without blocking); a **bio** is 150 in webyak and
-  200 in offsides. One over-length write each would settle both.
+  200 in offsides. **Diagnostics → Run length probes** settles both: anonymous
+  posts of 257, 300 and 301 characters, each deleted within seconds, and bios
+  of 151, 200 and 201 with the original restored and read back. Set
+  `MAX_LENGTH` (`src/app/compose.tsx`) and `MAX_BIO` (`src/app/me/edit.tsx`) from
+  its answer — not before.
 - **Q12 — `GET /v1/groups/login_type?email=`.** Seen only in SidechatProxy, a
   client dead since 2025, as a pre-check before registering a school email. Worth
   a probe if school-email registration is ever revisited
   ([docs/API.md](docs/API.md#endpoints-that-exist-but-sidechatjs-doesnt-wrap)).
+- **Q13 — does `include_deleted=true` serve deleted posts?** By id, and in the
+  feed. Yes by id would make a deletion a direct answer rather than an inference
+  from silence; yes in the feed would let a refresh see deletions on the pages
+  it already reads, and drop the per-post lookups. **Diagnostics → Run probes →
+  "Deletions — include_deleted=true"** asks both against the newest post the
+  archive has flagged `missing`
+  ([docs/ARCHIVE.md](docs/ARCHIVE.md#finding-deletions)).
 
 ---
 

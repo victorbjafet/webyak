@@ -476,8 +476,34 @@ export async function getGroupMetadata(groupId: string) {
   return (await api.getGroupMetadata(groupId)) as unknown as Group;
 }
 
-export async function getUserProfile(username: string) {
-  return (await api.getUserProfile(username)) as unknown as Profile;
+/**
+ * A user's public profile, or `null` when the API has none to give.
+ *
+ * `/v1/groups/username` — a profile is modelled as a group, so it arrives at
+ * `json.group` (docs/API.md#a-user-profile-is-a-group). Not sidechat.js's
+ * `getUserProfile`, which returns that field as-is: the API leaves it out for a
+ * profile that is private or a username that has changed — offsides 1.0 handles
+ * both — so the library resolved `undefined`, which TanStack rejects as query
+ * data. That was the "data cannot be undefined" overlay again, fired once per
+ * card by such an author. Its catch also `console.error`s and swaps the error
+ * for "Failed to set icon.", losing the status.
+ *
+ * Not-found errors mean the same thing and return `null` too: the library never
+ * checked the status, so to offsides a 404 body was just another answer without
+ * a profile. Anything that is not about the profile — auth, rate limits, the
+ * network — still throws, and a 401 still signs out through `request`.
+ */
+export async function getUserProfile(username: string): Promise<Profile | null> {
+  const params = new URLSearchParams({ username, cacheBust: String(Date.now()) });
+  try {
+    const json = await request<{ group?: Profile | null }>(
+      `/v1/groups/username?${params.toString()}`,
+    );
+    return json?.group ?? null;
+  } catch (error) {
+    if (error instanceof ApiError && isNotFound(error)) return null;
+    throw error;
+  }
 }
 
 /* ------------------------------------------------------------------------ *

@@ -435,9 +435,12 @@ with a username, and it loads `getUserProfile(username)` and
 - **Who gets a link:** only posts made with a username, and never
   `identity.name == 'Anonymous'`.
 - **Your own name opens your own profile** — they branch on `authored_by_user`
-  and push `MyProfile`. webyak links your name to `/u/<you>`, your public profile,
-  rather than the You tab. A small divergence, and theirs is arguably the better
-  destination.
+  and push `MyProfile`. webyak linked your name to `/u/<you>`, your public
+  profile; **it now opens the You tab too** (2026-09-27), on posts and comments.
+- **An unavailable profile is an answer, not an error.** webyak's
+  `getUserProfile` now returns `null` for a missing profile and `/u/<name>` says
+  it is unavailable, in their words
+  ([API.md](API.md#a-user-profile-is-a-group)).
 
 ### Bios (`98c3fd5`)
 
@@ -451,12 +454,13 @@ with a username, and it loads `getUserProfile(username)` and
 - **The bio is not reliably on `getUpdates().user`.** Both the You tab and Edit
   Profile check `user.bio`, then `user.description`, and then fetch the *public
   profile* and read its `description` — commented *"The bio lives on the public
-  profile object."* webyak reads `identity.bio` from `getUpdates().user` alone,
-  so for an account that has a bio, our You tab may show "No bio yet" and Edit
-  Profile may open with an empty field. Unverified; the remedy would be the same
-  fallback ([PLAN](../PLAN.md)).
+  profile object."* webyak read `identity.bio` from `getUpdates().user` alone.
+  **`useMyIdentity` now has the same fallback** (2026-09-27), with their exact
+  `typeof === 'string'` tests — an empty string is an answer, `null` is not.
+  Which path a real account takes is a diagnostics probe (PLAN Q10).
 - **Length:** they cap the field at **200** characters with a counter; we cap at
-  **150**. Neither number comes from the server.
+  **150**. Neither number comes from the server; a write probe now settles it
+  (PLAN Q11).
 
 ### Karma can name a group you are not in (`98c3fd5`)
 
@@ -470,7 +474,8 @@ guard was needed rather than exposing a gap.
 ### Things the July tree already had that were never recorded
 
 - **A "YOU" badge on your own comments** (`4c6c9be`, January 2026), driven by
-  `authored_by_user`. webyak does not mark your own comments.
+  `authored_by_user`. **webyak has one too now** (2026-09-27), shown whether or
+  not the comment was posted under your name.
 - **Post length.** `WriterScreen` shows `n / 256 chars` and turns red past 256,
   but does **not** block submitting. webyak blocks at **300**. Neither is
   verified against the server; which limit it enforces, if any, is a probe.

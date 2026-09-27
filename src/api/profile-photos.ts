@@ -1,8 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { api } from './client';
+import { getUserProfile } from './client';
 import { queryKeys } from './queries';
-import type { Profile } from './types';
 
 /**
  * A username's profile photo, for avatars outside the profile screen.
@@ -30,9 +29,10 @@ import type { Profile } from './types';
  * recurring cast of people who post under a name.
  *
  * Cached for an hour and never retried. A profile photo changing is not
- * time-critical, and a username with no profile — deleted, renamed, or simply
- * unreachable — must fail once and stay quiet rather than re-asking for every
- * post it wrote.
+ * time-critical. A username with no profile — private, or renamed — resolves
+ * `null`, which is cached like any other answer and simply means no photo; one
+ * that is unreachable fails once and stays quiet rather than re-asking for
+ * every post it wrote.
  */
 export function useAuthorPhoto(username: string | undefined, enabled = true) {
   const query = useQuery({
@@ -45,7 +45,7 @@ export function useAuthorPhoto(username: string | undefined, enabled = true) {
     // spend requests on a private API to change nothing on screen.
     refetchOnWindowFocus: false,
     refetchOnMount: false,
-    queryFn: async () => (await api.getUserProfile(username as string)) as unknown as Profile,
+    queryFn: () => getUserProfile(username as string),
   });
 
   // `image_url` is the fallback the profile screen also accepts: sidechat.js's

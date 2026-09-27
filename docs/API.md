@@ -383,12 +383,17 @@ More, from offsides 1.0 (2026-09-27 pass —
   missing or non-object result as *"The user may have changed their username or
   made their profile private."* A username is not a stable key for a person —
   `/u/<username>` links can go dead, and the archive's `author` is the name as it
-  was when seen.
+  was when seen. webyak's `getUserProfile` returns `null` for that case — an
+  empty answer or a not-found error, since the library never checked the status
+  and to offsides a 404 was just another answer without a profile — and
+  `/u/<name>` shows it as unavailable rather than as an error. *That private and
+  renamed profiles take this path is inferred from offsides, not observed.*
 - **The bio is the profile's `description`**, with `bio` as a fallback key.
 - **Your own bio is not reliably on `getUpdates().user`.** offsides checks there
-  first and falls back to fetching your public profile's `description`. webyak
-  reads `getUpdates().user.bio` only, so it may show no bio for an account that
-  has one — unverified; tracked in PLAN.
+  first — `typeof bio === 'string'`, then `description` — and falls back to your
+  public profile's `description`. `useMyIdentity` now does exactly the same, so
+  the You tab and Edit Profile read the real bio either way. Which path your
+  account actually takes is what `probeBioSource` reports (PLAN Q10).
 - **Writing it** is `PATCH /v1/users/<id>` with `{bio}` — what sidechat.js's
   `setUserBio` sends and what `updateProfile` sends. offsides caps the field at
   200 characters; webyak at 150. Neither limit comes from the server.
@@ -603,8 +608,10 @@ Measured across a 232,062-comment export:
 | Comments with text exactly `"Comment Deleted"` | **309** |
 | …with `vote_total` 0 | all 309 |
 | …with a username | none — stripped |
+| …with alias `"Deleted"` | all 309 |
 | …with replies still pointing at them | **170** |
 | Comments with text `"Deleted Post"` | 0 |
+| Live comments with alias `"Deleted"` | 0 of 231,753 — every one is `"Anonymous"` |
 
 Zero votes and no author on every one is not what a user typing those words
 looks like. The replies are the reason the placeholder exists at all: the thread
@@ -612,16 +619,31 @@ keeps its shape, so a reply is never orphaned from what it answered. So a
 deleted comment is **present, not missing** — which is why a re-read thread
 never shows the gap the archive's diff looks for.
 
-The alias survives (`#3`, `OP`). The three one-off texts `[deleted]`,
-`[Deleted]` and `Post deleted` are singletons with normal votes — people typing
-the word, not the system.
+**The alias is replaced too**, with `"Deleted"`. *Corrected 2026-09-27* — this
+said the alias survived (`#3`, `OP`), which was never measured. It does not:
+the one comment archived both before and after its deletion went from
+`"Anonymous"` to `"Deleted"`, its `created_at` unchanged. And the `alias` field
+never carries a per-thread label in the first place — every live comment in the
+archive has `"Anonymous"` there — so wherever `OP` and `#n` come from, it is not
+`alias`. The archive does not record it.
 
-**⛔ The archive does not recognise this yet.** It matches `"Deleted Post"` only,
-so a deleted comment is archived as a live one whose text happens to be
-`"Comment Deleted"`, and none has ever been flagged. Worse, re-reading a comment
-archived *before* it was deleted overwrites its real text with the placeholder —
-confirmed once, in a comment whose original survives only in an earlier export.
-Tracked as a bug in PLAN; see [ARCHIVE.md](ARCHIVE.md#deleted-comments-are-flagged-not-dropped).
+The three one-off texts `[deleted]`, `[Deleted]` and `Post deleted` are
+singletons with normal votes — people typing the word, not the system.
+
+**The archive recognises it** as of 2026-09-27: flagged `deleted_via:
+'tombstone'`, with the real text, score, alias and attachments kept from before
+the deletion. Before that it matched `"Deleted Post"` only, so none of the 309
+was flagged, and a re-read of a comment archived *before* its deletion wrote the
+placeholder over the real text — once, recovered from an earlier export. How the
+fix works, including the one-off repair of what was already stored:
+[ARCHIVE.md](ARCHIVE.md#deleted-comments-are-flagged-not-dropped). A live thread
+shows a placeholder as a muted "Comment deleted" with no vote or reply controls.
+
+The alias is a second sign of a deletion, but it is **not** used to decide one: a
+comment left up after its author's account was deleted could plausibly carry it
+with its text intact. The integrity check reports `"Deleted"`-alias comments whose
+text is not a known placeholder instead — which is what would catch the API
+changing the text.
 
 Empty-text comments are unrelated: all 3,045 in the same export carry media —
 image and GIF replies.
@@ -634,8 +656,11 @@ of it says whether the post exists.
 
 **Still unknown:** what `include_deleted=true` returns. It could carry an explicit
 deletion marker, or the post's final state, and either would be a stronger
-signal than an empty answer. Worth a probe — against a post known to be deleted,
-recording the status and top-level keys only, never the content.
+signal than an empty answer — and if the *feed* honours it, a refresh could see
+deletions on the pages it already reads. `probeIncludeDeleted` (Diagnostics →
+Run probes) asks both, against the newest post the archive has flagged
+`missing`, and reports status, keys and deletion-shaped fields only — never text
+or ids (PLAN Q13).
 
 **Rendering.** A deleted post opened from anywhere — a link, the archive search —
 now shows the archived copy and its archived thread, marked *Removed from Yik
@@ -738,13 +763,14 @@ which the library added in 2.4.9 for exactly this.
 | `getPostComments()` | Calls `json.posts.forEach` with no check, so any body without a `posts` array throws `Cannot read properties of undefined`; its catch then `console.error`s it and rethrows a status-less `SidechatAPIError` | Bypassed — see below |
 | `getPost()` | Returns `json.post` with no check, so a deleted post — which the API omits — resolves as `undefined`. Defaults the undocumented `include_deleted` to `false`. `console.error`s before rethrowing | Bypassed — `lookupPost` in `src/api/client.ts` |
 | `getUpdates()` | `console.error`s the raw error before rethrowing a generic one, so a transient `TypeError: Failed to fetch` that TanStack retries and recovers from still raises the dev error overlay — attributed to our caller, since the library's frames are ignore-listed. Also loses the status, and its message says "Failed to get posts from group." | Bypassed — `request()` in `src/api/client.ts` |
-| `getUserProfile()` | Reads `json.group` with no status check, so a 401 or a missing user resolves as `undefined` rather than throwing; its catch reports `"Failed to set icon."`, a message from a different method | Tolerated — avatars fall back to the emoji, and `retry: false` stops it re-asking |
+| `getUserProfile()` | Reads `json.group` with no status check, so a 401 or a missing profile resolves as `undefined` rather than throwing — which TanStack rejects as query data, raising the dev overlay once per card by a private or renamed author. Its catch `console.error`s and reports `"Failed to set icon."`, a message from a different method | Bypassed — `getUserProfile` in `src/api/client.ts` returns `null` for a missing profile or a not-found error, throws the rest |
 | `searchAvailableGroups()` | Returns `json.results` unconditionally; the endpoint does not use that key, so it silently returns `undefined` rather than a list | Bypassed — `coerceGroupList` in `src/api/groups.ts` reads any envelope |
 | — | No methods at all for save, follow, activity list, report, or awards, though posts carry `is_saved`, `follow_status` and `awards[]`. | Phase 8 |
 
-Worth upstreaming the URL and upload bugs as a PR. The swallowing bugs share one
-root cause — `throw` inside `try` with a catch-all `catch` — and are the reason a
-login form built on the library can only ever say "Failed".
+Upstreaming these was the plan once; with the library looking final (above), it
+isn't. The swallowing bugs share one root cause — `throw` inside `try` with a
+catch-all `catch` — and are the reason a login form built on the library can
+only ever say "Failed".
 
 **`console.error` in a catch is its own, separate problem.** Three methods log
 the raw error before rethrowing, which in development raises the full-screen

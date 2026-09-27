@@ -81,9 +81,9 @@ export interface ArchivedContent {
   last_seen_at: number;
 
   /**
-   * Noticed gone. Set the first time the API returns this post as a tombstone
-   * after we had already archived it — so the archive records *that* a post was
-   * removed, and roughly when, without losing what it said.
+   * Noticed gone — served as a placeholder, or no longer served at all — after
+   * being archived, so the archive records *that* something was removed, and
+   * roughly when, without losing what it said.
    *
    * `0 | 1` rather than a boolean so it can be indexed (IndexedDB drops boolean
    * keys), which makes "show me everything that got deleted" a lookup.
@@ -93,8 +93,10 @@ export interface ArchivedContent {
   /**
    * How the removal was noticed, because the two carry different weight.
    *
-   * - `tombstone` — the API served the item with its text replaced by
-   *   `"Deleted Post"`. The API said so itself.
+   * - `tombstone` — the API served the item with its text replaced by a
+   *   placeholder (`isTombstoneText`). That is how a deleted **comment** looks:
+   *   it stays in its thread as `"Comment Deleted"` so its replies keep a
+   *   parent. The API said so itself.
    * - `missing` — the API was asked for this item directly and did not serve
    *   it. For a post, that is a `/v1/posts/get` lookup coming back empty; for a
    *   comment, a successfully re-read thread no longer containing it.
@@ -248,6 +250,16 @@ export interface ArchiveStats {
   newest?: string;
 }
 
+/** What a one-off repair of older data did. */
+export interface RepairOutcome {
+  /** Records it changed. */
+  flagged: number;
+  /** When it ran. */
+  ran_at: number;
+  /** This call did the work, rather than reading back an earlier run's outcome. */
+  fresh: boolean;
+}
+
 /**
  * Where a community's crawl got to.
  *
@@ -276,8 +288,36 @@ export interface CrawlState {
   updated_at: number;
 }
 
-/** The text the API substitutes once a post is removed. */
-const DELETED_PLACEHOLDER = 'Deleted Post';
+/**
+ * Texts the API substitutes for removed content.
+ *
+ * `"Comment Deleted"` is confirmed from 309 archived placeholders
+ * (docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted).
+ * `"Deleted Post"` has never been seen — a deleted post is omitted, not
+ * replaced — and is kept only so nothing that ever did send it is lost.
+ *
+ * For a while only `"Deleted Post"` was listed, so every deleted comment was
+ * archived as live, and a re-read of one archived *before* its deletion wrote
+ * the placeholder over its real text.
+ */
+const TOMBSTONE_TEXTS = new Set(['Comment Deleted', 'Deleted Post']);
+
+/** True when a text is the API's placeholder for removed content, not something someone wrote. */
+export function isTombstoneText(text: string | undefined): boolean {
+  return Boolean(text && TOMBSTONE_TEXTS.has(text));
+}
+
+/**
+ * The alias a deleted comment is served with, alongside its placeholder text.
+ *
+ * Never seen on a live comment — all 231,753 in the archive carried
+ * `"Anonymous"` — so it is a second, independent sign. It is **not** used to
+ * decide a deletion: a comment kept up after its author's account was deleted
+ * could plausibly carry it with its text intact, and flagging that would be
+ * wrong. The integrity check reports it instead, which is what would catch the
+ * API changing its placeholder text.
+ */
+export const DELETED_ALIAS = 'Deleted';
 
 /**
  * Turns an API object into an archive record.
@@ -342,10 +382,10 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
     first_seen_at: seenAt,
     last_seen_at: seenAt,
     // A first sighting can already be a tombstone. It used to be archived as a
-    // live post whose text happened to be "Deleted Post".
-    deleted: item.text === DELETED_PLACEHOLDER ? 1 : 0,
-    deleted_at: item.text === DELETED_PLACEHOLDER ? seenAt : undefined,
-    deleted_via: item.text === DELETED_PLACEHOLDER ? 'tombstone' : undefined,
+    // live comment whose text happened to be "Comment Deleted".
+    deleted: isTombstoneText(item.text) ? 1 : 0,
+    deleted_at: isTombstoneText(item.text) ? seenAt : undefined,
+    deleted_via: isTombstoneText(item.text) ? 'tombstone' : undefined,
     // Only a post with replies is worth fetching a thread for.
     needs_comments: !isComment && commentCount > 0 ? 1 : 0,
     tokens: tokenize(item.text, item.identity?.name, item.alias),
@@ -357,12 +397,13 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
  *
  * Two rules that matter more than they look:
  *
- * 1. **A deletion never erases the archive, but it is recorded.** Once a post is
- *    removed the API returns its text as the literal string "Deleted Post".
- *    Writing that over a record would destroy the thing the archive exists to
- *    keep — so the original text and score are held, and the removal is noted
- *    separately in `deleted` / `deleted_at`. The archive then answers both
- *    "what did this say" and "was it taken down afterwards".
+ * 1. **A deletion never erases the archive, but it is recorded.** Once a comment
+ *    is removed the API serves it as `"Comment Deleted"`, alias `"Deleted"`,
+ *    no votes, no author, no attachments. Writing that over a record would
+ *    destroy the thing the archive exists to keep — so everything the
+ *    placeholder blanks is held, and the removal is noted separately in
+ *    `deleted` / `deleted_at`. The archive then answers both "what did this
+ *    say" and "was it taken down afterwards".
  * 2. **Cached media survives.** Re-seeing a post must not reset `cached` flags
  *    and orphan blobs we already hold.
  */
@@ -378,8 +419,7 @@ export function mergeArchived(
     embedded?: boolean;
   } = {},
 ): ArchivedContent {
-  const incomingIsTombstone =
-    incoming.text === DELETED_PLACEHOLDER && existing.text !== DELETED_PLACEHOLDER;
+  const incomingIsTombstone = isTombstoneText(incoming.text) && !isTombstoneText(existing.text);
 
   /*
     Deletion state, decided by the *evidence each side carries*.
@@ -393,25 +433,48 @@ export function mergeArchived(
     un-delete posts.
 
     So:
-    - Incoming says deleted → deleted. The earliest notice is kept, since
-      `deleted_at` is an upper bound on when it happened.
+    - Incoming says deleted — flagged, or carrying the placeholder text →
+      deleted. The earliest notice is kept, since `deleted_at` is an upper
+      bound on when it happened.
     - Incoming is live, existing is deleted → restored **only** if the live
       observation is newer than the notice, and only if it was served
       directly. A fresh sighting always is newer; an import may not be; an
       embedded quote copy never counts.
     - Otherwise, whatever the existing record said.
+
+    The placeholder text counts as evidence **whether or not it was flagged**.
+    Everything archived before `"Comment Deleted"` was recognised holds it with
+    `deleted: 0` — on disk, and in every export from that time. A record that
+    already held it was seen deleted at its `last_seen_at`, the same bound
+    `flagTombstonedRecords` uses, so a merge does not depend on whether that
+    repair has run yet.
   */
   let deleted = existing.deleted;
   let deleted_at = existing.deleted_at;
   let deleted_via = existing.deleted_via;
 
-  if (incoming.deleted) {
+  const heldPlaceholder = !existing.deleted && isTombstoneText(existing.text);
+  const heldAt = existing.deleted
+    ? existing.deleted_at
+    : heldPlaceholder
+      ? existing.last_seen_at
+      : undefined;
+  // Only the text proves a tombstone. A flag that arrives without provenance is
+  // left without one rather than guessed at.
+  const incomingVia =
+    incoming.deleted_via ?? (isTombstoneText(incoming.text) ? 'tombstone' : undefined);
+
+  if (incoming.deleted || isTombstoneText(incoming.text)) {
     deleted = 1;
     deleted_at =
-      existing.deleted && existing.deleted_at !== undefined
-        ? Math.min(existing.deleted_at, incoming.deleted_at ?? existing.deleted_at)
+      heldAt !== undefined
+        ? Math.min(heldAt, incoming.deleted_at ?? heldAt)
         : (incoming.deleted_at ?? incoming.last_seen_at);
-    deleted_via = existing.deleted ? (existing.deleted_via ?? incoming.deleted_via) : incoming.deleted_via;
+    deleted_via = existing.deleted
+      ? (existing.deleted_via ?? incomingVia)
+      : heldPlaceholder
+        ? 'tombstone'
+        : incomingVia;
   } else if (
     existing.deleted &&
     !options.embedded &&
@@ -425,14 +488,33 @@ export function mergeArchived(
     deleted_via = undefined;
   }
 
-  const media = incoming.media.map((asset) => {
-    const held = existing.media.find((m) => m.asset_id === asset.asset_id);
-    return held?.cached ? { ...asset, cached: held.cached } : asset;
-  });
+  /*
+    A placeholder carries no attachments, so rebuilding from it — which keeps
+    only assets whose bytes are held — erased the record that the original ever
+    had an image. The tombstone's empty list says nothing about the original.
+  */
+  const media = incomingIsTombstone
+    ? [...existing.media]
+    : incoming.media.map((asset) => {
+        const held = existing.media.find((m) => m.asset_id === asset.asset_id);
+        return held?.cached ? { ...asset, cached: held.cached } : asset;
+      });
   // Keep any asset we hold bytes for even if it has vanished from the payload.
-  for (const held of existing.media) {
-    if (held.cached && !media.some((m) => m.asset_id === held.asset_id)) media.push(held);
+  if (!incomingIsTombstone) {
+    for (const held of existing.media) {
+      if (held.cached && !media.some((m) => m.asset_id === held.asset_id)) media.push(held);
+    }
   }
+
+  /*
+    The more recent **thread read** wins, as a set — the three fields describe
+    one fetch. Taking `existing`'s unconditionally was right for a fresh
+    sighting, which carries none, but an import passes the *older-seen* record
+    as `existing`: importing an old export over a current browser rolled every
+    post's read back to the export's, and re-queued threads already read since.
+  */
+  const read =
+    (incoming.comments_fetched_at ?? -1) > (existing.comments_fetched_at ?? -1) ? incoming : existing;
 
   /*
     A re-sighting may **update** a fact, never erase one.
@@ -475,9 +557,10 @@ export function mergeArchived(
     // parentless tombstone re-classify it would move it into the post count.
     type: existing.type === 'comment' ? 'comment' : incoming.type,
 
-    // Attribution and display.
+    // Attribution and display. A placeholder's alias is the literal "Deleted",
+    // present rather than absent, so `keep` alone would take it.
     author: keep(incoming.author, existing.author),
-    alias: keep(incoming.alias, existing.alias),
+    alias: incomingIsTombstone ? existing.alias : keep(incoming.alias, existing.alias),
     group_name: keep(incoming.group_name, existing.group_name),
     comment_count: keep(incoming.comment_count, existing.comment_count),
 
@@ -490,7 +573,12 @@ export function mergeArchived(
     media,
     has_media: media.length > 0 ? 1 : 0,
     media_pending: media.some((m) => !m.cached) ? 1 : 0,
-    first_seen_at: existing.first_seen_at,
+    // The earlier of the two. An import passes the older-*seen* record as
+    // `existing`, which is not necessarily the one seen first.
+    first_seen_at:
+      incoming.first_seen_at !== undefined && incoming.first_seen_at < existing.first_seen_at
+        ? incoming.first_seen_at
+        : existing.first_seen_at,
     /*
       An embedded quote copy does not count as *seeing* the post it carries. It
       is a snapshot riding along inside another post — the original may since
@@ -506,11 +594,11 @@ export function mergeArchived(
     deleted_via,
     // Fetched comments stay fetched — unless the post has gained replies since,
     // in which case there is genuinely more to collect.
-    comments_fetched_count: existing.comments_fetched_count,
-    comments_fetched_at: existing.comments_fetched_at,
-    comments_last_comment_at: existing.comments_last_comment_at,
+    comments_fetched_count: read.comments_fetched_count,
+    comments_fetched_at: read.comments_fetched_at,
+    comments_last_comment_at: read.comments_last_comment_at,
     // A thread under a post that is gone cannot be read, so asking is wasted.
-    needs_comments: deleted ? 0 : needsComments(existing, incoming),
+    needs_comments: deleted ? 0 : needsComments(read, incoming),
   };
 }
 

@@ -30,14 +30,30 @@
  * | `probeVideoPoster` | are video thumbnails reachable, or worker-only? |
  * | `probeImageFailures` | what actually failed to render this page load |
  * | `probeImageUpload` | is there an upload route on the CORS-open host? |
+ * | `probeIncludeDeleted` | does `include_deleted=true` serve deleted posts — by id, in the feed? (PLAN Q13) |
+ * | `probeBioSource` | is your bio on `getUpdates().user`, or only on your public profile? (PLAN Q10) |
+ * | `probePostLength`, `probeBioLength` | what length does the server enforce? (PLAN Q11) |
  *
- * Only `probeImageUpload` is not read-only — it requests an upload URL. It does
- * not post anything; the write round-trip probes were retired once writes were
- * verified against the live app.
+ * `probeImageUpload` is not read-only — it requests an upload URL — and the two
+ * length probes **write**: they post and edit your bio, undoing both. Each set
+ * has its own button behind a confirm. The earlier write round-trip probes were
+ * retired once writes were verified against the live app.
  */
 
 import { fetchUserGroups } from './groups';
-import { api, getUpdates, request } from './client';
+import {
+  ApiError,
+  api,
+  createPost,
+  deletePostOrComment,
+  getUpdates,
+  getUserProfile,
+  request,
+  updateProfile,
+} from './client';
+import { parseQuery } from '@/lib/archive/query';
+import { archiveAvailable, searchArchive } from '@/lib/archive/store';
+import { isTombstoneText } from '@/lib/archive/types';
 import { summarizeImageFailures } from '@/lib/image-debug';
 import type { Asset, PostOrComment } from './types';
 
@@ -573,6 +589,258 @@ async function probeShareCode(): Promise<ProbeResult> {
   }
 }
 
+/* ------------------------------------------------------------------------ *
+ * Deletions
+ * ------------------------------------------------------------------------ */
+
+/** Keys that could mark a post as removed. */
+const DELETION_KEY = /delet|remov|hidden|visib|moderat/i;
+
+/**
+ * What in a post could mark it as removed — keys, and values only when they are
+ * flags, numbers or enum-like words. Never text: the report is meant to be
+ * pasted into a doc, and a string under one of these keys could name someone.
+ */
+function deletionSignals(post: Record<string, unknown>): string {
+  const signals = Object.entries(post)
+    .filter(([key]) => DELETION_KEY.test(key))
+    .map(([key, value]) =>
+      value === null || typeof value === 'boolean' || typeof value === 'number'
+        ? `${key}=${String(value)}`
+        : typeof value === 'string' && /^[a-z_]{1,24}$/i.test(value)
+          ? `${key}="${value}"`
+          : `${key}=<${typeof value}>`,
+    );
+  const text = post.text;
+  signals.push(
+    typeof text !== 'string' || !text
+      ? 'text empty'
+      : isTombstoneText(text)
+        ? `text is the placeholder "${text}"`
+        : 'text present',
+  );
+  return signals.join(', ');
+}
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Does `include_deleted=true` serve what `false` leaves out?
+ *
+ * With the flag off — how the archive asks — a deleted post comes back with no
+ * `post` at all, so a deletion check has to look each candidate up and infer
+ * deletion from the silence (docs/ARCHIVE.md#finding-deletions). sidechat.js
+ * exposes the flag and calls it "undocumented". If it returns the post
+ * *marked*, deletion becomes a direct answer; if the **feed** honours it too, a
+ * refresh would see deletions on pages it already reads, and the lookups go.
+ *
+ * Needs a post already known to be gone: one the archive flagged `missing`. Its
+ * id and text stay out of the report.
+ */
+async function probeIncludeDeleted(): Promise<ProbeResult> {
+  const base = {
+    id: 'include-deleted',
+    label: 'Deletions — include_deleted=true',
+    question: 'Does the API serve a deleted post when asked to include deleted ones — by id, and in the feed?',
+  };
+  if (!archiveAvailable) {
+    return {
+      ...base,
+      status: 'partial',
+      detail: 'Needs the archive, which only exists on the web build, to know a post that is deleted.',
+    };
+  }
+  const steps: string[] = [];
+
+  try {
+    const { records } = await searchArchive(parseQuery('is:deleted is:post limit:2000'));
+    const known = records
+      .filter((r) => r.deleted_via === 'missing' && r.created_at)
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
+    if (!known) {
+      return {
+        ...base,
+        status: 'partial',
+        detail:
+          'No archived post is flagged as no longer served. Run a refresh with “Check for deleted posts” on, then try again.',
+      };
+    }
+    const daysBack = Math.round((Date.now() - Date.parse(known.created_at)) / 86_400_000);
+    steps.push(
+      `the newest post the archive knows is gone: created ${known.created_at.slice(0, 10)} (${daysBack} days ago); id withheld`,
+    );
+
+    const lookup = async (include: boolean) => {
+      const params = new URLSearchParams({
+        include_deleted: String(include),
+        post_id: known.id,
+        cacheBust: String(Date.now()),
+      });
+      const res = await api.sendRequest(`/v1/posts/get?${params.toString()}`);
+      let body: Record<string, unknown> | null = null;
+      try {
+        body = (await res.json()) as Record<string, unknown>;
+      } catch {
+        /* not JSON — the status says enough */
+      }
+      const post =
+        body?.post && typeof body.post === 'object' ? (body.post as Record<string, unknown>) : undefined;
+      return { status: res.status, keys: body ? Object.keys(body).sort() : [], post };
+    };
+
+    const off = await lookup(false);
+    const on = await lookup(true);
+    steps.push(
+      `\nby id, include_deleted=false → ${off.status}, body keys [${off.keys.join(', ')}], post ${off.post ? 'PRESENT' : 'absent'}`,
+      `by id, include_deleted=true  → ${on.status}, body keys [${on.keys.join(', ')}], post ${on.post ? 'PRESENT' : 'absent'}`,
+    );
+    if (on.post) {
+      steps.push(
+        `  post keys: [${Object.keys(on.post).sort().join(', ')}]`,
+        `  what marks it: ${deletionSignals(on.post)}`,
+      );
+    }
+    if (off.post) {
+      return {
+        ...base,
+        status: 'partial',
+        detail:
+          'The control failed: this post is served again with the flag off, so it is not deleted now — restored, most likely. The next deletion check will unflag it; run this again after.',
+        evidence: steps.join('\n'),
+      };
+    }
+
+    // The feed: the first page both ways, then with the flag on until past the
+    // post's date. Paced like the crawler, a little faster, since it is short.
+    const feed = async (include: boolean, cursor?: string) => {
+      const params = new URLSearchParams({ group_id: known.group_id, type: 'recent' });
+      if (include) params.set('include_deleted', 'true');
+      if (cursor) params.set('cursor', cursor);
+      params.set('cacheBust', String(Date.now()));
+      return request<{ posts?: Record<string, unknown>[]; cursor?: string }>(`/v1/posts?${params.toString()}`);
+    };
+    const plain = await feed(false);
+    await pause(800);
+    const FEED_PAGES = 8;
+    let page = await feed(true);
+    const plainIds = new Set((plain.posts ?? []).map((p) => p.id));
+    const onlyWithFlag = (page.posts ?? []).filter((p) => !plainIds.has(p.id)).length;
+    steps.push(
+      `\nfeed, first page: ${plain.posts?.length ?? 0} posts without the flag, ${page.posts?.length ?? 0} with it, ${onlyWithFlag} only with it`,
+    );
+
+    let pages = 1;
+    let found = false;
+    let reached = false;
+    let marked = 0;
+    for (;;) {
+      const posts = page.posts ?? [];
+      if (posts.some((p) => p.id === known.id)) found = true;
+      marked += posts.filter(
+        (p) =>
+          Object.keys(p).some((key) => DELETION_KEY.test(key) && Boolean(p[key])) ||
+          isTombstoneText(typeof p.text === 'string' ? p.text : undefined),
+      ).length;
+      const oldest = posts[posts.length - 1]?.created_at;
+      if (found || (typeof oldest === 'string' && oldest <= known.created_at)) {
+        reached = true;
+        break;
+      }
+      if (!page.cursor || pages >= FEED_PAGES) break;
+      await pause(800);
+      page = await feed(true, page.cursor);
+      pages += 1;
+    }
+    steps.push(
+      `feed with the flag, ${pages} page${pages === 1 ? '' : 's'}: known-deleted post ${found ? 'PRESENT' : reached ? 'absent (walked past its date)' : 'not reached'}; ${marked} post${marked === 1 ? '' : 's'} carrying a deletion marker`,
+    );
+
+    const byId = on.post
+      ? `By id, the flag works: the deleted post comes back (${deletionSignals(on.post)}).`
+      : 'By id, the flag changes nothing: the deleted post is absent either way, so it is gone for good, not hidden.';
+    const inFeed = found
+      ? ' The feed honours it too — a refresh could see deletions on the pages it already reads.'
+      : reached
+        ? ' The feed does not: walking past the post\'s date with the flag on, it never appeared.'
+        : marked > 0 || onlyWithFlag > 0
+          ? ` The known post was too deep to reach in ${FEED_PAGES} pages, but the flag did change the feed — see the evidence.`
+          : ` The feed half is unanswered: the known post is ${daysBack} days back, too deep for ${FEED_PAGES} pages. Run this again soon after a refresh flags a recent deletion.`;
+    return {
+      ...base,
+      status: on.post ? 'pass' : 'fail',
+      detail: byId + inFeed,
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return { ...fail(base, e), evidence: steps.join('\n') };
+  }
+}
+
+/* ------------------------------------------------------------------------ *
+ * Profile
+ * ------------------------------------------------------------------------ */
+
+/** How a value looked, never what it said. */
+function shape(value: unknown) {
+  if (value === undefined) return 'absent';
+  if (value === null) return 'null';
+  if (typeof value === 'string') return value ? `a string, ${value.length} chars` : 'an empty string';
+  return typeof value;
+}
+
+/**
+ * Where does your bio live?
+ *
+ * offsides 1.0 falls back from `getUpdates().user` to your public profile's
+ * `description` — *"The bio lives on the public profile object"* — and
+ * `useMyIdentity` now does the same. This settles whether that fallback is ever
+ * the path taken, by the shape of each field. The bio itself stays out of the
+ * report.
+ */
+async function probeBioSource(): Promise<ProbeResult> {
+  const base = {
+    id: 'bio-source',
+    label: 'Profile — where your bio lives',
+    question: 'Is your bio on getUpdates().user, or only on your public profile?',
+  };
+  try {
+    const user = ((await getUpdates())?.user ?? {}) as Record<string, unknown>;
+    const steps = [
+      `getUpdates().user.bio → ${shape(user.bio)}`,
+      `getUpdates().user.description → ${shape(user.description)}`,
+      `getUpdates().user keys: [${Object.keys(user).sort().join(', ')}]`,
+    ];
+    const username = typeof user.username === 'string' ? user.username : undefined;
+    let profile: Record<string, unknown> | null = null;
+    if (username) {
+      profile = (await getUserProfile(username)) as Record<string, unknown> | null;
+      steps.push(
+        profile
+          ? `public profile description → ${shape(profile.description)}, bio → ${shape(profile.bio)}`
+          : 'public profile → none (private, or no username)',
+      );
+    } else {
+      steps.push('no username, so there is no public profile to read');
+    }
+
+    const onUpdates = typeof user.bio === 'string' || typeof user.description === 'string';
+    const onProfile = typeof profile?.description === 'string' && profile.description !== '';
+    const status: ProbeStatus = onUpdates || onProfile ? 'pass' : 'partial';
+    return {
+      ...base,
+      status,
+      detail: onUpdates
+        ? 'getUpdates() carries the bio. The profile fallback is never taken for this account.'
+        : onProfile
+          ? 'Only the public profile carries it — getUpdates() does not. Without the fallback the You tab showed "No bio yet".'
+          : 'Neither carries a bio. Set one in Edit Profile and run this again to tell the two apart.',
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
@@ -580,7 +848,200 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
     await probeMessaging(),
     await probeVideoPoster(),
     await probeImageFailures(),
+    await probeIncludeDeleted(),
+    await probeBioSource(),
   ];
+}
+
+/* ------------------------------------------------------------------------ *
+ * Length limits — writes, behind their own button (PLAN Q11)
+ * ------------------------------------------------------------------------ */
+
+/** Filler of an exact length that says what it is. ASCII, so characters, UTF-16 units and bytes agree. */
+function filler(length: number, what: string) {
+  const head = `webyak ${what} length test, ${length} chars, removed automatically. `;
+  return (head + 'x'.repeat(Math.max(0, length - head.length))).slice(0, length);
+}
+
+function describeError(e: unknown) {
+  if (e instanceof ApiError) {
+    return [e.status, e.code, e.message.slice(0, 120)].filter(Boolean).join(' · ');
+  }
+  return e instanceof Error ? e.message : String(e);
+}
+
+const isRateLimit = (e: unknown) => e instanceof ApiError && e.status === 429;
+
+/**
+ * How long can a post be?
+ *
+ * webyak blocks at 300; offsides counts to 256 and lets you post past it.
+ * Neither number came from the server. 257 separates the two, and 300/301
+ * pins webyak's exactly. Anonymous, in `groupId`, and each accepted post is
+ * deleted before the next is tried — a probe that leaves posts behind is the
+ * reason the old write probes were retired.
+ */
+async function probePostLength(groupId: string): Promise<ProbeResult> {
+  const base = {
+    id: 'post-length',
+    label: 'Limits — post length',
+    question: 'What does the server enforce? webyak blocks at 300; offsides counts to 256.',
+  };
+  const steps: string[] = [];
+  const accepted: number[] = [];
+  let rejectedAt: number | undefined;
+  let leftBehind = 0;
+
+  for (const length of [257, 300, 301]) {
+    let id: string | undefined;
+    try {
+      id = (await createPost({ text: filler(length, 'post'), groupId, anonymous: true }))?.id;
+    } catch (e) {
+      if (isRateLimit(e)) {
+        steps.push(`${length} chars → rate-limited, stopped: ${describeError(e)}`);
+        return { ...base, status: 'partial', detail: 'Rate-limited before an answer. Try again later.', evidence: steps.join('\n') };
+      }
+      steps.push(`${length} chars → rejected: ${describeError(e)}`);
+      rejectedAt = length;
+      break;
+    }
+    accepted.push(length);
+    steps.push(`${length} chars → accepted`);
+    if (id) {
+      try {
+        await deletePostOrComment(id);
+        steps.push('  deleted');
+      } catch (e) {
+        leftBehind += 1;
+        steps.push(`  ⚠ NOT deleted (${describeError(e)}) — remove it from your profile by hand`);
+      }
+    } else {
+      leftBehind += 1;
+      steps.push('  ⚠ no post came back to delete — check your profile and remove it by hand');
+    }
+    await pause(2500);
+  }
+
+  const most = accepted[accepted.length - 1];
+  const detail =
+    rejectedAt === 257
+      ? 'The limit is 256 or lower. webyak lets 257–300 through to a server error — lower MAX_LENGTH in compose.tsx.'
+      : rejectedAt === 300
+        ? 'The limit is between 257 and 299. Narrow it down before changing MAX_LENGTH.'
+        : rejectedAt === 301
+          ? 'Exactly 300. webyak is right, and offsides’ 256 counter is stale.'
+          : `More than ${most}. webyak’s 300 is stricter than the server; raising it needs a longer probe.`;
+  return {
+    ...base,
+    status: leftBehind > 0 ? 'error' : 'pass',
+    detail: leftBehind > 0 ? `${detail} ⚠ ${leftBehind} test post(s) could not be deleted — see below.` : detail,
+    evidence: steps.join('\n'),
+  };
+}
+
+/**
+ * Your bio exactly as the You tab reads it, or `undefined` if it cannot be read
+ * with certainty — in which case the bio probe does not run, since restoring a
+ * bio it could not read would be a guess.
+ */
+async function readOwnBio(): Promise<string | undefined> {
+  const user = ((await getUpdates())?.user ?? {}) as Record<string, unknown>;
+  if (typeof user.bio === 'string') return user.bio;
+  if (typeof user.description === 'string') return user.description;
+  if (typeof user.username !== 'string' || !user.username) return undefined;
+  const profile = (await getUserProfile(user.username)) as Record<string, unknown> | null;
+  if (typeof profile?.description === 'string') return profile.description;
+  if (typeof profile?.bio === 'string') return profile.bio;
+  return undefined;
+}
+
+/**
+ * How long can a bio be? webyak allows 150, offsides 200. Sets three test bios
+ * and **always** puts the original back, then reads it back to prove it.
+ */
+async function probeBioLength(userId: string): Promise<ProbeResult> {
+  const base = {
+    id: 'bio-length',
+    label: 'Limits — bio length',
+    question: 'What does the server enforce? webyak allows 150; offsides 200.',
+  };
+  let original: string | undefined;
+  try {
+    original = await readOwnBio();
+  } catch (e) {
+    return { ...fail(base, e), detail: `Couldn't read your current bio, so it wasn't touched: ${describeError(e)}` };
+  }
+  if (original === undefined) {
+    return {
+      ...base,
+      status: 'partial',
+      detail:
+        "Couldn't read your current bio with certainty, so it wasn't touched — restoring it afterwards would have been a guess. Set a bio in Edit Profile and run this again.",
+    };
+  }
+
+  const steps: string[] = [`original bio: ${shape(original)} (kept, not shown)`];
+  const accepted: number[] = [];
+  let rejectedAt: number | undefined;
+  try {
+    for (const length of [151, 200, 201]) {
+      try {
+        await updateProfile(userId, { bio: filler(length, 'bio') });
+      } catch (e) {
+        steps.push(`${length} chars → ${isRateLimit(e) ? 'rate-limited' : 'rejected'}: ${describeError(e)}`);
+        if (!isRateLimit(e)) rejectedAt = length;
+        break;
+      }
+      accepted.push(length);
+      steps.push(`${length} chars → accepted`);
+      await pause(1500);
+    }
+  } finally {
+    try {
+      await updateProfile(userId, { bio: original });
+      const after = await readOwnBio();
+      steps.push(after === original ? 'original bio restored, and read back unchanged' : `⚠ restored, but it reads back as ${shape(after)} — check Edit Profile`);
+    } catch (e) {
+      steps.push(`⚠ COULD NOT RESTORE your bio (${describeError(e)}) — set it again in Edit Profile`);
+    }
+  }
+
+  const most = accepted[accepted.length - 1];
+  const restored = steps[steps.length - 1].startsWith('original bio restored');
+  const detail =
+    rejectedAt === 151
+      ? 'The limit is 150 or lower. webyak’s 150 holds; offsides’ 200 is wrong.'
+      : rejectedAt === 200
+        ? 'The limit is between 151 and 199. Narrow it down before changing MAX_BIO.'
+        : rejectedAt === 201
+          ? 'Exactly 200. Raise MAX_BIO in me/edit.tsx to match offsides.'
+          : most
+            ? `More than ${most}. webyak’s 150 is stricter than the server.`
+            : 'No answer — see below.';
+  return {
+    ...base,
+    status: !restored ? 'error' : rejectedAt || most ? 'pass' : 'partial',
+    detail: restored ? detail : `${detail} ⚠ Your bio may not be restored — see below.`,
+    evidence: steps.join('\n'),
+  };
+}
+
+/**
+ * The two length probes. Kept behind their own confirm: they post to a real
+ * community and change your public bio, both for seconds, both undone.
+ */
+export async function runLengthProbes(groupId: string, userId: string | null): Promise<ProbeResult[]> {
+  const posts = await probePostLength(groupId);
+  const bio: ProbeResult = userId
+    ? await probeBioLength(userId)
+    : {
+        id: 'bio-length',
+        label: 'Limits — bio length',
+        question: 'What does the server enforce?',
+        status: 'partial',
+        detail: 'Not signed in.',
+      };
+  return [posts, bio];
 }
 
 /**

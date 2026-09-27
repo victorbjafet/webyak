@@ -5,6 +5,7 @@ import type {
   ArchivedContent,
   CrawlState,
   QueuedPost,
+  RepairOutcome,
   UpdateKind,
   UpdateState,
 } from './types';
@@ -215,6 +216,14 @@ export async function listArchivedThread(_postId: string): Promise<ArchivedConte
   return [];
 }
 
+export async function flagTombstonedRecords(): Promise<number> {
+  return 0;
+}
+
+export async function repairTombstones(): Promise<RepairOutcome> {
+  return { flagged: 0, ran_at: 0, fresh: false };
+}
+
 const _implements: ArchiveStore = {
   archiveAvailable,
   archiveContent,
@@ -242,6 +251,8 @@ const _implements: ArchiveStore = {
   countUnseenInRange,
   markPostsDeleted,
   listArchivedThread,
+  flagTombstonedRecords,
+  repairTombstones,
   exportArchive,
   importArchive,
 };

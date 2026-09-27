@@ -4,6 +4,7 @@ import type {
   ArchivedContent,
   CrawlState,
   QueuedPost,
+  RepairOutcome,
   UpdateKind,
   UpdateState,
 } from './types';
@@ -106,6 +107,11 @@ export interface ArchiveStore {
   ): Promise<number>;
   markPostsDeleted(ids: string[], via: 'tombstone' | 'missing', at?: number): Promise<number>;
   listArchivedThread(postId: string): Promise<ArchivedContent[]>;
+
+  /** Flags records still holding a placeholder text. Returns how many. */
+  flagTombstonedRecords(): Promise<number>;
+  /** `flagTombstonedRecords`, once per archive. */
+  repairTombstones(): Promise<RepairOutcome>;
 
   exportArchive(onProgress?: (rows: number) => void): Promise<Blob>;
   importArchive(

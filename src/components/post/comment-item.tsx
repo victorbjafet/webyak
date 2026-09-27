@@ -13,6 +13,7 @@ import { useVote } from '@/api/mutations';
 import type { PostOrComment } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { isTombstoneText } from '@/lib/archive/types';
 
 /**
  * Threading is two levels, not arbitrary nesting. offsides distinguishes them
@@ -41,6 +42,29 @@ export function CommentItem({
   const reply = isReply(comment);
   const displayName = comment.identity?.name || comment.alias || 'Anonymous';
   const username = comment.identity?.posted_with_username ? comment.identity?.name : undefined;
+  const mine = comment.authored_by_user;
+
+  /*
+    A deleted comment stays in its thread as a placeholder — text "Comment
+    Deleted", alias "Deleted", no votes, no author — so the replies under it keep
+    a parent (docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted).
+    It used to render as if someone had typed that. Nothing is left to vote on,
+    reply to, share or report, so it gets none of the controls; its replies still
+    render beneath it, which is the point of keeping it.
+  */
+  if (isTombstoneText(comment.text)) {
+    return (
+      <View style={[styles.wrap, reply && [styles.reply, { borderLeftColor: theme.border }]]}>
+        <View style={styles.header}>
+          <ThemedText type="small" themeColor="textTertiary" style={styles.removed}>
+            Comment deleted
+          </ThemedText>
+          <View style={styles.spacer} />
+          <TimeStamp iso={comment.created_at} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.wrap, reply && [styles.reply, { borderLeftColor: theme.border }]]}>
@@ -48,8 +72,14 @@ export function CommentItem({
         {username ? (
           <Pressable
             accessibilityRole="link"
-            accessibilityLabel={`View ${username}'s profile`}
-            onPress={() => router.push({ pathname: '/u/[username]', params: { username } })}
+            accessibilityLabel={mine ? 'Open your profile' : `View ${username}'s profile`}
+            // Your own name opens the You tab. The public profile is a page
+            // *about* you; the You tab is the one that is yours.
+            onPress={() =>
+              mine
+                ? router.push('/me')
+                : router.push({ pathname: '/u/[username]', params: { username } })
+            }
             style={({ hovered }) => [styles.author, hovered && styles.authorHovered]}>
             <IdentityAvatar identity={comment.identity} size={22} />
             <ThemedText type="smallBold" themeColor="textSecondary" numberOfLines={1}>
@@ -64,6 +94,16 @@ export function CommentItem({
             </ThemedText>
           </View>
         )}
+
+        {/* Whether or not it was posted under your name — an anonymous comment
+            is the one you are likeliest to lose track of in a long thread. */}
+        {mine ? (
+          <View style={[styles.you, { backgroundColor: theme.brandMuted }]}>
+            <ThemedText type="caption" style={{ color: theme.brand }}>
+              You
+            </ThemedText>
+          </View>
+        ) : null}
 
         <View style={styles.spacer} />
         <TimeStamp iso={comment.created_at} />
@@ -127,6 +167,14 @@ const styles = StyleSheet.create({
   },
   authorHovered: {
     opacity: 0.75,
+  },
+  you: {
+    paddingHorizontal: Spacing.two,
+    paddingVertical: Spacing.half,
+    borderRadius: Radius.pill,
+  },
+  removed: {
+    fontStyle: 'italic',
   },
   spacer: {
     flex: 1,

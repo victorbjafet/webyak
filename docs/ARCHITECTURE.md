@@ -356,6 +356,24 @@ Awaiting a request *on the transaction you hold* is fine and is used throughout
 — `archiveContent` does read-then-write per record inside one transaction. The
 distinction is whether the await is on that transaction or on another one.
 
+### A long read-only transaction blocks writers too
+
+The opposite hazard, and a less obvious one: a read-write transaction **waits
+for every earlier transaction on the same store to finish — read-only ones
+included** (IndexedDB spec, transaction scheduling). Only reads run alongside
+reads. So one cursor walked across the whole archive holds up every write
+issued after it, a running crawl's included, for as long as the walk takes.
+
+Anything that scans everything *automatically* therefore reads in bounded
+chunks, one short transaction each, resuming from the last primary key —
+`flagTombstonedRecords` uses `getAll(IDBKeyRange.lowerBound(last, true), 2000)`,
+so a crawl's writes interleave between chunks.
+
+Export and the integrity check still walk in one transaction, and a crawl
+running at the same time waits them out. That is acceptable only because a
+person starts them, and sees them finish; it is not a pattern to copy into
+anything that runs on its own.
+
 ### Writes are fire-and-forget
 
 Archiving happens inside the feed, post and comment `queryFn`s, with the promise
