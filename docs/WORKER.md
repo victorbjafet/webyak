@@ -35,6 +35,7 @@ Probing established the authenticated API **cannot** close that gap:
 | share code → post | no endpoint exists; `/v1/posts/get` is UUID-keyed (a DynamoDB `ValidationException` proves it), and every guessable alternative 404s | ❌ **dead end — this is what the worker is for** |
 | group slug → group | `/v1/groups/explore/search?term=` resolves it | ✅ closed natively, no worker needed |
 | upload image bytes | pre-signed `PUT` to the storage host is blocked by CORS, and no combination of headers or fetch modes avoids the preflight | ❌ **dead end — the second thing the worker is for** |
+| play video | segments are on Cloudflare R2, which sends no CORS headers, so hls.js cannot read them; Chrome's own HLS player fails on them too (2026-09-27) | ❌ **dead end — [`/media`](#get-media); Safari aside, no browser plays Yik Yak video without it** |
 
 The public web client resolves share codes unauthenticated, and its only
 obstacles are CORS and an encoding — exactly what a worker is for.
@@ -150,6 +151,35 @@ Client-side this is one function: whatever `AuthedImage` currently fetches
 directly would instead go through the relay when `EXPO_PUBLIC_WORKER_URL` is
 set, which also lights up video posters with no other change.
 
+### `GET /media`
+
+**Required for video playback in Chrome and Firefox** (2026-09-27). A different
+wall from the other routes: no bearer and no redirect — the segments are
+presigned and fetch fine — but the host sends **no CORS headers**, so a browser
+can request them and cannot read the answer
+([API.md](API.md#-video-playback-needs-the-worker)).
+
+```
+GET /media?u=<encoded R2 segment URL>
+
+→ the segment bytes, Content-Type passed through,
+  Access-Control-Allow-Origin: *
+```
+
+- **Only relay `*.r2.cloudflarestorage.com`.** Anything else is an open proxy.
+  The URL is already presigned, so no credentials pass through the worker.
+- **Segments only.** The playlists come from `api.sidechat.lol`, which sends
+  CORS headers already; relaying them would just add a hop.
+- **Cacheable.** A segment never changes, and its URL carries its signature, so
+  caching on the full URL is safe until it expires (~12 hours).
+- **Never log the URL** — it carries a signature and the viewer's `user_id`.
+
+The client side is built. `post-video.web.tsx` gives hls.js a fragment loader
+that rewrites any R2 URL to `${EXPO_PUBLIC_WORKER_URL}/media?u=…` when the
+variable is set, and leaves everything else alone. Tested against a live stream
+with a local stand-in doing exactly the above: every segment went through it and
+the video played.
+
 ### `GET /group/:slug` — optional
 
 Not needed any more; layer 4 of the slug resolver covers this natively. Kept
@@ -206,7 +236,13 @@ The client side is already built and inert:
 - `lookupGroupViaWorker()` is already **layer 5** of `resolveGroupBySlug`.
 
 So enabling it is: deploy the worker, set `EXPO_PUBLIC_WORKER_URL`, and add the
-matching `/post/:code` call in the post detail screen. No refactor.
+matching `/post/:code` call in the post detail screen. No refactor. Image upload
+and video playback light up on their own.
+
+**Rebuild with `--clear` after setting it.** `EXPO_PUBLIC_*` variables are
+inlined when a file is transformed, and `expo export` reuses its transform cache:
+a rebuild after only changing the variable shipped a bundle without it
+(measured 2026-09-27). `npx expo export --platform web --clear`.
 
 ## What we lose by deferring
 

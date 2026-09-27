@@ -10,6 +10,12 @@ import { useTheme } from '@/hooks/use-theme';
 
 interface ScreenProps {
   title?: string;
+  /**
+   * Replaces the title text, for a header whose title is itself a control —
+   * the home feed's community picker. Sits where the title would, so it gets
+   * the flexible space and shrinks before the action does.
+   */
+  titleContent?: React.ReactNode;
   subtitle?: string;
   /** Rendered left of the title — a group icon, typically. */
   leading?: React.ReactNode;
@@ -39,6 +45,7 @@ interface ScreenProps {
 
 export function Screen({
   title,
+  titleContent,
   subtitle,
   leading,
   headerBelow,
@@ -53,7 +60,7 @@ export function Screen({
   const router = useRouter();
 
   const header =
-    title || headerBelow ? (
+    title || titleContent || headerBelow ? (
       <View style={[styles.headerBlock, { borderBottomColor: theme.border }]}>
         <View style={styles.header}>
       {back ? (
@@ -70,11 +77,12 @@ export function Screen({
       ) : null}
       {leading}
       <View style={styles.headerText}>
-        {title ? (
-          <ThemedText type="subtitle" numberOfLines={1} style={{ color: theme.brand }}>
-            {title}
-          </ThemedText>
-        ) : null}
+        {titleContent ??
+          (title ? (
+            <ThemedText type="subtitle" numberOfLines={1} style={{ color: theme.brand }}>
+              {title}
+            </ThemedText>
+          ) : null)}
         {subtitle ? (
           <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
             {subtitle}

@@ -206,7 +206,8 @@ Chats, You) still use their own name, because there is nothing else to put there
 
 Sort tabs live in the header rather than scrolling with the posts, so switching
 sort never requires scrolling back up. `Screen` takes `leading`, `headerBelow`
-and `action` slots for exactly this.
+and `action` slots for exactly this, and `titleContent` for a title that is
+itself a control — the home feed's community switcher.
 
 ## Media sizing
 
@@ -220,9 +221,20 @@ Once capped, the frame no longer matches the asset's aspect ratio, so media uses
 
 ## Switching communities
 
-Two presentations of one control, following the official app: a list under the
-nav in the desktop sidebar, and a scrollable strip directly above the tab bar on
-narrow screens. Selection persists.
+**The home header's title is the switcher.** The current community's icon and
+name, with a chevron, open a dropdown of For You and every community — For You
+first, a checkmark on the current one, and *Find more communities* at the foot,
+into Explore. That is where the official app keeps it, and it sits on the thing
+it changes. On wide screens the sidebar also lists them under the nav. Selection
+persists, and switching starts the new feed at its top.
+
+*Changed 2026-09-27.* Narrow screens used to get a scrollable strip of chips
+directly above the tab bar. It spent a permanent row of the smallest screens on a
+control used a few times a session, as far from the feed's header as it could
+be. The dropdown is a `Modal` rather than a view positioned under the header: the
+feed is its own scroller, and on web its layer painted over anything that
+overflowed the header. A long community name truncates; the chevron and the
+header's action keep their room.
 
 The list comes from `getUpdates().groups` — which is **not** a complete
 membership list (`/v1/users/me` reported 4 memberships against 3 groups), so it
@@ -240,8 +252,8 @@ it. It hides itself on `/compose`, because a button that reopens the screen you
 are already on is noise, and on narrow it would sit on top of the text field.
 
 The FAB renders **inside the content area**, not against the shell root.
-Positioned against the root it sits underneath the community strip and the tab
-bar, which is only visible on a short viewport.
+Positioned against the root it sits underneath the tab bar, which is only
+visible on a short viewport.
 
 ### Confirmations are a component, not `Alert.alert`
 
@@ -282,9 +294,9 @@ message prefers the API's own text (`unwrap` surfaces `error_code` bodies) over 
 generic fallback.
 
 `ToastHost` is mounted once at the root, above the shell, and is **anchored to
-the top**. The bottom is occupied by the tab bar, the community strip and the
-compose FAB on narrow viewports — a toast down there covers the post button,
-which is often the action the user was trying to take.
+the top**. The bottom is occupied by the tab bar and the compose FAB on narrow
+viewports — a toast down there covers the post button, which is often the
+action the user was trying to take.
 
 Repeated messages collapse: voting on three posts while offline says one thing,
 not three identical bars.

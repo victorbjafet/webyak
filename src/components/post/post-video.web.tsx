@@ -6,21 +6,56 @@ import { AuthedImage } from '../authed-image';
 import { ThemedText } from '../themed-text';
 import { DownloadButton } from './download-button';
 
+import type {
+  FragmentLoaderConstructor,
+  LoaderCallbacks,
+  LoaderConfiguration,
+  LoaderContext,
+} from 'hls.js';
+
 import type { Asset } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { useMediaMaxHeight } from '@/lib/media';
+import { workerEndpoint } from '@/lib/worker';
 
 /**
- * Video posts are HLS (`.m3u8`). Safari plays them natively; Chrome and Firefox
- * need hls.js, which is imported lazily so Safari never downloads it and it
- * code-splits out of the main bundle.
+ * Video posts are HLS (`.m3u8`): playlists from `api.sidechat.lol`, which sends
+ * CORS headers, and MPEG-TS segments from Cloudflare R2 storage, **which does
+ * not** (docs/API.md#-video-playback-needs-the-worker).
+ *
+ * ## Two players, tried in order
+ *
+ * 1. **The browser's own**, when it claims HLS. That was only ever Safari —
+ *    Apple's player, used by every browser on iPhone — until Chrome 153 began
+ *    answering `canPlayType` with "maybe" too. Chrome's then fails on these
+ *    streams with `MEDIA_ERR_SRC_NOT_SUPPORTED`, so a native error before
+ *    anything loads falls through to…
+ * 2. **hls.js**, imported lazily so Safari never downloads it. It fetches
+ *    segments itself, which needs CORS the segment host does not send — so
+ *    without the worker's relay it cannot get past the first segment either,
+ *    and says so rather than retrying for half a minute.
  *
  * `preload` is set by the feed when the post is at or near the viewport, so the
  * manifest and first segments are already in flight by the time anyone presses
  * play. Attaching the stream does not start playback — `autoplay` is never set,
  * so this buffers quietly and stays paused.
  */
+
+// The download is the master playlist: its links are signed for ~12 hours, and
+// a player outside the browser does not need CORS (docs/API.md).
+const BLOCKED =
+  "Yik Yak's video host blocks playback on other sites. Download saves a playlist VLC can open for about 12 hours.";
+const FAILED = 'Playback failed.';
+
+/** Segments live on R2, which sends no CORS headers — the one host that needs the relay. */
+function isSegmentHost(url: string) {
+  try {
+    return new URL(url).hostname.endsWith('.r2.cloudflarestorage.com');
+  } catch {
+    return false;
+  }
+}
 export function PostVideo({
   asset,
   preload = false,
@@ -33,6 +68,13 @@ export function PostVideo({
 }) {
   const theme = useTheme();
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Whether a player has been attached, and how to take it off again. Refs, not
+  // state: the attach effect must not re-run because it succeeded.
+  const attachedRef = useRef(false);
+  const detachRef = useRef<(() => void) | null>(null);
+  // Set by the play button, read by a player that attaches after the press —
+  // hls.js taking over from a native attempt that failed on play.
+  const wantsPlayRef = useRef(false);
   const [attached, setAttached] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,45 +88,137 @@ export function PostVideo({
   // as someone presses play — whichever happens first.
   const shouldAttach = preload || playing;
 
+  /*
+    Teardown has an effect of its own, keyed on the asset.
+
+    It used to be the attach effect's cleanup. That effect listed `attached` as
+    a dependency and set it on success, so succeeding re-ran it — and the
+    cleanup of the run that had just attached hls.js destroyed the player it had
+    just made. From 2026-08-27, every browser on the hls.js path got a video
+    element with no source. Keyed on the asset rather than the URL, too: the
+    URL is re-signed on every feed refetch, and a playing video should not
+    restart because the feed refreshed underneath it.
+  */
+  useEffect(
+    () => () => {
+      detachRef.current?.();
+      detachRef.current = null;
+      attachedRef.current = false;
+    },
+    [asset.id],
+  );
+
   useEffect(() => {
     const el = videoRef.current;
-    if (!el || !shouldAttach || !src || attached) return;
+    if (!el || !shouldAttach || !src || attachedRef.current) return;
+    attachedRef.current = true;
+    const attachment = { live: true, hls: null as { destroy(): void } | null };
 
-    if (el.canPlayType('application/vnd.apple.mpegurl')) {
-      el.src = src;
-      setAttached(true);
-      return;
-    }
-
-    let destroyed = false;
-    let hls: { destroy(): void } | null = null;
-
-    void (async () => {
+    const viaHlsJs = async () => {
       try {
         const { default: Hls } = await import('hls.js');
-        if (destroyed) return;
+        if (!attachment.live) return;
         if (!Hls.isSupported()) {
           setError('This browser cannot play this video.');
           return;
         }
-        const instance = new Hls({ enableWorker: true });
-        hls = instance;
+
+        // With the worker configured, segments are fetched through its relay,
+        // which adds the CORS headers R2 leaves off. Playlists already have them.
+        const relay = workerEndpoint('/media');
+        const Base = Hls.DefaultConfig.loader;
+        class RelayLoader extends Base {
+          load(
+            context: LoaderContext,
+            config: LoaderConfiguration,
+            callbacks: LoaderCallbacks<LoaderContext>,
+          ) {
+            if (relay && isSegmentHost(context.url)) {
+              context.url = `${relay}?u=${encodeURIComponent(context.url)}`;
+            }
+            super.load(context, config, callbacks);
+          }
+        }
+
+        const instance = new Hls({
+          enableWorker: true,
+          // The default loader is typed for any context and loads fragments
+          // too; only the declared type is narrower.
+          ...(relay ? { fLoader: RelayLoader as unknown as FragmentLoaderConstructor } : {}),
+        });
+        attachment.hls = instance;
+        let segmentLoaded = false;
+        instance.on(Hls.Events.FRAG_LOADED, () => {
+          segmentLoaded = true;
+        });
+        instance.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (wantsPlayRef.current) void el.play().catch(() => {});
+        });
+        instance.on(Hls.Events.ERROR, (_e, data) => {
+          /*
+            Blocked, not flaky. The playlists just loaded from the same API, so
+            the network is up; a first segment that fails with no HTTP status at
+            all is the browser refusing a response without CORS headers. hls.js
+            would retry that for half a minute before calling it fatal.
+          */
+          const blocked =
+            !segmentLoaded &&
+            data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR &&
+            !data.response?.code &&
+            !relay;
+          if (blocked) {
+            instance.destroy();
+            attachment.hls = null;
+            setError(BLOCKED);
+          } else if (data.fatal) {
+            setError(FAILED);
+          }
+        });
         instance.loadSource(src);
         instance.attachMedia(el);
-        instance.on(Hls.Events.ERROR, (_e, data) => {
-          if (data.fatal) setError('Playback failed.');
-        });
         setAttached(true);
       } catch {
-        if (!destroyed) setError('Could not load the video player.');
+        if (attachment.live) setError('Could not load the video player.');
       }
-    })();
-
-    return () => {
-      destroyed = true;
-      hls?.destroy();
     };
-  }, [shouldAttach, src, attached]);
+
+    let loaded = false;
+    const onLoaded = () => {
+      loaded = true;
+    };
+    // Only a failure *before* anything loaded falls back — see the header.
+    const onNativeError = () => {
+      el.removeEventListener('error', onNativeError);
+      if (loaded) {
+        setError(FAILED);
+        return;
+      }
+      el.removeAttribute('src');
+      el.load();
+      void viaHlsJs();
+    };
+
+    detachRef.current = () => {
+      attachment.live = false;
+      attachment.hls?.destroy();
+      el.removeEventListener('loadedmetadata', onLoaded);
+      el.removeEventListener('error', onNativeError);
+    };
+
+    if (el.canPlayType('application/vnd.apple.mpegurl')) {
+      el.addEventListener('loadedmetadata', onLoaded);
+      el.addEventListener('error', onNativeError);
+      // The element is rendered `preload="none"` so nothing loads before this
+      // point; once attaching, buffer ahead as hls.js does. (Chrome's native
+      // player still says nothing about a stream it cannot play until play()
+      // is called — measured — so its failure surfaces on the press.)
+      el.preload = 'auto';
+      el.src = src;
+      setAttached(true);
+    } else {
+      void viaHlsJs();
+    }
+  }, [shouldAttach, src]);
 
   // Play only on an explicit press, never as a side effect of preloading.
   useEffect(() => {
@@ -172,15 +306,20 @@ export function PostVideo({
             </View>
           ) : null}
 
-          <Pressable
-            onPress={() => setPlaying(true)}
-            accessibilityRole="button"
-            accessibilityLabel="Play video"
-            style={styles.overlay}>
-            <View style={[styles.playButton, { backgroundColor: theme.overlay }]}>
-              <Ionicons name="play" size={26} color="#FFFFFF" />
-            </View>
-          </Pressable>
+          {error ? null : (
+            <Pressable
+              onPress={() => {
+                wantsPlayRef.current = true;
+                setPlaying(true);
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Play video"
+              style={styles.overlay}>
+              <View style={[styles.playButton, { backgroundColor: theme.overlay }]}>
+                <Ionicons name="play" size={26} color="#FFFFFF" />
+              </View>
+            </Pressable>
+          )}
         </>
       ) : null}
 

@@ -1,7 +1,6 @@
 import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { BottomBar } from './bottom-bar';
-import { CommunitySwitcher } from './community-switcher';
 import { ComposeButton } from './compose-button';
 import { Sidebar } from './sidebar';
 
@@ -35,15 +34,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <View style={styles.content}>
         {children}
         {/* Inside the content area on purpose: absolutely positioned against the
-            root it would sit underneath the community strip and the tab bar. */}
+            root it would sit underneath the tab bar. */}
         {showNav && !wide ? <ComposeButton variant="floating" /> : null}
       </View>
-      {showNav && !wide ? (
-        <>
-          <CommunitySwitcher variant="bar" />
-          <BottomBar />
-        </>
-      ) : null}
+      {/* No community strip above the tab bar any more — switching lives in
+          the home header (CommunityMenu), which is where it acts. */}
+      {showNav && !wide ? <BottomBar /> : null}
     </View>
   );
 }

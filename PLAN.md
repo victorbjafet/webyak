@@ -444,8 +444,17 @@ Full checklist and pre-scan findings:
         relay ([docs/WORKER.md](docs/WORKER.md#get-asset)). The poster now falls
         back to a neutral panel instead of a black box
         ([docs/API.md](docs/API.md#-video-thumbnails-need-the-worker))
-  - [ ] ⛔ Video preloading doesn't work — deferred, non-blocking
-        ([docs/API.md](docs/API.md#-videos-are-not-preloading))
+  - [x] Video preloading — **fixed 2026-09-27.** Not the `preload` attribute
+        or hls.js config it was filed under: the player destroyed its own
+        hls.js instance the moment it attached, from 2026-08-27, so nothing
+        buffered and nothing played on that path
+        ([docs/API.md](docs/API.md#videos-were-not-preloading--fixed-2026-09-27))
+  - [ ] ⛔ **Video playback needs the worker** outside Safari. Segments moved to
+        Cloudflare R2, which sends no CORS headers, and Chrome 153's own HLS
+        player fails on them too. Until the worker's `/media` relay exists,
+        Chrome and Firefox say why instead of showing a dead player, and the
+        download plays in VLC. The client side of the relay is built and tested
+        ([docs/API.md](docs/API.md#-video-playback-needs-the-worker))
   - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
         URL, so feed avatars would need a profile lookup per author
 - [x] Explore page: group grid, member counts, icons. Two columns above 720px,
@@ -745,10 +754,9 @@ Resolved ones are kept with their answer so they don't get re-asked.
   lives"** reports it by field shape, never the bio
   ([docs/API.md](docs/API.md#a-user-profile-is-a-group)).
   *First run, 2026-09-27:* the test account's `user` has **no `username`, `bio`
-  or `description` key at all**, so it cannot settle this. It raises a sharper
-  question: if that account *has* a username, the API has stopped sending it
-  here, and the You tab and Edit Profile — which read it from this object — show
-  "No username yet" for everyone
+  or `description` key at all** — and that account has neither set, so the
+  keys are simply omitted when unset, as offsides assumes. Nothing is broken;
+  the question waits for an account with a bio
   ([docs/API.md](docs/API.md#what-user-carries--and-what-it-does-not)).
 - **Q11 — what does the server actually enforce on length?** Two disagreements,
   neither backed by the server: a **post** is capped at 300 by webyak while
@@ -773,9 +781,10 @@ Resolved ones are kept with their answer so they don't get re-asked.
 
 ## 8. Risks
 
-- **⛔ Fully-serverless is no longer strictly true.** **Two** features need a proxy, both for the
-  same reason — a browser request carrying an `Authorization` header cannot follow a redirect:
-  image upload and video thumbnails. Everything else works from a static origin
+- **⛔ Fully-serverless is no longer strictly true.** **Three** features need a proxy. Image upload
+  and video thumbnails for one reason — a browser request carrying an `Authorization` header
+  cannot follow a redirect — and **video playback** (2026-09-27) for another: the segments are on
+  a host that sends no CORS headers. Everything else works from a static origin
   ([docs/WORKER.md](docs/WORKER.md)). Share links used to be a third; they are not, since webyak
   links now carry the post id
   ([docs/API.md](docs/API.md#blocker-1-resolved--by-changing-the-url-not-the-api)).

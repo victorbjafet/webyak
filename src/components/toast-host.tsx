@@ -16,7 +16,7 @@ import { dismissToast, useToasts } from '@/lib/toast';
  * themselves are interactive.
  *
  * Anchored to the top rather than the bottom: the bottom is occupied by the tab
- * bar, the community strip and the compose FAB on narrow viewports, and a toast
+ * bar and the compose FAB on narrow viewports, and a toast
  * that covers the post button is a toast that blocks the recovery action.
  */
 export function ToastHost() {

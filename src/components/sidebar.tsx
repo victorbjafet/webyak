@@ -59,7 +59,7 @@ export function Sidebar() {
 
       <ComposeButton variant="sidebar" />
 
-      <CommunitySwitcher variant="sidebar" />
+      <CommunitySwitcher />
     </View>
   );
 }

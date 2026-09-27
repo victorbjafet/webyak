@@ -510,6 +510,64 @@ Cached an hour, `retry: false`, no refetch on focus or mount. A username with no
 reachable profile fails once and stays quiet rather than re-asking for every post
 it wrote. The emoji stays as the fallback, which is what it always was.
 
+#### ⛔ Video playback needs the worker
+
+**Found 2026-09-27, after "videos don't load at all any more".** Three causes
+stacked, and only the last is outside our code:
+
+1. **The player destroyed its own hls.js instance** the moment it attached,
+   from 2026-08-27 (`46b190c`). The attach effect listed `attached` as a
+   dependency and set it on success, so succeeding re-ran the effect, and the
+   cleanup of the run that had just attached tore the player down. Every
+   browser on the hls.js path got a video element with no source. Fixed:
+   teardown has its own effect, keyed on the asset.
+2. **Chrome 153 claims native HLS.** `canPlayType('application/vnd.apple.mpegurl')`
+   answers `"maybe"`, so the player stopped using hls.js in Chrome at all — and
+   Chrome's built-in player fails on these streams with
+   `MEDIA_ERR_SRC_NOT_SUPPORTED`, which nothing handled. Fixed: a native error
+   before anything loads falls back to hls.js.
+3. **The segments are on a host that sends no CORS headers.** Playlists come
+   from `api.sidechat.lol` with `Access-Control-Allow-Origin: *`; the MPEG-TS
+   segments they list are presigned URLs on Cloudflare R2
+   (`*.r2.cloudflarestorage.com`), which answers a CORS preflight **403** and a
+   plain GET with no CORS headers — for every variant of every stream checked.
+   hls.js fetches segments itself, so it cannot read them from any origin but
+   Yik Yak's own. **Not fixable from a browser.**
+
+Measured in headless Chrome 153 against a live stream, and against a public
+test stream as a control:
+
+| | Yik Yak stream | Public stream (CORS everywhere) |
+|---|---|---|
+| Chrome's native HLS | error 4, source not supported | plays |
+| hls.js | playlists load; first segment never arrives | plays |
+| hls.js, segments through a relay adding CORS | **plays** | — |
+
+A local A/B confirmed the mechanism: the same segments on a second origin stall
+hls.js without CORS headers and play with them. (Chrome's native player failed
+that A/B either way, so it is not the route to fix.) So the fix is the worker's
+[`/media` relay](WORKER.md#get-media): fetch the segment server-side, return it
+with CORS. The client side is built and inert — `post-video.web.tsx` rewrites R2
+segment URLs through `${EXPO_PUBLIC_WORKER_URL}/media` when it is set — and was
+tested end to end with a stand-in relay: the video buffers ahead and plays.
+
+Until then:
+
+- **Chrome and Firefox** show *"Yik Yak's video host blocks playback on other
+  sites"* about two seconds after play is pressed, instead of a dead player or
+  half a minute of hls.js retries. The first segment failing with no HTTP status,
+  right after its playlists loaded from the same API, is the signature.
+- **Safari, and every browser on iPhone,** use Apple's player, which is not the
+  web media stack and does not apply CORS to segments. Not tested here — no
+  Safari automation — but that path was never broken by any of the above.
+- **The download button** saves the master playlist. Its links are absolute and
+  signed for about 12 hours, and a player outside the browser needs no CORS:
+  ffprobe read video (h264 480×344) and AAC audio from all four variants of a
+  saved one. VLC opens it.
+
+When segments moved to R2 is unknown — nothing recorded the segment host while
+videos played, and cause 1 hid the change from 2026-08-27 on.
+
 #### ⛔ Video thumbnails need the worker
 
 **Settled 2026-08-27. Not fixable from a browser.** Both routes are closed:
@@ -539,22 +597,20 @@ it costs nothing and starts working the moment the relay exists.
 > because that endpoint needs no auth; upload and video posters cannot, because
 > theirs do.
 
-#### ⛔ Videos are not preloading
-
-**Not fixed. Deferred by decision 2026-08-27.**
+#### Videos were not preloading — fixed 2026-09-27
 
 `FeedList` computes a `preloadRange` two rows either side of the viewport and
-passes `preload` to each card, which reaches `post-video.web.tsx`. Reported not
-to work in practice. Unverified guesses, in the order worth checking:
+passes `preload` to each card. It was reported not to work, deferred, and filed
+with two guesses about `<video preload>` and hls.js buffering config. **Neither
+was it.** Preloading attached hls.js, and the attach effect's own cleanup
+destroyed the instance straight away — cause 1
+[above](#-video-playback-needs-the-worker). Nothing could buffer ahead because
+nothing survived attaching.
 
-- `preload` may reach the element only after the source is already attached, so
-  it never changes the `<video preload>` attribute that mattered.
-- HLS is not a single file — with `hls.js`, buffering is controlled by the
-  library's own config, not by the element's `preload` attribute, so setting the
-  attribute may be inert for exactly the sources we serve.
-
-Both are cheap to check with the network panel: scroll a feed and watch whether
-segment requests start before the video is on screen.
+Measured after the fix, on a stream a browser can play: 80 seconds buffered
+before anyone pressed play; the old player buffered nothing in the same test.
+Native players get `preload="auto"` when attached for the same reason. Yik Yak's
+own streams still need the worker in Chrome and Firefox.
 
 ### Quote-reposts
 
@@ -1152,11 +1208,10 @@ include_username_posts_in_account_feed, incoming_freshman, invite_url,
 notification_preferences, phone_number, roles, type, verified_email
 ```
 
-- **No `username`, `bio` or `description`** on this account. `useMyIdentity`
-  reads all three from here, as sidechat.js and offsides do. Either the keys
-  are omitted when unset — offsides reads `user.username` as optional — or the
-  API stopped sending them. Which one depends on whether this account has a
-  username, which is not yet confirmed (PLAN Q10).
+- **No `username`, `bio` or `description`** on this account — which has set
+  neither, so the keys are omitted when unset, the way offsides reads
+  `user.username` as optional. `useMyIdentity` reads all three from here, as
+  sidechat.js and offsides do; nothing is missing that exists (PLAN Q10).
 - **`phone_number` and `verified_email` are in it.** This object must never be
   dumped whole by a probe or a log — keys and shapes only, as the bio probe
   does ([OPEN-SOURCE.md](OPEN-SOURCE.md)).
@@ -1470,8 +1525,8 @@ Tested directly 2026-09-11, because the worker plan rests on it:
 school-community posts, the worker's `/post/:code` route cannot either — which
 would make it useless for exactly the posts this account shares. It should be
 verified against a public-community code before any worker work starts, because
-it could remove the route's justification entirely. The worker's other two jobs —
-image upload and video thumbnails — are unaffected.
+it could remove the route's justification entirely. The worker's other jobs —
+image upload, video thumbnails and video playback — are unaffected.
 
 
 ## Crawling politely

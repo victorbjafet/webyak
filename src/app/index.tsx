@@ -3,13 +3,13 @@ import { useState } from 'react';
 import { View } from 'react-native';
 
 import { useCurrentGroup } from '@/api/current-group';
-import { groupDisplayName, isForYouFeed } from '@/api/groups';
+import { isForYouFeed } from '@/api/groups';
 import { useGroupFeed } from '@/api/queries';
 import type { FeedFilter, TopPeriod } from '@/api/types';
 import { FeedList } from '@/components/feed/feed-list';
 import { LeaderboardButton } from '@/components/feed/leaderboard-button';
 import { FOR_YOU_TABS, SortTabs } from '@/components/feed/sort-tabs';
-import { GroupAvatar } from '@/components/group-avatar';
+import { CommunityMenu } from '@/components/community-switcher';
 import { Screen } from '@/components/screen';
 import { EmptyState } from '@/components/states';
 import { Button } from '@/components/ui/button';
@@ -50,16 +50,10 @@ export default function HomeScreen() {
 
   return (
     <Screen
-      title={groupDisplayName(current)}
-      leading={
-        <GroupAvatar
-          group={current}
-          name={groupDisplayName(current)}
-          iconUrl={current.icon_url}
-          color={current.color}
-          size={30}
-        />
-      }
+      // The title is the community picker: icon, name and a chevron that opens
+      // For You and every community. It replaced the strip of chips that sat
+      // above the tab bar on narrow screens (docs/DESIGN.md#switching-communities).
+      titleContent={<CommunityMenu />}
       action={
         <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
           <LeaderboardButton />
@@ -76,6 +70,9 @@ export default function HomeScreen() {
       }
       scroll={false}>
       <FeedList
+        // A new list per community, so switching starts at the top of the new
+        // feed rather than at the old one's scroll position.
+        key={current.id}
         // Yik Yak labels every post with its community, even inside that
         // community's own feed. Redundant there, but it is the parity behaviour
         // and it makes the For You feed legible.

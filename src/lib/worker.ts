@@ -5,7 +5,7 @@
  * documented behaviour rather than an error, so an unset `EXPO_PUBLIC_WORKER_URL`
  * is a supported configuration, not a broken one.
  *
- * Two features hang off this, and they are not equally optional:
+ * Three features hang off this, and they are not equally optional:
  *
  * - **Share-code resolution** (layer 5 of the slug resolver) — a *fallback*.
  *   Layer 4 closed Blocker 2 natively on 2026-08-27, so this only matters when
@@ -14,6 +14,9 @@
  *   host is blocked by CORS and cannot be issued from a browser at all, so
  *   without the worker there is no upload path
  *   (docs/API.md#-image-upload-is-blocked-by-cors).
+ * - **Video playback** — a *hard dependency* outside Safari. Segments are on a
+ *   host that sends no CORS headers, so hls.js cannot read them; the worker's
+ *   `/media` relay adds them (docs/API.md#-video-playback-needs-the-worker).
  */
 
 export const WORKER_URL = process.env.EXPO_PUBLIC_WORKER_URL ?? '';

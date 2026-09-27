@@ -82,7 +82,8 @@ const styles = StyleSheet.create({
   floatingAnchor: {
     position: 'absolute',
     right: Spacing.three,
-    // Clears the bottom bar and the community strip above it.
+    // Rendered inside the content area, so this clears the tab bar by
+    // construction rather than by measuring it.
     bottom: Spacing.three,
     zIndex: 20,
   },
