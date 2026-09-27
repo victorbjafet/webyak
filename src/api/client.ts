@@ -240,12 +240,39 @@ export async function uploadAssetWeb(file: Blob, mimeType: string) {
  * Typed wrappers over the library's working methods
  * ------------------------------------------------------------------------ */
 
+/**
+ * The workhorse endpoint: joined groups, your identity, karma, and chats all
+ * come from here.
+ *
+ * Not sidechat.js's `getUpdates`, for the reason its siblings are also bypassed
+ * — it wraps the whole thing in a try/catch that **`console.error`s the raw
+ * error before rethrowing a generic one**:
+ *
+ * ```js
+ * } catch (err) {
+ *   console.error(err);
+ *   throw new SidechatAPIError(`Failed to get posts from group.`);
+ * }
+ * ```
+ *
+ * A browser's `fetch` rejects with `TypeError: Failed to fetch` for any
+ * transient network hiccup — a dropped connection, a sleeping laptop, a flaky
+ * hop. TanStack retries those and recovers, so nothing is actually broken; but
+ * the library has already logged, and a `console.error` raises the dev error
+ * overlay. The result was a red full-screen error, attributed to our own
+ * `fetchUserGroups` because the library's frames are ignore-listed, for a
+ * failure that had already healed itself.
+ *
+ * Going through `request()` also means a 401 here is a real `ApiError` with a
+ * status, rather than the constant string "Failed to get posts from group."
+ */
 export async function getUpdates(groupId?: string) {
-  return (await api.getUpdates(groupId ?? '')) as {
+  const params = new URLSearchParams({ group_id: groupId ?? '' });
+  return request<{
     groups?: Group[];
     user?: unknown;
     [key: string]: unknown;
-  };
+  }>(`/v1/updates?${params.toString()}`);
 }
 
 export async function getCurrentUser() {

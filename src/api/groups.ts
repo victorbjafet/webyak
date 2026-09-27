@@ -14,7 +14,7 @@
  *   4. live search, which is the hole-filler for anything explore omits
  */
 
-import { api, request } from './client';
+import { api, getUpdates, request } from './client';
 import type { Group } from './types';
 
 import { cacheStorage } from '@/lib/storage';
@@ -144,9 +144,7 @@ async function persist() {
 
 /** Layer 2 — the user's joined groups. */
 export async function fetchUserGroups(primaryGroupId?: string): Promise<Group[]> {
-  const updates = (await api.getUpdates(primaryGroupId ?? '')) as unknown as {
-    groups?: Group[];
-  };
+  const updates = (await getUpdates(primaryGroupId)) as { groups?: Group[] };
   return updates.groups ?? [];
 }
 

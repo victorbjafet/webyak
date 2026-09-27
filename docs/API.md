@@ -644,13 +644,23 @@ which the library added in 2.4.9 for exactly this.
 | `checkEmailVerification()` | Same self-swallowing pattern: every failure, including a 401, surfaces as `"Email is not verified."` | Bypassed |
 | `setAge()` | Throws a hardcoded `"You're too young to use Offsides."` — a different app's name, shown to our users | Bypassed |
 | `getPostComments()` | Calls `json.posts.forEach` with no check, so any body without a `posts` array throws `Cannot read properties of undefined`; its catch then `console.error`s it and rethrows a status-less `SidechatAPIError` | Bypassed — see below |
+| `getUpdates()` | `console.error`s the raw error before rethrowing a generic one, so a transient `TypeError: Failed to fetch` that TanStack retries and recovers from still raises the dev error overlay — attributed to our caller, since the library's frames are ignore-listed. Also loses the status, and its message says "Failed to get posts from group." | Bypassed — `request()` in `src/api/client.ts` |
 | `getUserProfile()` | Reads `json.group` with no status check, so a 401 or a missing user resolves as `undefined` rather than throwing; its catch reports `"Failed to set icon."`, a message from a different method | Tolerated — avatars fall back to the emoji, and `retry: false` stops it re-asking |
 | `searchAvailableGroups()` | Returns `json.results` unconditionally; the endpoint does not use that key, so it silently returns `undefined` rather than a list | Bypassed — `coerceGroupList` in `src/api/groups.ts` reads any envelope |
 | — | No methods at all for save, follow, activity list, report, or awards, though posts carry `is_saved`, `follow_status` and `awards[]`. | Phase 8 |
 
-Worth upstreaming the URL and upload bugs as a PR. The three swallowing bugs
-share one root cause — `throw` inside `try` with a catch-all `catch` — and are
-the reason a login form built on the library can only ever say "Failed".
+Worth upstreaming the URL and upload bugs as a PR. The swallowing bugs share one
+root cause — `throw` inside `try` with a catch-all `catch` — and are the reason a
+login form built on the library can only ever say "Failed".
+
+**`console.error` in a catch is its own, separate problem.** Three methods log
+the raw error before rethrowing, which in development raises the full-screen
+error overlay. That turns a *handled, recovered* failure into something that
+looks like a crash: a network blip on `getUpdates` is retried by TanStack and
+heals itself, but the overlay has already appeared, pointing at our code because
+`node_modules` frames are ignore-listed. Any method bypassed for other reasons
+gets this fixed for free; the rest are worth bypassing on sight if they turn out
+to be noisy.
 
 Also note: the library swallows HTTP status codes — every method just calls
 `.json()`, so a 401 surfaces as a malformed object rather than an error. Our

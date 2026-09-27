@@ -37,7 +37,7 @@
  */
 
 import { fetchUserGroups } from './groups';
-import { api, request } from './client';
+import { api, getUpdates, request } from './client';
 import { summarizeImageFailures } from '@/lib/image-debug';
 import type { Asset, PostOrComment } from './types';
 
@@ -406,7 +406,7 @@ async function probeMessaging(): Promise<ProbeResult> {
     }
 
     try {
-      const updates = (await api.getUpdates('')) as { chats?: { chats?: unknown[] } };
+      const updates = (await getUpdates()) as { chats?: { chats?: unknown[] } };
       const entries = Array.isArray(updates?.chats) ? updates.chats : (updates?.chats?.chats ?? []);
       steps.push(`\ngetUpdates().chats.chats → ${entries.length} joined chat(s)`);
       if (entries[0]) {
