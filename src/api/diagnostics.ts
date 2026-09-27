@@ -27,7 +27,7 @@
  * |---|---|
  * | `probeAuth` | control — is the token live at all? |
  * | `probeShareCode` | Blocker 1: can an `index_code` be resolved without the worker? |
- * | `probeMessaging` | the `message.type` values the system-message heuristic needs |
+ * | `probeMessaging` | the `message.type` values the system-message heuristic needs; whether `/v1/chats/explore` pages |
  * | `probeVideoPoster` | are video thumbnails reachable, or worker-only? |
  * | `probeImageFailures` | what actually failed to render this page load |
  * | `probeImageUpload` | is there an upload route on the CORS-open host? |
@@ -406,10 +406,26 @@ async function probeMessaging(): Promise<ProbeResult> {
     }
 
     try {
-      const explore = await request<{ chats?: unknown[] }>('/v1/chats/explore');
+      const explore = await request<{ chats?: unknown[]; cursor?: string }>('/v1/chats/explore');
       const list = explore?.chats ?? [];
       steps.push(`\n/v1/chats/explore → ${list.length} chat(s)`);
       if (list[0]) steps.push(`  UNWRAPPED chat keys → ${Object.keys(inner(list[0])).join(', ')}`);
+      // Does it page? One request returned exactly 20, and getGroupChats now
+      // follows a cursor if there is one. Counts and overlap only.
+      steps.push(`  top-level keys → ${Object.keys(explore ?? {}).join(', ')}`);
+      if (explore?.cursor) {
+        const next = await request<{ chats?: unknown[]; cursor?: string }>(
+          `/v1/chats/explore?cursor=${encodeURIComponent(explore.cursor)}`,
+        );
+        const firstIds = new Set(list.map((c) => inner(c).id));
+        const page2 = next?.chats ?? [];
+        const repeats = page2.filter((c) => firstIds.has(inner(c).id)).length;
+        steps.push(
+          `  page 2 via cursor → ${page2.length} chat(s), ${repeats} already on page 1, ${next?.cursor ? 'another cursor' : 'no further cursor'}`,
+        );
+      } else {
+        steps.push('  no cursor — one page is all this endpoint serves');
+      }
     } catch (e) {
       steps.push(`/v1/chats/explore → FAILED: ${e instanceof Error ? e.message : String(e)}`);
     }

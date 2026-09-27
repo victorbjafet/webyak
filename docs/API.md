@@ -553,10 +553,15 @@ tested end to end with a stand-in relay: the video buffers ahead and plays.
 
 Until then:
 
-- **Chrome and Firefox** show *"Yik Yak's video host blocks playback on other
-  sites"* about two seconds after play is pressed, instead of a dead player or
-  half a minute of hls.js retries. The first segment failing with no HTTP status,
-  right after its playlists loaded from the same API, is the signature.
+- **Every browser but Apple's** labels the video *"Blocked until the worker is
+  set up"* straight away and requests nothing — no play button to press and
+  fail. Which browsers is `navigator.vendor`: "Apple Computer, Inc." in every
+  WebKit browser, iOS Chrome included, and "Google Inc." or empty elsewhere.
+  Deciding up front is safe because the failure is certain there, not flaky.
+  (Before the label, a press produced *"Yik Yak's video host blocks playback on
+  other sites"* about two seconds later — the first segment failing with no
+  HTTP status, right after its playlists loaded from the same API. That message
+  remains for Apple's player failing and handing over to hls.js.)
 - **Safari, and every browser on iPhone,** use Apple's player, which is not the
   web media stack and does not apply CORS to segments. Not tested here — no
   Safari automation — but that path was never broken by any of the above.
@@ -1139,9 +1144,10 @@ membership_type, color, group_join_type, group_visibility, description,
 icon_url, asset_library_visibility, member_count, disable_ads, can_join`.
 
 **None of those is a timestamp**, so "newest" cannot be computed client-side and
-the endpoint offers no sort parameter. The control is shown disabled with a
-tooltip rather than omitted — a missing option looks like an oversight, a
-disabled one with a reason does not.
+the endpoint offers no sort parameter. The control was shown disabled with a
+tooltip rather than omitted, on the reasoning that a missing option looks like
+an oversight. **Removed 2026-09-27** at the owner's request: a sort row with one
+usable option was clutter, and this entry is where the gap is recorded now.
 
 Sorting by **member count** is the default, matching the official app: with
 4,237 communities, any other order buries everything anyone uses.
@@ -1402,6 +1408,18 @@ DM threads, and no endpoint for reading a group chat's messages has been found.
 `/v1/chats` alongside DMs, with their messages inlined, so they open like any
 other conversation. The limitation was a misreading of the envelope, not a
 missing endpoint.
+
+**Explore returned exactly 20, largest first** (2026-09-27), so "View all" on
+the old strip could never show more — the rest were not fetched. Whether the
+endpoint pages is **unverified**: sidechat.js reads one page (at a URL built
+with `&`), and offsides never calls it. `getGroupChats` now follows a top-level
+`cursor` the way `/v1/chats` does, which is one request if there is none; the
+messaging probe reports the envelope's keys and what a second page returns.
+
+**Creating a chat or a community** has no known endpoint. Explore shows both
+buttons dimmed and unwired. The one lead is on the community side:
+`getUpdates()` carries `create_group_application_enabled`, which suggests a
+community is applied for rather than created.
 
 offsides never got here: it has no group-chat path and its `leaveChat` is a stub
 marked *"Waiting for sidechat.js implementation."*

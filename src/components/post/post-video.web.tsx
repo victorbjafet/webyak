@@ -48,6 +48,21 @@ const BLOCKED =
   "Yik Yak's video host blocks playback on other sites. Download saves a playlist VLC can open for about 12 hours.";
 const FAILED = 'Playback failed.';
 
+/**
+ * Whether this browser plays HLS with Apple's own player: Safari, and every
+ * browser on iPhone, which are all WebKit. That player is not the web media
+ * stack and needs no CORS on segments. Every other browser does — so without
+ * the worker's relay a Yik Yak video cannot play in it at all, and the post
+ * says so instead of offering a play button that fails.
+ *
+ * `navigator.vendor` rather than the user agent: it is "Apple Computer, Inc." in
+ * every WebKit browser, iOS Chrome included, and "Google Inc." or empty
+ * everywhere else.
+ */
+function hasApplePlayer() {
+  return typeof navigator !== 'undefined' && (navigator.vendor ?? '').startsWith('Apple');
+}
+
 /** Segments live on R2, which sends no CORS headers — the one host that needs the relay. */
 function isSegmentHost(url: string) {
   try {
@@ -84,9 +99,13 @@ export function PostVideo({
   const poster = asset.thumbnail_asset?.url;
   const ratio = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
 
+  // Blocked until the worker exists, in every browser but Apple's — see
+  // `hasApplePlayer`. Nothing is attached, so nothing is requested.
+  const blocked = !workerEndpoint('/media') && !hasApplePlayer();
+
   // Attach as soon as the feed says this post is near the viewport, or as soon
   // as someone presses play — whichever happens first.
-  const shouldAttach = preload || playing;
+  const shouldAttach = !blocked && (preload || playing);
 
   /*
     Teardown has an effect of its own, keyed on the asset.
@@ -290,7 +309,9 @@ export function PostVideo({
             the relay exists. `fallback` is what actually renders today: a
             neutral panel, so a video reads as a video rather than a black hole.
           */}
-          {!attached ? (
+          {/* Not when blocked: its glyph would show through the label, and a
+              blocked video has no poster either — thumbnails need the worker too. */}
+          {!attached && !blocked ? (
             <View style={styles.posterLayer} pointerEvents="none">
               <AuthedImage
                 uri={poster}
@@ -306,7 +327,7 @@ export function PostVideo({
             </View>
           ) : null}
 
-          {error ? null : (
+          {error || blocked ? null : (
             <Pressable
               onPress={() => {
                 wantsPlayRef.current = true;
@@ -323,9 +344,22 @@ export function PostVideo({
         </>
       ) : null}
 
-      {error ? (
+      {blocked ? (
+        <View
+          style={[styles.overlay, styles.blocked, { backgroundColor: theme.overlay }]}
+          pointerEvents="none">
+          <Ionicons name="lock-closed" size={20} color="#FFFFFF" />
+          <ThemedText type="smallBold" style={styles.onOverlay}>
+            Blocked until the worker is set up
+          </ThemedText>
+          <ThemedText type="caption" style={[styles.onOverlay, styles.blockedBody]}>
+            Yik Yak serves its videos only to its own apps. Download saves a playlist VLC can
+            open for about 12 hours.
+          </ThemedText>
+        </View>
+      ) : error ? (
         <View style={[styles.overlay, { backgroundColor: theme.overlay }]} pointerEvents="none">
-          <ThemedText type="small" style={{ color: '#FFFFFF' }}>
+          <ThemedText type="small" style={styles.onOverlay}>
             {error}
           </ThemedText>
         </View>
@@ -368,6 +402,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: Spacing.three,
+  },
+  blocked: {
+    gap: Spacing.one,
+  },
+  onOverlay: {
+    color: '#FFFFFF',
+    textAlign: 'center',
+  },
+  blockedBody: {
+    opacity: 0.85,
+    maxWidth: 320,
   },
   playButton: {
     width: 56,

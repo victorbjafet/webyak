@@ -7,7 +7,7 @@ import type { DirectThread, GroupChat, JoinChatIdentity } from './types';
  * All of these go through `request` rather than sidechat.js's own methods, for
  * the usual reason — every write in the library reads the response body without
  * checking the status, so a refusal resolves as success
- * (docs/API.md#why-every-write-bypasses-the-library).
+ * (docs/API.md#why-every-write-bypasses-the-library-phase-4).
  *
  * Endpoints, read from the library source:
  *
@@ -150,10 +150,43 @@ export async function startDM(
   });
 }
 
-/** Joinable group chats for the user's school. The library builds this URL with `&`. */
+/**
+ * Joinable group chats for the user's school, following the cursor.
+ *
+ * One request returned exactly 20, largest first, and "View all" could only
+ * ever show those — the rest of the school's chats were never fetched. Whether
+ * this endpoint pages is **unverified** (neither sidechat.js nor offsides reads
+ * more than one page, and the library builds the URL with `&`), so this follows
+ * a `cursor` the way `/v1/chats` does if one comes back, and is exactly one
+ * request if not. The messaging probe in /diagnostics reports which.
+ *
+ * Same stopping rules as `getDMThreads`: no cursor, an empty page, a repeated
+ * cursor, or the cap — 10 pages, far past any school's list.
+ */
+const MAX_EXPLORE_CHAT_PAGES = 10;
+
 export async function getGroupChats(): Promise<GroupChat[]> {
-  const json = await request<{ chats?: unknown }>('/v1/chats/explore');
-  return unwrapChats<GroupChat>(json.chats);
+  const chats: GroupChat[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  for (let page = 0; page < MAX_EXPLORE_CHAT_PAGES; page += 1) {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+    const json = await request<{ chats?: unknown; cursor?: string }>(`/v1/chats/explore${query}`);
+    const batch = unwrapChats<GroupChat>(json.chats);
+    chats.push(...batch);
+
+    const next = json.cursor;
+    if (!next || batch.length === 0 || seenCursors.has(next)) break;
+    seenCursors.add(next);
+    cursor = next;
+  }
+
+  const byId = new Map<string, GroupChat>();
+  for (const chat of chats) {
+    if (chat?.id && !byId.has(chat.id)) byId.set(chat.id, chat);
+  }
+  return [...byId.values()];
 }
 
 /**

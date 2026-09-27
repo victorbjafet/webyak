@@ -209,6 +209,20 @@ sort never requires scrolling back up. `Screen` takes `leading`, `headerBelow`
 and `action` slots for exactly this, and `titleContent` for a title that is
 itself a control — the home feed's community switcher.
 
+## Explore is three tabs
+
+**Communities, Group chats, Archive** — a segmented control under the title.
+They share nothing but the screen: live communities to join, the school's chats
+to join, and a search over what this browser has archived. Group chats were a
+strip above the community list with "View all"; as a tab they are the whole
+list, laid out like communities (one card each, two columns above 720px, the
+same full-width join control), largest first.
+
+Each list's header carries its count and a **create** button, dimmed with a
+tooltip because neither is wired to anything yet. Communities have one order,
+most members first; a sort row whose only other option was disabled ("Newest",
+which no explore field can support) was removed.
+
 ## Media sizing
 
 Inline media is capped at ~68% of viewport height. A tall portrait image

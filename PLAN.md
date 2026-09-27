@@ -396,8 +396,9 @@ Full checklist and pre-scan findings:
       while the filtered result is short
       ([docs/API.md](docs/API.md#unread-is-ours-not-theirs)). Defaults to unread
 - [x] Explore sorted by member count by default
-- [ ] ⛔ Explore "newest" — no timestamp on any explore field. Shown disabled
-      with a reason ([docs/API.md](docs/API.md#-explore-cannot-sort-by-newest))
+- [x] ~~Explore "newest"~~ — no timestamp on any explore field. Shown disabled
+      until 2026-09-27, then removed; the gap is recorded in
+      [docs/API.md](docs/API.md#-explore-cannot-sort-by-newest)
 - [x] School group-chats section on Explore — placeholder; `/v1/chats/explore`
       works, but there is nowhere to open a chat until Phase 6
 - [x] You tab: yakarma total and per-community, each expanding to the
@@ -449,11 +450,12 @@ Full checklist and pre-scan findings:
         hls.js instance the moment it attached, from 2026-08-27, so nothing
         buffered and nothing played on that path
         ([docs/API.md](docs/API.md#videos-were-not-preloading--fixed-2026-09-27))
-  - [ ] ⛔ **Video playback needs the worker** outside Safari. Segments moved to
-        Cloudflare R2, which sends no CORS headers, and Chrome 153's own HLS
-        player fails on them too. Until the worker's `/media` relay exists,
-        Chrome and Firefox say why instead of showing a dead player, and the
-        download plays in VLC. The client side of the relay is built and tested
+  - [ ] ⛔ **Video playback — blocked by the worker** outside Safari. Segments
+        moved to Cloudflare R2, which sends no CORS headers, and Chrome 153's
+        own HLS player fails on them too. Until the worker's `/media` relay
+        exists, every browser but Apple's labels a video *Blocked until the
+        worker is set up* and requests nothing; the download plays in VLC. The
+        client side of the relay is built and tested
         ([docs/API.md](docs/API.md#-video-playback-needs-the-worker))
   - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
         URL, so feed avatars would need a profile lookup per author
@@ -496,6 +498,14 @@ one list rather than two sources
       post is really a reply
 - [x] Start DM from a post — the only way one can start; honours `dms_disabled`
 - [x] Group chat explore + join, school strip with "View all" on Explore
+- [x] **Explore is three tabs** (2026-09-27): Communities, Group chats, Archive.
+      Group chats became a full list of its own — "View all" had only ever
+      shown the 20 one request returned; `getGroupChats` now follows a cursor
+      if the endpoint gives one (unverified whether it does)
+      ([docs/API.md](docs/API.md#group-chats-joinable-and-openable))
+- [ ] **Create chat / create community** — buttons shown dimmed and unwired. No
+      endpoint known for either; `create_group_application_enabled` in
+      `getUpdates()` suggests communities are applied for
 - [x] Polling at 5s for an open foreground thread, 60s for the list — matching
       offsides, which has polled this API at that rate for a long time
 - [x] `client_id` is the device id, corrected from offsides against a theory of
