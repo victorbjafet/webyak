@@ -333,9 +333,53 @@ export function mergeArchived(
     if (held.cached && !media.some((m) => m.asset_id === held.asset_id)) media.push(held);
   }
 
+  /*
+    A re-sighting may **update** a fact, never erase one.
+
+    `{...existing, ...incoming}` alone does erase: a payload that simply omits a
+    field overwrites a known value with `undefined`. That is not hypothetical —
+    a tombstone carries almost nothing, so re-reading a deleted post used to
+    strip its author, alias, share code, quote link, reply count, and for a
+    comment its `parent_post_id`, which orphans it from its thread with no way
+    back. The archive's rule is that a removal is *recorded*, not applied, and
+    that rule was only being honoured for the text.
+
+    So identity and linkage fall back rather than overwrite. All of them are
+    immutable or near enough — a post cannot un-quote something, a comment
+    cannot change which post it hangs off — so `undefined` in a payload means
+    "not included here", never "no longer true". A real change still wins,
+    because `??` only falls back when the incoming value is absent.
+  */
+  const keep = <T,>(next: T | undefined, held: T | undefined) => next ?? held;
+
+  const parent_post_id = keep(incoming.parent_post_id, existing.parent_post_id);
+  const reply_post_id = keep(incoming.reply_post_id, existing.reply_post_id);
+
   return {
     ...existing,
     ...incoming,
+
+    // Structural, and unrecoverable if dropped.
+    parent_post_id,
+    reply_post_id,
+    reply_comment_post_id: keep(incoming.reply_comment_post_id, existing.reply_comment_post_id),
+    quote_post_id: keep(incoming.quote_post_id, existing.quote_post_id),
+    index_code: keep(incoming.index_code, existing.index_code),
+    // Derived from the ids that survived, not from the tombstone's own.
+    is_reply:
+      Boolean(reply_post_id) && Boolean(parent_post_id) && reply_post_id !== parent_post_id
+        ? 1
+        : 0,
+    // A comment that has been deleted still hangs off its post. Letting a
+    // parentless tombstone re-classify it would move it into the post count.
+    type: existing.type === 'comment' ? 'comment' : incoming.type,
+
+    // Attribution and display.
+    author: keep(incoming.author, existing.author),
+    alias: keep(incoming.alias, existing.alias),
+    group_name: keep(incoming.group_name, existing.group_name),
+    comment_count: keep(incoming.comment_count, existing.comment_count),
+
     text: incomingIsTombstone ? existing.text : incoming.text,
     // A tombstone has no votes; keep the last real count.
     vote_total: incomingIsTombstone ? existing.vote_total : incoming.vote_total,

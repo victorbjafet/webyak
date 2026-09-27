@@ -271,6 +271,35 @@ understand before building anything that refreshes.
 - `cached` media flags, and any asset whose bytes are held even if it has since
   vanished from the payload
 
+### A re-sighting may update a fact, never erase one
+
+`{...existing, ...incoming}` on its own **does** erase: a payload that simply
+omits a field overwrites a known value with `undefined`.
+
+That was live, and it was worse than it sounds. A tombstone carries almost
+nothing, so re-reading a deleted post stripped its `author`, `alias`,
+`index_code`, `quote_post_id` and `comment_count` — and for a comment, its
+`parent_post_id`, **orphaning it from its thread with no way back**. A
+parentless tombstone would also re-classify a known comment as a post, moving it
+between the two counts. The archive's rule is that a removal is *recorded, not
+applied*, and that rule was only being honoured for the text.
+
+It had not bitten yet only because deletions were almost never detected before
+the refresh pass existed ([G4](#g4-deletions-are-almost-never-noticed--closed-inside-the-window)).
+A refresh re-reads old posts on purpose, so it meets tombstones constantly.
+
+Identity and linkage now fall back rather than overwrite — `incoming ?? existing`
+for `parent_post_id`, `reply_post_id`, `reply_comment_post_id`, `quote_post_id`,
+`index_code`, `author`, `alias`, `group_name` and `comment_count`. All of them
+are immutable or near enough: a post cannot un-quote something, a comment cannot
+change which post it hangs off. `undefined` in a payload therefore means "not
+included here", never "no longer true".
+
+**A real change still wins**, because `??` falls back only on absence: a renamed
+author, a changed score, and a `comment_count` that drops to `0` all apply
+normally. `is_reply` is recomputed from the ids that survived rather than taken
+from the tombstone's own.
+
 ### Deletion is recorded, not applied
 
 Once a post is removed, the API returns its text as the literal string
