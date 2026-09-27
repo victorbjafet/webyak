@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Source | [github.com/victorbjafet/webyak](https://github.com/victorbjafet/webyak) — public since 2026-08-27 |
-| Site | [webyak.vbjfr.xyz](https://webyak.vbjfr.xyz) — GitHub Pages, `CNAME` written by `npm run build:web` |
+| Site | [webyak.vbjfr.xyz](https://webyak.vbjfr.xyz) — GitHub Pages, published by [a workflow](#deploying-to-github-pages) on every push to `main` |
 | Backend | none today; one small Cloudflare Worker is required for image upload ([WORKER.md](WORKER.md)) |
 
 ## The public URL
@@ -19,10 +19,16 @@ links, anything printed or copied. It lives in one place, `BASE_URL` in
 else.
 
 Because it is a custom domain on GitHub Pages:
-- `npm run build:web` writes a **`CNAME`** file into `dist/`. Pages drops the
-  custom domain on any deploy that lacks it.
+- The domain is a **repository setting** (Settings → Pages → Custom domain), not
+  a file. An Actions deploy ignores `CNAME` files, so the one `npm run build:web`
+  still writes only matters for a branch deploy. This entry used to say Pages
+  drops the domain on any deploy without the file — true of branch deploys, which
+  is what was planned before the workflow existed.
 - No `experiments.baseUrl` is needed — the site is served from the domain root,
-  not a `/repo/` subpath.
+  not a `/repo/` subpath. The flip side: it works *only* there. At
+  `victorbjafet.github.io/webyak/` every asset path 404s and the page is blank,
+  which is what the site looks like between its first deploy and the custom
+  domain being set.
 
 ## Deployment model — static, serverless, GitHub Pages
 
@@ -50,23 +56,62 @@ is now effectively always `true` on first paint, so the desktop-shows-mobile-bar
 flash is gone. The hook is kept because it stays correct if `output` ever changes
 back.
 
-### The two GitHub Pages gotchas
+### Deploying to GitHub Pages
 
-`npm run build:web` handles both. Do not hand-run `expo export` and upload it.
+**Every push to `main` deploys.**
+[.github/workflows/deploy.yml](../.github/workflows/deploy.yml) runs `npm ci` and
+`npm run build:web` on Node 22 and publishes `dist/` with GitHub's own Pages
+actions. It can also be started by hand from the Actions tab.
+
+No secrets are involved. The workflow has no `.env`, so `EXPO_PUBLIC_WORKER_URL`
+is unset in production, and everything that needs the Worker stays in its
+not-set-up state (image attachments hidden, videos labelled blocked outside
+Safari) until it exists ([WORKER.md](WORKER.md)). That is deliberate for now.
+When the Worker lands, its URL goes into the workflow as a plain `env:` value on
+the build step. It is a public URL, not a secret, and `EXPO_PUBLIC_*` values are
+inlined into the bundle anyway.
+
+**Why Actions, not the `gh-pages` branch** that Expo's own guide uses: nothing
+built is committed, every deploy is a clean build of exactly what was pushed, and
+the custom domain is a setting rather than a file each deploy has to remember.
+
+**One-time setup,** in the GitHub and Cloudflare UIs, not in code:
+
+1. **Repo → Settings → Pages → Source: GitHub Actions.** Until then the workflow
+   fails at its first step, `configure-pages`, saying Pages isn't enabled.
+2. **Repo → Settings → Pages → Custom domain: `webyak.vbjfr.xyz`.**
+3. **DNS:** `webyak` CNAME `victorbjafet.github.io` in Cloudflare, **DNS only**
+   (grey cloud). Proxied, the name resolves to Cloudflare instead, GitHub's DNS
+   check fails, and its certificate request usually does too. The record already
+   exists (checked 2026-09-27: it resolves straight to GitHub's Pages addresses).
+4. **Verify `vbjfr.xyz`**, under the *account's* Settings → Pages → Add a domain:
+   a TXT record at `_github-pages-challenge-victorbjafet.vbjfr.xyz`. Keep it
+   forever. Verification covers the subdomain, and it is the only thing that
+   stops another GitHub user from claiming `webyak.vbjfr.xyz` for their own site
+   while the CNAME points at GitHub and no repo of ours holds it. That was the
+   state on 2026-09-27.
+5. **Enforce HTTPS** once GitHub has issued the certificate. That takes minutes,
+   occasionally up to a day. The CAA records allow Let's Encrypt, which is what
+   GitHub uses.
+
+### GitHub Pages gotchas
 
 1. **Deep links 404.** GitHub Pages serves files, and `/g/wordle` is not a file.
    Pages falls back to `404.html` for unmatched paths, so the build copies
    `index.html` → `404.html` and the client router takes over from there. The HTTP
    status on a cold deep link is a real `404` — harmless for an auth-gated app,
-   but it means Pages can never be used for anything crawlable.
-2. **Jekyll eats `_expo/`.** Pages runs Jekyll by default, and Jekyll skips
-   directories starting with `_` — which is where every JS and CSS bundle lives.
-   The build touches `.nojekyll` to disable it. Without this the site loads a
-   blank page with 404s on all assets.
-
-3. **A custom domain needs a `CNAME` file** in the published output, every
-   deploy. The build writes one. If it ever goes missing, Pages silently reverts
-   to `<user>.github.io` and the domain stops resolving.
+   but it means Pages can never be used for anything crawlable. **Still
+   load-bearing:** `npm run build:web` does the copy, so do not hand-run
+   `expo export` and upload it.
+2. **Jekyll eats `_expo/`**, on a branch deploy. Pages runs Jekyll there by
+   default, and Jekyll skips directories starting with `_`, which is where every
+   JS and CSS bundle lives. The build touches `.nojekyll` to disable it. **The
+   Actions deploy runs no Jekyll at all.** `upload-pages-artifact` (v4 and later)
+   also leaves dotfiles out of the artifact, so that `.nojekyll` never ships.
+   Harmless, and kept for a branch deploy.
+3. **A branch deploy needs a `CNAME` file** in its output on every deploy, or
+   Pages drops the custom domain. Irrelevant to the Actions deploy (see
+   [above](#the-public-url)). The build still writes one, for the same fallback.
 
 If this were ever served from `<user>.github.io/<repo>/` instead, it would also
 need `expo.experiments.baseUrl` set to `/<repo>` or every asset path breaks.
@@ -89,7 +134,7 @@ Currently: nowhere. Tracked so we notice the moment it changes.
 | Store the user's token | ✅ | localStorage; it is the user's own credential |
 | Deep links / routing | ✅ | via the `404.html` fallback above |
 | Images and video in posts | ✅ **verified** | Mixed: some URLs are pre-signed, some need the bearer. Both work client-side — `AuthedImage` fetches the authenticated ones to a blob. No proxy needed. [Rules](API.md#asset-urls-and-auth--corrected) |
-| Cold-load group links (`/g/<slug>`) | ✅ **verified** | Resolved natively via `/v1/groups/explore/search` — [Blocker 2 closed](API.md#blocker-2--group-slug--group_id) |
+| Cold-load group links (`/g/<slug>`) | ✅ **verified** | Resolved natively via `/v1/groups/explore/search` — [Blocker 2 closed](API.md#blocker-2--group-slug--group_id---closed) |
 | **Cold-load share links** (`/p/<id>`) | ✅ | Solved without a server: webyak links carry the post **id**, which `getPost` resolves cold. The share *code* is still unresolvable, but nothing of ours depends on it any more ([API.md](API.md#blocker-1-resolved--by-changing-the-url-not-the-api)). |
 | Logged-out browsing | ❌ | Out of scope — webyak is auth-only |
 | Push notifications | ❌ | Needs a server to hold subscriptions. Out of scope; polling only |

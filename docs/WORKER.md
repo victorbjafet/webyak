@@ -14,7 +14,7 @@ re-investigation is needed.
 > **Scope changed twice on 2026-08-27.** It originally covered share codes and
 > group slugs. Group slugs were then closed natively — the live search endpoint
 > resolves groups outside explore once its response envelope is read correctly
-> (see [API.md § Blocker 2](API.md#blocker-2--group-slug--group_id)), and its
+> (see [API.md § Blocker 2](API.md#blocker-2--group-slug--group_id---closed)), and its
 > `/group/:slug` route is kept below as a documented fallback, not a requirement.
 > Then **image upload turned out to need it**, which is a stronger justification
 > than share codes ever were: a shared link failing to cold-load is a degraded
@@ -238,6 +238,13 @@ The client side is already built and inert:
 So enabling it is: deploy the worker, set `EXPO_PUBLIC_WORKER_URL`, and add the
 matching `/post/:code` call in the post detail screen. No refactor. Image upload
 and video playback light up on their own.
+
+**For the live site, set it in the deploy workflow, not `.env`.**
+[deploy.yml](../.github/workflows/deploy.yml) builds on a clean runner that never
+sees your `.env`, so give its `npm run build:web` step an
+`env: { EXPO_PUBLIC_WORKER_URL: https://… }`. It is a public URL that ends up in
+the bundle either way, so it needs no secret
+([ARCHITECTURE.md](ARCHITECTURE.md#deploying-to-github-pages)).
 
 **Rebuild with `--clear` after setting it.** `EXPO_PUBLIC_*` variables are
 inlined when a file is transformed, and `expo export` reuses its transform cache:

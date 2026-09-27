@@ -14,7 +14,8 @@ static origin (see below), and a small Cloudflare Worker is specced to relay it.
 ## Status
 
 Early, but usable. Reading works — feeds, sorting, posts, comments, polls,
-images and video. Writing works too: voting, composing, comments and replies,
+images, and video in Safari and on iPhone. Other browsers need the Worker for
+video. Writing works too: voting, composing, comments and replies,
 polls, quote-reposts and deleting your own content, all verified against the
 live API and confirmed to sync both ways with the official app.
 
@@ -61,16 +62,17 @@ npx expo start          # dev, all platforms
 npm run build:web       # static export to dist/
 ```
 
-`npm run build:web` also writes the `.nojekyll`, `404.html` and `CNAME` files
-that GitHub Pages needs — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for
-why each one is load-bearing.
+Pushing to `main` deploys: a GitHub Actions workflow runs `npm run build:web` and
+publishes `dist/` to GitHub Pages.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deploying-to-github-pages) has the
+one-time setup, and the Pages quirks the build works around.
 
 ### Configuration
 
 | Variable | Purpose |
 |---|---|
 | `EXPO_PUBLIC_BASE_URL` | Public origin used to build share links. Defaults to `https://webyak.vbjfr.xyz`. |
-| `EXPO_PUBLIC_WORKER_URL` | Cloudflare Worker base URL. Unset by default. Enables share-code resolution **and image attachments**, which are hidden without it — see [docs/WORKER.md](docs/WORKER.md). |
+| `EXPO_PUBLIC_WORKER_URL` | Cloudflare Worker base URL. Unset by default. Enables share-code resolution, **image attachments**, which are hidden without it, and **video outside Safari and iPhone browsers**, which is labelled blocked without it — see [docs/WORKER.md](docs/WORKER.md). |
 
 Put them in a `.env`, which is gitignored.
 
@@ -104,6 +106,10 @@ check.
 [offsides](https://github.com/micahlt/offsides), both by
 [@micahlt](https://github.com/micahlt), did the hard reverse-engineering work
 this is built on.
+
+The logo's laptop is from Microsoft's
+[Fluent Emoji](https://github.com/microsoft/fluentui-emoji), MIT —
+[assets/brand/LICENSE](assets/brand/LICENSE).
 
 ## License
 

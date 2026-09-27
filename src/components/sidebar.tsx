@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { Link, usePathname } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
@@ -17,11 +18,9 @@ export function Sidebar() {
   return (
     <View style={[styles.container, { borderRightColor: theme.border }]} role="navigation">
       <View style={styles.brandRow}>
-        <View style={[styles.brandMark, { backgroundColor: theme.brand }]}>
-          <ThemedText type="smallBold" style={{ color: theme.onBrand }}>
-            yak
-          </ThemedText>
-        </View>
+        {/* The favicon's picture; the name beside it is the label, so alt is
+            empty. Regenerated from assets/brand/ — docs/DESIGN.md#logo. */}
+        <Image source={require('@/assets/images/logo.png')} alt="" style={styles.brandMark} />
         <ThemedText type="heading">webyak</ThemedText>
       </View>
 
@@ -78,10 +77,10 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
     paddingHorizontal: Spacing.two,
   },
+  // The corners are rounded in the image itself, to match the favicon.
   brandMark: {
-    paddingHorizontal: Spacing.two,
-    paddingVertical: Spacing.half,
-    borderRadius: Radius.sm,
+    width: 28,
+    height: 28,
   },
   list: {
     gap: Spacing.half,

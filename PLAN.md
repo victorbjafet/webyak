@@ -43,8 +43,10 @@ Added in Phase 1: `@tanstack/react-query` + persist client, `expo-secure-store`,
 `@react-native-async-storage/async-storage`, `@expo/vector-icons`, eslint (via `expo lint`).
 
 Web output is `single` (SPA), not `static` — build with **`npm run build:web`**,
-which also writes the `404.html` fallback and `.nojekyll` that GitHub Pages needs.
+which also writes the `404.html` fallback that deep links on GitHub Pages need.
 Reasoning in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deployment-model--static-serverless-github-pages).
+Pushing to `main` deploys it
+([how, and the one-time setup](docs/ARCHITECTURE.md#deploying-to-github-pages)).
 
 > ⚠️ `AGENTS.md` (from the template): **read <https://docs.expo.dev/versions/v57.0.0/> before
 > writing code.** SDK 57 changed a lot; don't code from memory of older Expo.
@@ -718,8 +720,20 @@ and comment it sees** — effectively a Yik Yak downloader
 - [ ] Rate-limit handling + friendly error surfaces
 - [ ] Responsive QA: 360px → 2560px
 - [ ] iOS/Android smoke test (universal comes nearly free)
-- [ ] `npm run build:web` → GitHub Pages; verify deep links and that `_expo/`
-      assets load (needs `.nojekyll`) — [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-two-github-pages-gotchas)
+- [x] Logo: the Fluent Emoji laptop (MIT) on the accent green, as favicon,
+      sidebar mark, iPhone home-screen icon, and native app icon and splash.
+      Generated, not drawn: [docs/DESIGN.md](docs/DESIGN.md#logo)
+- [~] Deploy to GitHub Pages. **The workflow is in** (2026-09-27):
+      [.github/workflows/deploy.yml](.github/workflows/deploy.yml) builds and
+      publishes on every push to `main`, verified as a clean `npm ci` + build.
+      **Not live yet.** It waits on the one-time setup in
+      [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deploying-to-github-pages):
+      Pages source, custom domain, domain verification, HTTPS
+  - [ ] First deploy, then verify at `webyak.vbjfr.xyz`: a cold deep link
+        (e.g. `/explore`) loads, `_expo/` assets load, favicon shows, HTTPS
+        is enforced ([gotchas](docs/ARCHITECTURE.md#github-pages-gotchas))
+  - [ ] Verify `vbjfr.xyz` on the GitHub account. The `webyak` CNAME points at
+        GitHub already, so until then anyone can claim the subdomain
 
 ---
 

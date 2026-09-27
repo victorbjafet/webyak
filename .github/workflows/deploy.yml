@@ -1,0 +1,54 @@
+# Builds the web app and publishes it to GitHub Pages on every push to main.
+# The one-time setup it depends on (Pages source, custom domain, DNS) is in
+# docs/ARCHITECTURE.md#deploying-to-github-pages.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Re-run a deploy by hand from the Actions tab.
+  workflow_dispatch:
+
+# What GitHub's own Pages starter workflow grants: read the repo, publish to
+# Pages, and mint the OIDC token deploy-pages identifies itself with.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time. A push that lands mid-deploy waits for it rather than
+# cancelling it halfway.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      # First, so a repo whose Pages source isn't "GitHub Actions" yet fails
+      # here, with a message that says so, instead of after the build.
+      - uses: actions/configure-pages@v6
+      - uses: actions/setup-node@v7
+        with:
+          # What webyak is developed on. React Native 0.86 needs 20.19 or later.
+          node-version: 22
+      - run: npm ci
+      # Also writes 404.html, which is what makes deep links load.
+      - run: npm run build:web
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

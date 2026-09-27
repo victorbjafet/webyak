@@ -45,6 +45,51 @@ Semantic aliases: `upvote` → accent green, `downvote` → the red, `link` → 
 `success` → accent. Downvote reuses the notification red rather than introducing a
 sixth color; revisit if the two ever need to be distinguished at a glance.
 
+## Logo
+
+A laptop seen from slightly above, on the accent green. The laptop is Microsoft's
+[Fluent Emoji](https://github.com/microsoft/fluentui-emoji) "Laptop", chosen
+because it is **MIT**, the same license as webyak, and vector, so it renders at
+any size. The license and the provenance of every file derived from it are in
+[assets/brand/LICENSE](../assets/brand/LICENSE).
+
+**Every icon is generated. Don't edit the PNGs by hand:**
+
+```sh
+python3 assets/brand/render-icons.py   # needs Pillow and Google Chrome
+```
+
+It renders [laptop.svg](../assets/brand/laptop.svg) (the colour art, unmodified)
+and [laptop-mono.svg](../assets/brand/laptop-mono.svg) (the flat art recoloured
+white-and-cut-out for Android's themed icons) with headless Chrome, then
+composes each output:
+
+| Output | Used as | Composition |
+|---|---|---|
+| `assets/images/icon.png` 1024 | `expo.icon`: the app icon on iOS and Android | opaque green square, laptop at 62%. The OS rounds the corners, and the App Store rejects transparency |
+| `public/apple-touch-icon.png` 180 | the icon when a page is added to an iPhone home screen | the same picture. Safari fetches it from the site root without a `<link>` |
+| `assets/images/favicon.png` 48 | `web.favicon`; Expo builds `favicon.ico` (16/32/48) from it | green tile with 22% rounded corners, laptop at 78% |
+| `assets/images/logo.png` 128 | the mark beside "webyak" in the sidebar, shown at 28px | the favicon's picture, larger |
+| `assets/images/android-icon-foreground.png` 512 | adaptive icon foreground | laptop alone, sized so its farthest pixel stays inside the 66dp safe circle. `adaptiveIcon.backgroundColor` supplies the green |
+| `assets/images/android-icon-monochrome.png` 432 | Android 13+ themed icon | the mono art, same safe circle |
+| `assets/images/splash-icon.png` | native splash, 100dp wide on green | laptop alone |
+
+Two size rules: an app icon leaves the laptop room, because the OS crops the
+corners. A favicon doesn't, because at 16px every pixel of laptop counts.
+
+The favicon is handed to Expo at exactly 48px, the size Expo reduces any
+`web.favicon` to before it builds the `.ico`. That way the big reduction is done
+by Pillow (Lanczos), not by the Jimp fallback Expo uses when `sharp` isn't
+installed, which it isn't here or in CI.
+
+The green is repeated in three places that can't import
+[theme.ts](../src/constants/theme.ts): twice in `app.json` (the adaptive icon
+background and the splash) and once as the script's `GREEN`. If the accent ever
+changes, change all three and re-render.
+
+There is no Icon Composer (`.icon`) file for iOS 26's layered icons: iOS uses
+`icon.png`. Expo's template art, including the blue chevron, is gone.
+
 ## Type scale
 
 `Typography` in the token file; used as `<ThemedText type="…">`.
