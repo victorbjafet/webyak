@@ -318,7 +318,7 @@ different weight:
 | `deleted_via` | Evidence | Where it comes from |
 |---|---|---|
 | `missing` | Looked up **by id**, and the API answered without it | The refresh's deletion check (§6), and opening a post whose lookup comes back empty |
-| `tombstone` | Served with its text replaced by `"Deleted Post"` | Kept for whatever still does this — plausibly comments inside threads — but not relied on |
+| `tombstone` | Served with its text replaced by a placeholder | **Comments**, as `"Comment Deleted"` — ⛔ not yet recognised; the code matches `"Deleted Post"`, which nothing has been seen to send ([below](#deleted-comments-are-flagged-not-dropped)) |
 
 **Absence from a feed is never enough on its own.** A feed can skip; a post
 missing from a re-read window is only a *candidate*, and nothing is flagged
@@ -935,12 +935,19 @@ re-arm the flag forever against a thread that can never reach it.
 
 ### Deleted comments are flagged, not dropped
 
-A deleted comment stops appearing in its thread. (This section used to say a
-deleted *post* was different, because the API returns a tombstone in its place —
-it does not; see §4.)
+**⛔ Corrected 2026-09-27 — this section described the wrong mechanism, and no
+comment has ever been flagged by it.** It said a deleted comment *stops
+appearing* in its thread. It doesn't: it stays, with its text replaced by
+**`"Comment Deleted"`**, votes zeroed and username stripped, so that replies
+keep something to hang off ([API.md](API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)).
+Being present, it is never missing, so the diff below cannot see it — and the
+tombstone check in §4 matches only `"Deleted Post"`. Measured on a
+232,062-comment export: 309 placeholders, none flagged, and one real comment
+text already overwritten by a re-read. Not yet fixed.
 
-So a re-read compares the thread that came back against what is held, and marks
-anything missing `deleted_via: 'missing'`, keeping its text. Only on a
+The diff is kept for the case it does cover — a comment removed outright rather
+than replaced. A re-read compares the thread that came back against what is
+held, and marks anything missing `deleted_via: 'missing'`, keeping its text. Only on a
 **re-read**: a first read has nothing archived that could have gone missing, and
 the check is a cursor walk per thread, not worth paying 180,000 times to learn
 nothing.

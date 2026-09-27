@@ -189,7 +189,7 @@ are mostly plumbing; three need a probe before they can be estimated.
 | B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Unblocked 2026-08-28.** `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. Finding the acknowledge endpoint needs a sweep, and testing the whole flow still needs a post that actually gets removed |
 | B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing beyond B2 |
 | B7 | **Sort your own posts/comments by top of all time** | **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
-| B6 | **Style deleted comments properly** | *Narrowed 2026-09-27.* Posts turned out not to be tombstoned at all — a deleted post is omitted, and opening one now shows the archived copy marked *Removed from Yik Yak*. What may remain is comments inside a live thread coming back with `text` replaced by `"Deleted Post"`, rendered as ordinary text | Unverified for comments; worth a probe before styling ([docs/API.md](docs/API.md#deleted-posts-are-omitted-not-tombstoned)) |
+| B6 | **Style deleted comments properly** | *Answered 2026-09-27.* A deleted comment stays in its thread with text **`"Comment Deleted"`**, zero votes and no username, so its replies keep their parent. Today that renders as if someone typed it. Should be muted, with no vote or reply controls | Nothing to probe — confirmed from 309 archived placeholders ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)) |
 | B5 | **Yakarma over time** on the You tab, per-post and overall | Karma is at `getUpdates().karma` as `{post, comment, groups}` — and the same payload also carries **`quarterly_karma`, `season_karma` and `season`**, so there may be period-scoped values to read rather than sampling a single lifetime number. Worth inspecting those before building a sampler | Inspect the three season/quarter fields. If they hold real history this gets much cheaper; if not, fall back to client-side sampling, which is per-device and should say so rather than look like lost data |
 
 Two things worth deciding before any of these start:
@@ -635,6 +635,13 @@ and comment it sees** — effectively a Yik Yak downloader
   - [x] Pause/resume never worked for the default window — its end is "now", so
         no saved position ever matched and a paused re-scrape restarted from the
         top. Fixed, with the first session's start carried through
+  - [ ] ⛔ **Deleted comments are never flagged, and a re-read overwrites their
+        text.** The placeholder is `"Comment Deleted"`, not `"Deleted Post"` —
+        309 in the archive, none flagged, one real text already replaced. Fix:
+        recognise the placeholder as a tombstone (text, score and author kept,
+        flagged), treat placeholder text as deletion on import too, and flag the
+        309 already held. After that, importing an older export restores any
+        text lost to an overwrite ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted))
   - [ ] Probe `include_deleted=true` — on `/v1/posts/get` against a known-deleted
         post, and on the *feed*: if feeds accept it, deletions would arrive on
         pages already being read, with no per-post lookups at all

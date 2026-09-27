@@ -592,10 +592,39 @@ What actually happens:
   throw on one), never mentions `"Deleted Post"` anywhere, and filters feed
   entries that lack an `id`.
 
-The tombstone may still be real for **comments inside a thread**, where a
-placeholder keeps replies attached to something; that is the common design, and
-it is the likeliest source of the original observation. Detection for it is kept
-but no longer relied on.
+### Deleted comments stay in the thread as `"Comment Deleted"`
+
+**Found 2026-09-27, from the archive rather than a probe.** Comments *are*
+tombstoned — but the placeholder is **`"Comment Deleted"`**, not `"Deleted Post"`.
+Measured across a 232,062-comment export:
+
+| | |
+|---|---|
+| Comments with text exactly `"Comment Deleted"` | **309** |
+| …with `vote_total` 0 | all 309 |
+| …with a username | none — stripped |
+| …with replies still pointing at them | **170** |
+| Comments with text `"Deleted Post"` | 0 |
+
+Zero votes and no author on every one is not what a user typing those words
+looks like. The replies are the reason the placeholder exists at all: the thread
+keeps its shape, so a reply is never orphaned from what it answered. So a
+deleted comment is **present, not missing** — which is why a re-read thread
+never shows the gap the archive's diff looks for.
+
+The alias survives (`#3`, `OP`). The three one-off texts `[deleted]`,
+`[Deleted]` and `Post deleted` are singletons with normal votes — people typing
+the word, not the system.
+
+**⛔ The archive does not recognise this yet.** It matches `"Deleted Post"` only,
+so a deleted comment is archived as a live one whose text happens to be
+`"Comment Deleted"`, and none has ever been flagged. Worse, re-reading a comment
+archived *before* it was deleted overwrites its real text with the placeholder —
+confirmed once, in a comment whose original survives only in an earlier export.
+Tracked as a bug in PLAN; see [ARCHIVE.md](ARCHIVE.md#deleted-comments-are-flagged-not-dropped).
+
+Empty-text comments are unrelated: all 3,045 in the same export carry media —
+image and GIF replies.
 
 `lookupPost` in [src/api/client.ts](../src/api/client.ts) replaces the library
 call. It treats as *gone* only an answer that is about this post: a success
