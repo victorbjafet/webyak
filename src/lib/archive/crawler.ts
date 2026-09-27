@@ -1,6 +1,9 @@
 import {
   archiveContent,
   countPostsInRange,
+  countUnseenInRange,
+  listUnseenInRange,
+  markPostsDeleted,
   getUpdateState,
   listQuotedTargets,
   countPostsNeedingComments,
@@ -13,9 +16,15 @@ import {
   setCrawlState,
   setUpdateState,
 } from './store';
-import { nextWindowStart, type QueuedPost, type UpdateKind } from './types';
+import {
+  nextWindowStart,
+  resumeMatches,
+  type QueuedPost,
+  type UpdateKind,
+  type UpdateState,
+} from './types';
 
-import { getGroupPosts, getPostComments } from '@/api/client';
+import { getGroupPosts, getPostComments, lookupPost, PostGone } from '@/api/client';
 import type { Cursor } from '@/api/types';
 
 /**
@@ -94,7 +103,25 @@ const PAGES_WITHOUT_PROGRESS_BEFORE_GIVING_UP = 40;
 const STUCK_PAUSE_START_MS = 8000;
 const STUCK_PAUSE_MAX_MS = 30_000;
 
-export type CrawlPhase = 'updating' | 'catching-up' | 'backfilling';
+export type CrawlPhase = 'updating' | 'verifying' | 'catching-up' | 'backfilling';
+
+/** Candidates looked up per read of the queue. */
+const VERIFY_BATCH = 100;
+
+/** Progress of the deletion check at the end of a refresh. */
+export interface VerifyProgress {
+  /** Posts in the window the pass did not see, when the check began. */
+  candidates: number;
+  checked: number;
+  /** Looked up, not served: recorded as deleted. */
+  gone: number;
+  /** Looked up and served after all — a feed that skipped, now refreshed. */
+  live: number;
+  /** Could not be checked. Left as candidates for next time. */
+  errors: number;
+  /** Why the most recent one could not be checked. */
+  lastError?: string;
+}
 
 /**
  * A slice of history to re-read.
@@ -109,6 +136,11 @@ export interface UpdateWindow {
   start: string;
   /** ISO. Defaults to the moment the run starts. */
   end: string;
+  /**
+   * The end is "now" rather than a date someone chose. Part of the window's
+   * identity for resuming — see `resumeMatches`.
+   */
+  openEnd?: boolean;
 }
 
 /**
@@ -122,15 +154,19 @@ async function recordUpdate(
   kind: UpdateKind,
   groupId: string,
   window: UpdateWindow,
+  startedAt: number,
   at = Date.now(),
 ) {
+  const existing = await getUpdateState(kind, groupId);
   await setUpdateState({
+    ...existing,
     group_id: groupId,
     kind,
     window_start: nextWindowStart(at),
     updated_at: at,
     last_window_start: window.start,
     last_window_end: window.end,
+    last_started_at: startedAt,
     // Completed, so any saved position is stale. Leaving it would make the next
     // run resume past ground it is supposed to re-cover.
     resume: undefined,
@@ -147,35 +183,44 @@ async function resumeFor(
   kind: UpdateKind,
   groupId: string,
   window: UpdateWindow,
-): Promise<{ cursor?: string; offset?: number; through?: string } | undefined> {
+): Promise<NonNullable<UpdateState['resume']> | undefined> {
   const state = await getUpdateState(kind, groupId);
-  const resume = state?.resume;
-  if (!resume) return undefined;
-  if (resume.window_start !== window.start || resume.window_end !== window.end) return undefined;
-  return resume;
+  return resumeMatches(state?.resume, window) ? state?.resume : undefined;
 }
 
-/** Saves where a refresh has got to, so stopping is not losing. */
+/**
+ * Saves where a refresh has got to, so stopping is not losing.
+ *
+ * Spreads the existing state rather than rebuilding it field by field — an
+ * earlier version listed the fields it meant to keep, and silently dropped any
+ * it did not name every time a page was saved.
+ */
 async function saveResume(
   kind: UpdateKind,
   groupId: string,
   window: UpdateWindow,
+  startedAt: number,
   position: { cursor?: string; offset?: number; through?: string },
 ) {
   const existing = await getUpdateState(kind, groupId);
   await setUpdateState({
+    ...existing,
     group_id: groupId,
     kind,
     // A resume must never move the watermark — only completing the window does
-    // that. Preserve whatever was there, or leave it at the window's own start
-    // so an interrupted first refresh does not invent coverage.
+    // that. Keep whatever was there, or the window's own start, so an
+    // interrupted first refresh does not invent coverage.
     window_start: existing?.window_start ?? window.start,
     updated_at: existing?.updated_at ?? Date.now(),
-    last_window_start: existing?.last_window_start,
-    last_window_end: existing?.last_window_end,
     resume: {
       window_start: window.start,
       window_end: window.end,
+      open_end: window.openEnd,
+      // The *first* session's start, carried through every resume: it is the
+      // cutoff that decides what this window's pass has and has not seen.
+      started_at: existing?.resume && resumeMatches(existing.resume, window)
+        ? (existing.resume.started_at ?? startedAt)
+        : startedAt,
       ...position,
       updated_at: Date.now(),
     },
@@ -213,6 +258,8 @@ export type CrawlEnding =
   | 'duplicates'
   /** A refresh reached the start of its window. Its job done. */
   | 'window-covered'
+  /** A standalone deletion check finished. */
+  | 'verified'
   /** Budget spent without progress. Something is wrong; a human should look. */
   | 'stalled'
   | 'stopped'
@@ -265,6 +312,8 @@ export interface CrawlProgress {
   windowCovered?: boolean;
   /** Posts re-read from the all-time top, regardless of age. */
   topSwept?: number;
+  /** The deletion check, once it starts. */
+  verify?: VerifyProgress;
   /** Where a resumed refresh picked up, when it did. */
   resumedFrom?: string;
   /** Consecutive pages that neither archived anything nor reached further back. */
@@ -296,6 +345,19 @@ export function startCrawl(
   onProgress: (progress: CrawlProgress) => void,
   /** When set, the run re-reads this window before extending the archive. */
   update?: UpdateWindow,
+  options: {
+    /**
+     * Skip the walk entirely and only check `update` for deletions, against a
+     * pass that has already finished. Everything that pass read has a
+     * `last_seen_at` after `seenBefore`; anything in its window that does not
+     * was never served to it.
+     *
+     * This is what lets a completed refresh — including one run before
+     * deletions were detected at all — be checked without walking the feed
+     * again.
+     */
+    verifyOnly?: { seenBefore: number };
+  } = {},
 ): CrawlHandle {
   let stopped = false;
 
@@ -303,7 +365,7 @@ export function startCrawl(
     const progress: CrawlProgress = {
       // Labelled from the start so the first frame does not claim to be doing
       // something the run has not begun.
-      phase: update ? 'updating' : 'catching-up',
+      phase: options.verifyOnly ? 'verifying' : update ? 'updating' : 'catching-up',
       window: update,
       run: {
         startedAt: Date.now(),
@@ -490,6 +552,88 @@ export function startCrawl(
         return 'stopped';
       };
 
+      /**
+       * Looks up every post in a window that the pass did not see, and records
+       * the ones Yik Yak no longer serves.
+       *
+       * Only a lookup by id can tell a deleted post from a feed that skipped
+       * it, so nothing is flagged on absence alone. A post that comes back is
+       * archived as a fresh sighting instead — the check doubles as a repair
+       * for anything the walk missed. A post that cannot be checked (a dropped
+       * connection, a 5xx) is left alone and stepped past: it stays a candidate
+       * for next time rather than being guessed at.
+       *
+       * The queue drains itself. Each lookup either moves a post's
+       * `last_seen_at` past the cutoff or marks it deleted, and both take it out
+       * of `listUnseenInRange` — so a stopped check resumes exactly where it
+       * was, with no position of its own to save.
+       */
+      const verifyWindow = async (
+        window: UpdateWindow,
+        seenBefore: number,
+      ): Promise<'done' | 'stopped' | 'error'> => {
+        progress.phase = 'verifying';
+        const verify: VerifyProgress = {
+          candidates: await countUnseenInRange(window.start, window.end, seenBefore, groupId),
+          checked: 0,
+          gone: 0,
+          live: 0,
+          errors: 0,
+        };
+        progress.verify = { ...verify };
+        onProgress({ ...progress });
+
+        let skipped = 0;
+        while (!stopped) {
+          const batch = await listUnseenInRange(
+            window.start,
+            window.end,
+            seenBefore,
+            VERIFY_BATCH,
+            groupId,
+            skipped,
+          );
+          if (batch.length === 0) return 'done';
+
+          for (const candidate of batch) {
+            if (stopped) return 'stopped';
+            progress.run.requests += 1;
+            try {
+              const post = await lookupPost(candidate.id);
+              await archiveContent([post]);
+              verify.live += 1;
+            } catch (error) {
+              if (error instanceof PostGone) {
+                await markPostsDeleted([candidate.id], 'missing');
+                verify.gone += 1;
+              } else {
+                const status = (error as { status?: number })?.status;
+                if (status === 401 || status === 429) {
+                  progress.error =
+                    status === 401
+                      ? 'Session expired — sign in again before resuming.'
+                      : 'Rate limited. Stopping rather than pushing harder.';
+                  progress.verify = { ...verify };
+                  onProgress({ ...progress });
+                  return 'error';
+                }
+                verify.errors += 1;
+                skipped += 1;
+                // Not `progress.error`: the screen reads that as "the run has
+                // stopped", and one unreachable post does not stop anything.
+                verify.lastError = error instanceof Error ? error.message : String(error);
+              }
+            }
+            verify.checked += 1;
+            progress.run.lastPageAt = Date.now();
+            progress.verify = { ...verify };
+            onProgress({ ...progress });
+            await sleep(PAGE_DELAY_MS + Math.random() * JITTER_MS);
+          }
+        }
+        return 'stopped';
+      };
+
       /** Re-reads the all-time top posts. Small, fixed, and age-blind. */
       const sweepTop = async (): Promise<CrawlEnding> => {
         let cursor: Cursor | undefined;
@@ -547,6 +691,18 @@ export function startCrawl(
           updated_at: Date.now(),
         });
 
+      /* ---- standalone deletion check ----------------------------------- */
+      if (options.verifyOnly && update) {
+        progress.window = update;
+        const outcome = await verifyWindow(update, options.verifyOnly.seenBefore);
+        if (outcome === 'done') {
+          progress.finished = 'verified';
+          progress.windowCovered = true;
+        }
+        onProgress({ ...progress });
+        return;
+      }
+
       /* ---- phase 0: refresh the window ---------------------------------- */
       /*
         Before anything is extended, what is already held is brought up to date.
@@ -576,6 +732,9 @@ export function startCrawl(
 
         const saved = await resumeFor('posts', groupId, update);
         progress.resumedFrom = saved?.through;
+        // The cutoff for "seen by this pass". The first session's start when
+        // resuming, or everything read before the pause would look unseen.
+        const startedAt = saved?.started_at ?? progress.run.startedAt;
         onProgress({ ...progress });
 
         const outcome = await walk(
@@ -585,7 +744,7 @@ export function startCrawl(
             await save();
             // Position saved per page: stopping a full re-scrape three days in
             // must not mean starting it again from the top.
-            await saveResume('posts', groupId, update, {
+            await saveResume('posts', groupId, update, startedAt, {
               cursor,
               through: progress.run.oldestReached,
             });
@@ -603,7 +762,21 @@ export function startCrawl(
         // 'exhausted' counts: running out of feed above the window start means
         // there was nothing older to read, not that coverage is incomplete.
         if (outcome === 'window-covered' || outcome === 'exhausted') {
-          await recordUpdate('posts', groupId, update);
+          /*
+            Then find what the walk did *not* see.
+
+            A deleted post is omitted from feeds rather than tombstoned, so the
+            walk above can never observe a deletion directly — only the absence.
+            This is the step that turns absence into a verdict, one lookup per
+            candidate. It runs before the watermark is written, because a
+            window whose deletions were not checked has not been fully
+            refreshed; and if it is stopped, the saved position is kept, so the
+            next run skips straight back here.
+          */
+          const verified = await verifyWindow(update, startedAt);
+          if (verified !== 'done') return;
+
+          await recordUpdate('posts', groupId, update, startedAt);
           progress.windowCovered = true;
           onProgress({ ...progress });
         }
@@ -906,8 +1079,19 @@ export function startCommentCrawl(
           have gone missing, and the check is a cursor walk per thread, which is
           not worth paying 180,000 times to learn nothing.
         */
+        /*
+          …and only when the thread came back **non-empty**.
+
+          An empty thread where comments are held is almost never every comment
+          being deleted one by one. It is the thread itself being gone — the post
+          was removed — and diffing against it would mark every comment under a
+          deleted post as individually deleted, filling `is:deleted` with
+          hundreds of comments nobody removed. The post's own flag already says
+          why they are unreachable. A thread that comes back with *some* of its
+          comments missing is the real per-comment signal.
+        */
         let removed = 0;
-        if (post.fetched_at !== undefined) {
+        if (post.fetched_at !== undefined && comments.length > 0) {
           removed = await markMissingCommentsDeleted(
             post.id,
             comments.map((comment) => comment.id),
@@ -1037,13 +1221,14 @@ export function startCommentCrawl(
 
         const saved = await resumeFor('comments', scope, update);
         progress.resumedFrom = saved?.offset ? String(saved.offset) : undefined;
+        const startedAt = saved?.started_at ?? progress.startedAt;
         emit();
 
         const covered = await drain(
           (offset) => listPostsInRange(update.start, update.end, COMMENT_BATCH, groupId, offset),
           false,
           saved?.offset ?? 0,
-          (offset) => saveResume('comments', scope, update, { offset }),
+          (offset) => saveResume('comments', scope, update, startedAt, { offset }),
         );
 
         if (!covered) {
@@ -1086,7 +1271,7 @@ export function startCommentCrawl(
 
         // Only a pass that reached the end of its window may claim it. A window
         // recorded after a stop would seal off the part that was never read.
-        await recordUpdate('comments', scope, update);
+        await recordUpdate('comments', scope, update, startedAt);
         progress.windowCovered = true;
         emit();
       }

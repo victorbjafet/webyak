@@ -302,23 +302,59 @@ from the tombstone's own.
 
 ### Deletion is recorded, not applied
 
-Once a post is removed, the API returns its text as the literal string
-`"Deleted Post"`. Writing that over the record would destroy the thing the
-archive exists to keep. So:
+**Corrected 2026-09-27.** This section used to say that once a post is removed,
+the API keeps returning it with its text replaced by `"Deleted Post"`, and the
+archive's deletion detection was built on that. It was an early observation,
+recorded at the time as unverified and *"worth probing before building on"* —
+and it does not describe posts. **A deleted post is omitted:** it stops
+appearing in feeds, and `/v1/posts/get` answers without it
+([API.md](API.md#deleted-posts-are-omitted-not-tombstoned)). A full re-scrape
+therefore flagged nothing, and opening a deleted post from the archive failed
+outright.
+
+There are now two signals, recorded in `deleted_via` because they carry
+different weight:
+
+| `deleted_via` | Evidence | Where it comes from |
+|---|---|---|
+| `missing` | Looked up **by id**, and the API answered without it | The refresh's deletion check (§6), and opening a post whose lookup comes back empty |
+| `tombstone` | Served with its text replaced by `"Deleted Post"` | Kept for whatever still does this — plausibly comments inside threads — but not relied on |
+
+**Absence from a feed is never enough on its own.** A feed can skip; a post
+missing from a re-read window is only a *candidate*, and nothing is flagged
+until it has been looked up by id. A lookup that fails for a reason that says
+nothing about the post — a dropped connection, a 5xx, 401, 403, 429 — leaves it
+alone.
+
+Either way, nothing is thrown away:
 
 ```
-incoming.text === 'Deleted Post' && existing.text !== 'Deleted Post'
-   → keep the original text, score and tokens
-   → set deleted = 1, deleted_at = now
+text, score, tokens, author, thread position, quote link → kept
+deleted = 1, deleted_at = when noticed, deleted_via = how
+needs_comments = 0     (its thread cannot be read any more)
 ```
 
-The archive then answers both *what did this say* and *was it taken down
-afterwards*. `deleted_at` is when we **noticed**, not when it happened — the API
-gives no removal timestamp — so treat it strictly as an upper bound.
+`deleted_at` is when we **noticed**, not when it happened — the API gives no
+removal timestamp — so treat it strictly as an upper bound.
 
-Tombstone detection is a **string comparison against `"Deleted Post"`**. If the
-API ever changes that string, detection fails silently and tombstones overwrite
-real text. Worth a probe if deletions start looking wrong.
+**A deletion can be refuted.** If a post flagged deleted is later served
+normally and **directly** — a feed page, a lookup, a thread — the flag is
+cleared: most likely it was restored by moderation, or a lookup answered wrongly
+once. Two things cannot refute it:
+
+- **An embedded quote copy.** A quote-repost carries a snapshot of the post it
+  quotes, and nothing guarantees that snapshot is current. Letting it count
+  would resurrect a deleted post every time something that quoted it was seen.
+  Embedded copies are marked for the life of the batch in a `WeakSet`, so the
+  marker can never be written to disk. Within one page, a direct copy always
+  wins over an embedded one.
+- **An older observation.** On import, a record only overturns a deletion if it
+  saw the post live *after* the deletion was noticed.
+
+That last rule also fixed an import bug. The merge used to decide deletion as
+`incomingIsTombstone || existing.deleted`, and a preserved deleted record carries
+its real text rather than the placeholder — so importing a newer archive that
+knew a post was deleted, over an older one that did not, silently un-deleted it.
 
 ### The comment flag re-arms itself
 
@@ -679,6 +715,21 @@ multi-hundred-thousand-record archive is not a thing that happens.
 | Posts | the feed cursor, plus the oldest date reached, saved every page |
 | Comments | the queue position, saved every window of 250 |
 
+**Corrected 2026-09-27: until then, this never worked for the default window.**
+A resume matched on the window's exact start *and end*, and the default window
+ends at "now" — the moment it was started. The next session's "now" is always
+different, so every saved position was discarded and the pass restarted from
+the top. Pausing a full re-scrape cost the whole walk again. The test that
+passed at the time reused one window object across both sessions, which the real
+screen never does. A window's identity is now its start plus *either* a fixed
+end or "open to now" (`open_end`), checked by one shared `resumeMatches` so the
+crawler and the settings panel cannot disagree about it again.
+
+The resume also carries `started_at` — the **first** session's start, through
+every pause. It is the cutoff for "seen by this pass", which the deletion check
+depends on: taking the latest session's start instead would make everything read
+before the pause look unseen.
+
 Three rules keep it honest:
 
 - **The window is stored with the position.** A resume is only valid for the
@@ -688,6 +739,42 @@ Three rules keep it honest:
   so an interrupted run cannot invent coverage.
 - **Completing clears it.** A stale position would make the next run skip
   everything before it.
+
+### Finding deletions
+
+A refresh walks a window and re-reads everything it finds. It can never *see* a
+deleted post, because a deleted post is not there to find. The evidence is the
+absence, and that has to be looked for.
+
+`last_seen_at` is the comparison, persisted. Everything the walk reads has it
+moved past the pass's `started_at`, so once the window is covered, any post in it
+still older than that was not served. Each one is looked up by id:
+
+| Lookup | Result |
+|---|---|
+| Served | Archived as a fresh sighting — the feed had skipped it, and now it is current |
+| Answered without it | Flagged `deleted_via: 'missing'`, everything it said kept |
+| Failed (network, 5xx) | Left alone, stepped past, still a candidate next time |
+| 401 / 429 | Hard stop, like every other pass |
+
+The check runs **before** the watermark is written: a window whose deletions were
+not checked has not been fully refreshed. And it needs no position of its own —
+each lookup either moves `last_seen_at` past the cutoff or flags the post, and
+both take it out of the candidate set. A stopped check resumes by walking one
+page from its saved cursor, finding the window already covered, and picking up
+the candidates that are left.
+
+Cost is one request per candidate, which is mostly real deletions. On a month's
+window that is minutes. On a first full re-scrape it can be hours, and the
+screen says how many there are before starting.
+
+**Checking a refresh that already finished.** Settings offers *Check it for
+deleted posts* against the last completed window. That pass left `last_seen_at`
+after its start on everything it read, so its unseen posts can be found without
+walking the feed again — which is how a full re-scrape run before any of this
+existed still yields its deletions. `last_started_at` records the start exactly;
+older refreshes fall back to the window's end, which for the default window *is*
+the moment the run began.
 
 ### Refreshing comments
 
@@ -769,18 +856,24 @@ re-arm the flag forever against a thread that can never reach it.
 
 ### Deleted comments are flagged, not dropped
 
-The archive's rule — a removal is recorded, not applied — was only half true for
-comments. A post gets it for free, because the API returns a tombstone in its
-place. A comment just stops appearing.
+A deleted comment stops appearing in its thread. (This section used to say a
+deleted *post* was different, because the API returns a tombstone in its place —
+it does not; see §4.)
 
 So a re-read compares the thread that came back against what is held, and marks
-anything missing `deleted` / `deleted_at`, keeping its text. Only on a **re-read**:
-a first read has nothing archived that could have gone missing, and the check is
-a cursor walk per thread, not worth paying 180,000 times to learn nothing.
+anything missing `deleted_via: 'missing'`, keeping its text. Only on a
+**re-read**: a first read has nothing archived that could have gone missing, and
+the check is a cursor walk per thread, not worth paying 180,000 times to learn
+nothing.
 
-It is also only ever called with a thread that was **fetched successfully**. An
-empty or failed response reaching it would mark an entire thread deleted over a
-network blip.
+**And only when the thread came back non-empty.** This section used to claim the
+check only ever saw successfully fetched threads, so an empty response could not
+reach it — but a *successful* empty response could, and did. An empty thread
+where comments are held is almost never every comment being deleted one by one;
+it is the thread being gone because the post was removed. Diffing against it
+marked every comment under a deleted post as individually deleted. The post's own
+flag already explains why they are unreachable, and deleted posts are no longer
+queued for thread reads at all.
 
 ---
 
@@ -896,11 +989,15 @@ caveats worth keeping:
 - **Comments needed separate machinery.** They have no tombstone — a deleted
   comment simply stops appearing — so they are detected by comparing a re-read
   thread against what is held (§6).
-- **Absence is still not treated as deletion for posts.** A post missing from a
-  re-paged feed could have been removed, or the page could have been served
-  inconsistently. Inferring deletion from absence would mass-flag on a single bad
-  page, so only an actual tombstone counts. Deletions of posts too old for any
-  window therefore remain unknown.
+- **Absence is a candidate, and a lookup is the verdict.** *Reversed
+  2026-09-27.* This used to say only a tombstone counted, because inferring
+  deletion from absence would mass-flag on a single bad page. The concern was
+  right and the conclusion was wrong: posts are never tombstoned, so "only a
+  tombstone counts" meant no post deletion was ever detected. Absence now makes
+  a post a candidate, and each candidate is looked up by id before anything is
+  flagged — which answers the bad-page concern directly, since a skipped post
+  simply comes back live (§6, *Finding deletions*). Deletions of posts too old
+  for any window still remain unknown.
 
 ### G5: Quote linkage exists now, but only going forward — CLOSED, with a tail
 
@@ -1007,8 +1104,13 @@ The open questions §8 posed, and how they were answered:
 - **Deep history is never refreshed automatically.** Anything older than every
   window ever run keeps the score it was archived with. Only a custom range
   reaches it, one slice at a time.
-- **Post deletions outside a window are unknowable**, and absence from a feed is
-  deliberately not treated as evidence ([G4](#g4-deletions-are-almost-never-noticed--closed-inside-the-window)).
+- **Post deletions outside every window are unknowable.** Inside a window,
+  absence plus a confirming lookup finds them
+  ([G4](#g4-deletions-are-almost-never-noticed--closed-inside-the-window)).
+- **What `include_deleted=true` returns is unknown.** It might offer a direct
+  deletion signal — or the post's final state — for one lookup instead of
+  inferring it from an empty answer. Worth a probe
+  ([API.md](API.md#deleted-posts-are-omitted-not-tombstoned)).
 - **Overlapping runs redo work**, because selection is by authorship date rather
   than by when a record was last checked ([G7](#g7-no-index-supports-what-have-i-not-refreshed-recently)).
 - **No scheduler.** A refresh happens when someone starts one. The watermark

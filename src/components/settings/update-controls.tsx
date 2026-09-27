@@ -6,7 +6,7 @@ import { DateField } from '../ui/date-field';
 
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { nextWindowStart, type UpdateState } from '@/lib/archive/types';
+import { nextWindowStart, resumeMatches, type UpdateState } from '@/lib/archive/types';
 import { normalizeDate } from '@/lib/time';
 
 /**
@@ -52,7 +52,7 @@ export interface UpdateChoice {
 export function resolveWindow(
   choice: UpdateChoice,
   state: UpdateState | undefined,
-): { start: string; end: string } | undefined {
+): { start: string; end: string; openEnd: boolean } | undefined {
   // `enabled` is authoritative: a start date left over from a full re-scrape
   // must not resurrect a refresh the box says is off. The UI keeps the two in
   // step by forcing `enabled` on whenever it sets a whole-archive start.
@@ -60,6 +60,9 @@ export function resolveWindow(
   return {
     start: choice.start || state?.window_start || nextWindowStart(),
     end: choice.end || new Date().toISOString(),
+    // "Now" is a moving target, so it cannot be part of a window's identity —
+    // two sessions of the same window must still recognise each other.
+    openEnd: !choice.end,
   };
 }
 
@@ -87,6 +90,7 @@ export function UpdateControls({
   state,
   earliest,
   scopeName,
+  onCheckDeletions,
   disabled,
 }: {
   kind: 'posts' | 'comments';
@@ -98,6 +102,8 @@ export function UpdateControls({
   earliest?: string;
   /** Which community the shown window belongs to. */
   scopeName?: string;
+  /** Checks the last finished window for posts Yik Yak no longer serves. */
+  onCheckDeletions?: () => void;
   disabled?: boolean;
 }) {
   const theme = useTheme();
@@ -116,10 +122,7 @@ export function UpdateControls({
     Boolean(value.end) || Boolean(value.start && asDate(value.start) !== asDate(defaultStart));
 
   // A saved position only applies to the window it was taken from.
-  const resumable =
-    Boolean(state?.resume) &&
-    state?.resume?.window_start === resolved?.start &&
-    state?.resume?.window_end === resolved?.end;
+  const resumable = resumeMatches(state?.resume, resolved);
 
   return (
     <View style={[styles.wrap, { backgroundColor: theme.background, borderColor: theme.border }]}>
@@ -225,14 +228,34 @@ export function UpdateControls({
               </ThemedText>
             </View>
           ) : null}
-
-          {state?.last_window_start ? (
-            <ThemedText type="caption" themeColor="textTertiary">
-              Last refresh covered {asDate(state.last_window_start)} →{' '}
-              {asDate(state.last_window_end)}.
-            </ThemedText>
-          ) : null}
         </>
+      ) : null}
+
+      {/* About a run that already happened, so shown whatever is ticked now. */}
+      {state?.last_window_start ? (
+        <View style={styles.lastRow}>
+          <ThemedText type="caption" themeColor="textTertiary" style={styles.lastText}>
+            Last refresh covered {asDate(state.last_window_start)} →{' '}
+            {asDate(state.last_window_end)}.
+          </ThemedText>
+          {onCheckDeletions ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Check that window for deleted posts"
+              disabled={disabled}
+              onPress={onCheckDeletions}
+              style={({ hovered }) => [
+                styles.reset,
+                { borderColor: theme.border },
+                hovered && !disabled ? { opacity: 0.7 } : null,
+                disabled ? { opacity: 0.5 } : null,
+              ]}>
+              <ThemedText type="caption" style={{ color: theme.brand }}>
+                Check it for deleted posts
+              </ThemedText>
+            </Pressable>
+          ) : null}
+        </View>
       ) : null}
     </View>
   );
@@ -315,5 +338,14 @@ const styles = StyleSheet.create({
   reset: {
     paddingVertical: Spacing.one,
     paddingHorizontal: Spacing.two,
+  },
+  lastRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: Spacing.two,
+  },
+  lastText: {
+    flexShrink: 1,
   },
 });

@@ -551,17 +551,51 @@ and keeps a `quote_post_id` fetch as a fallback for responses that carry only th
 id. The *Phase 5 — quote-repost shape* write probe confirms which the API
 actually sends, so the fallback can be dropped once known.
 
-### Deleted posts render as bare text
+### Deleted posts are omitted, not tombstoned
 
-Low priority, recorded so it isn't rediscovered: a deleted post still comes back
-in feeds and comment threads, with its text replaced by the literal string
-`"Deleted Post"`. We render that as if it were ordinary body text, so it reads
-like someone typed it.
+**Corrected 2026-09-27.** This entry used to say a deleted post *"still comes
+back in feeds and comment threads, with its text replaced by the literal string
+`"Deleted Post"`"*. That was an early observation, flagged here at the time as
+unverified and fragile — and the archive's deletion detection was then built on
+it anyway. For posts it is wrong.
 
-It should be styled as what it is — muted, italic, no vote or reply controls,
-probably an icon. The API gives no explicit `deleted` flag that has been found,
-so detection currently means matching that string, which is fragile and worth
-probing before building on. Not scheduled.
+What actually happens:
+
+- **Feeds omit a deleted post.** It is simply not in the page. A full re-scrape
+  of an archive of 362k posts flagged none as deleted, including one known to
+  be gone.
+- **`/v1/posts/get` omits it too.** The endpoint takes an `include_deleted`
+  flag. sidechat.js exposes it on `getPost(postID, includeDeleted = false)` and
+  its JSDoc describes it, verbatim, as **"undocumented"**. With it `false`, a
+  deleted post comes back with no `post` in the body. The library returns
+  `json.post` — `undefined` — which TanStack rejects as query data, so opening a
+  deleted post failed with *"Query data cannot be undefined"*.
+- **offsides agrees by omission.** It passes `includeDeleted = false`
+  explicitly, never handles a missing post (its "show context" action would
+  throw on one), never mentions `"Deleted Post"` anywhere, and filters feed
+  entries that lack an `id`.
+
+The tombstone may still be real for **comments inside a thread**, where a
+placeholder keeps replies attached to something; that is the common design, and
+it is the likeliest source of the original observation. Detection for it is kept
+but no longer relied on.
+
+`lookupPost` in [src/api/client.ts](../src/api/client.ts) replaces the library
+call. It treats as *gone* only an answer that is about this post: a success
+with no post in it, a 404 or 410, or an error whose code or message says
+not-found. Everything else — network, 5xx, 401, 403, 429 — rethrows, since none
+of it says whether the post exists.
+
+**Still unknown:** what `include_deleted=true` returns. It could carry an explicit
+deletion marker, or the post's final state, and either would be a stronger
+signal than an empty answer. Worth a probe — against a post known to be deleted,
+recording the status and top-level keys only, never the content.
+
+**Rendering.** A deleted post opened from anywhere — a link, the archive search —
+now shows the archived copy and its archived thread, marked *Removed from Yik
+Yak*, instead of an error. It is rendered plainly rather than as a `PostCard`,
+for the same reason archive search results are: a card implies working vote
+buttons on something that no longer exists.
 
 The lesson worth keeping: `icon.yik-yak.com` was verified public and returning
 200, which made the *host* look innocent and sent three rounds of investigation
@@ -644,6 +678,7 @@ which the library added in 2.4.9 for exactly this.
 | `checkEmailVerification()` | Same self-swallowing pattern: every failure, including a 401, surfaces as `"Email is not verified."` | Bypassed |
 | `setAge()` | Throws a hardcoded `"You're too young to use Offsides."` — a different app's name, shown to our users | Bypassed |
 | `getPostComments()` | Calls `json.posts.forEach` with no check, so any body without a `posts` array throws `Cannot read properties of undefined`; its catch then `console.error`s it and rethrows a status-less `SidechatAPIError` | Bypassed — see below |
+| `getPost()` | Returns `json.post` with no check, so a deleted post — which the API omits — resolves as `undefined`. Defaults the undocumented `include_deleted` to `false`. `console.error`s before rethrowing | Bypassed — `lookupPost` in `src/api/client.ts` |
 | `getUpdates()` | `console.error`s the raw error before rethrowing a generic one, so a transient `TypeError: Failed to fetch` that TanStack retries and recovers from still raises the dev error overlay — attributed to our caller, since the library's frames are ignore-listed. Also loses the status, and its message says "Failed to get posts from group." | Bypassed — `request()` in `src/api/client.ts` |
 | `getUserProfile()` | Reads `json.group` with no status check, so a 401 or a missing user resolves as `undefined` rather than throwing; its catch reports `"Failed to set icon."`, a message from a different method | Tolerated — avatars fall back to the emoji, and `retry: false` stops it re-asking |
 | `searchAvailableGroups()` | Returns `json.results` unconditionally; the endpoint does not use that key, so it silently returns `undefined` rather than a list | Bypassed — `coerceGroupList` in `src/api/groups.ts` reads any envelope |

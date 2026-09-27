@@ -189,7 +189,7 @@ are mostly plumbing; three need a probe before they can be estimated.
 | B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Unblocked 2026-08-28.** `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. Finding the acknowledge endpoint needs a sweep, and testing the whole flow still needs a post that actually gets removed |
 | B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing beyond B2 |
 | B7 | **Sort your own posts/comments by top of all time** | **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
-| B6 | **Style deleted posts properly** | They come back in feeds and threads with `text` replaced by the literal `"Deleted Post"`, which we render as ordinary body text so it reads like someone typed it. Should be muted, italic, without vote or reply controls | No `deleted` flag has been found, so detection means matching that string — fragile, worth a probe first ([docs/API.md](docs/API.md#deleted-posts-render-as-bare-text)) |
+| B6 | **Style deleted comments properly** | *Narrowed 2026-09-27.* Posts turned out not to be tombstoned at all — a deleted post is omitted, and opening one now shows the archived copy marked *Removed from Yik Yak*. What may remain is comments inside a live thread coming back with `text` replaced by `"Deleted Post"`, rendered as ordinary text | Unverified for comments; worth a probe before styling ([docs/API.md](docs/API.md#deleted-posts-are-omitted-not-tombstoned)) |
 | B5 | **Yakarma over time** on the You tab, per-post and overall | Karma is at `getUpdates().karma` as `{post, comment, groups}` — and the same payload also carries **`quarterly_karma`, `season_karma` and `season`**, so there may be period-scoped values to read rather than sampling a single lifetime number. Worth inspecting those before building a sampler | Inspect the three season/quarter fields. If they hold real history this gets much cheaper; if not, fall back to client-side sampling, which is per-device and should say so rather than look like lost data |
 
 Two things worth deciding before any of these start:
@@ -615,6 +615,18 @@ and comment it sees** — effectively a Yik Yak downloader
   - [x] Two queues a date window cannot reach: the **all-time top 100**, swept
         first regardless of age, and **posts that newer posts quote**, which are
         evidence of renewed attention on something old
+  - [x] **Deletions are detected by lookup, not by tombstone** — a deleted post
+        is omitted rather than returned as `"Deleted Post"`, so a re-scrape could
+        never flag one. The refresh now looks up every post in its window that it
+        did not see and flags the ones not served; a finished refresh can be
+        checked the same way without walking again. Opening a deleted post shows
+        the archived copy and its thread instead of failing
+        ([docs/ARCHIVE.md](docs/ARCHIVE.md#finding-deletions))
+  - [x] Pause/resume never worked for the default window — its end is "now", so
+        no saved position ever matched and a paused re-scrape restarted from the
+        top. Fixed, with the first session's start carried through
+  - [ ] Probe `include_deleted=true` against a known-deleted post — it may give a
+        direct deletion signal instead of inferring one from an empty answer
   - [ ] Deep history outside every window ever run is still never refreshed
         except by an explicit full re-scrape, and no schedule exists — a refresh
         happens when someone starts one

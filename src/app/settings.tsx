@@ -280,6 +280,56 @@ export default function SettingsScreen() {
     [postUpdate, refresh, updates],
   );
 
+  /*
+    Checks the last *finished* post refresh for deletions, without walking the
+    feed again.
+
+    That refresh moved `last_seen_at` past its start on everything it read, so
+    any post in its window still older than that start was never served to it.
+    `last_started_at` records the start exactly; refreshes finished before it
+    existed fall back to the window's end, which for the default window *is* the
+    moment the run began, since an open-ended window ends at "now".
+  */
+  const checkDeletions = useCallback(
+    (group: Group) => {
+      const state = updates.find((u) => u.kind === 'posts' && u.group_id === group.id);
+      if (!state?.last_window_start || !state.last_window_end) return;
+      const window = { start: state.last_window_start, end: state.last_window_end };
+      const seenBefore = state.last_started_at ?? Date.parse(state.last_window_end);
+
+      handle.current?.stop();
+      setTarget(group);
+      setStopped(false);
+      setProgress({
+        phase: 'verifying',
+        run: {
+          startedAt: Date.now(),
+          pages: 0,
+          requests: 0,
+          archived: 0,
+          duplicates: 0,
+          withMedia: 0,
+          errors: 0,
+        },
+        total: { pages: 0, archived: 0 },
+        idlePages: 0,
+        nextDelayMs: 1500,
+        window,
+      });
+      handle.current = startCrawl(
+        group.id,
+        group.name,
+        (next) => {
+          setProgress(next);
+          if (next.finished || next.error) void refresh();
+        },
+        window,
+        { verifyOnly: { seenBefore } },
+      );
+    },
+    [refresh, updates],
+  );
+
   const stop = useCallback(() => {
     handle.current?.stop();
     handle.current = null;
@@ -462,6 +512,7 @@ export default function SettingsScreen() {
               )}
               earliest={stats?.oldest}
               scopeName={postScope ? groupDisplayName(postScope) : undefined}
+              onCheckDeletions={postScope ? () => checkDeletions(postScope) : undefined}
               disabled={running}
             />
 
@@ -529,6 +580,8 @@ export default function SettingsScreen() {
                         duplicates: 'Caught up on everything posted since the last run.',
                         'window-covered':
                           'Re-read every post in the update window. Scores, reply counts and removals are current through it.',
+                        verified:
+                          'Checked every post the last refresh did not see. Anything Yik Yak no longer serves is now flagged deleted, with its text kept.',
                         stalled:
                           'Gave up after a long stretch with no new posts and no movement further back, even after waiting it out. Something is off — worth trying again later, and worth looking at if it keeps happening.',
                         stopped: 'Stopped.',

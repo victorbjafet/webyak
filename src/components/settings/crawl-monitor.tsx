@@ -109,6 +109,21 @@ export function CrawlMonitor({
   const daysLeft = windowSpan > 0 ? (windowSpan - windowDone) / DAY_MS : 0;
   const windowEtaMs = daysPerMin > 0.0001 ? (daysLeft / daysPerMin) * 60_000 : undefined;
 
+  /*
+    The deletion check has the one exact denominator in this whole panel: it
+    counted its candidates before starting, and each lookup settles one.
+  */
+  const verify = progress.verify;
+  const verifyFraction =
+    verify && verify.candidates > 0 ? Math.min(1, verify.checked / verify.candidates) : 0;
+  const verifyStartedAt = run.startedAt;
+  const verifyMinutes = Math.max(0, now - verifyStartedAt) / 60_000;
+  const verifyRate = verify && verifyMinutes > 0.05 ? verify.checked / verifyMinutes : 0;
+  const verifyEtaMs =
+    verify && verifyRate > 0
+      ? ((verify.candidates - verify.checked) / verifyRate) * 60_000
+      : undefined;
+
   const status = stopped
     ? 'Stopped'
     : progress.finished
@@ -117,7 +132,9 @@ export function CrawlMonitor({
         ? 'Retrying'
         : progress.recovering
           ? 'Waiting it out'
-          : progress.phase === 'updating'
+          : progress.phase === 'verifying'
+            ? 'Checking for deleted posts'
+            : progress.phase === 'updating'
             ? 'Re-reading the update window'
             : progress.phase === 'catching-up'
               ? 'Catching up on new posts'
@@ -165,6 +182,63 @@ export function CrawlMonitor({
             </ThemedText>
           ) : null}
         </>
+      ) : null}
+
+      {verify ? (
+        <View style={styles.verify}>
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${Math.round(verifyFraction * 100)}%`,
+                  backgroundColor: theme.danger,
+                },
+              ]}
+            />
+          </View>
+          <ThemedText type="caption" themeColor="textTertiary">
+            {formatCount(verify.checked)} of {formatCount(verify.candidates)} unseen posts looked up
+            · {Math.round(verifyFraction * 100)}%
+            {verifyEtaMs !== undefined && live && verify.checked < verify.candidates
+              ? ` · ~${duration(verifyEtaMs)} left`
+              : ''}
+          </ThemedText>
+          <View style={styles.grid}>
+            <Metric
+              label="Gone"
+              value={formatCount(verify.gone)}
+              hint="flagged deleted"
+              warn={verify.gone > 0}
+            />
+            <Metric
+              label="Still live"
+              value={formatCount(verify.live)}
+              hint="feed skipped them"
+            />
+            <Metric
+              label="Couldn't check"
+              value={formatCount(verify.errors)}
+              hint="left for next time"
+              warn={verify.errors > 0}
+            />
+            <Metric
+              label="Candidates"
+              value={formatCount(verify.candidates)}
+              hint="not seen by the pass"
+            />
+          </View>
+          {verify.candidates === 0 ? (
+            <ThemedText type="caption" themeColor="textTertiary">
+              Every post in the window was seen by the pass — nothing to check.
+            </ThemedText>
+          ) : null}
+          {verify.lastError ? (
+            <ThemedText type="caption" themeColor="textTertiary" numberOfLines={2}>
+              Last skipped: {verify.lastError}
+            </ThemedText>
+          ) : null}
+        </View>
       ) : null}
 
       {/* Distance covered toward already-archived ground. */}
@@ -364,6 +438,9 @@ export function CrawlMonitor({
 }
 
 const styles = StyleSheet.create({
+  verify: {
+    gap: Spacing.two,
+  },
   wrap: {
     gap: Spacing.two,
     padding: Spacing.three,

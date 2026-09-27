@@ -2,6 +2,7 @@ import type { ArchiveStore } from './contract';
 import { type ArchiveQuery } from './query';
 import {
   expandQuoted,
+  isEmbeddedCopy,
   mergeArchived,
   toArchived,
   tokenize,
@@ -226,10 +227,13 @@ export async function archiveContent(
   items: (PostOrComment | null | undefined)[],
 ): Promise<{ added: number; updated: number }> {
   // Quote-reposts carry the original inline; archive it too rather than
-  // discarding a complete post we already fetched.
-  const records = expandQuoted(items)
-    .map((item) => (item ? toArchived(item) : null))
-    .filter((r): r is ArchivedContent => Boolean(r));
+  // discarding a complete post we already fetched. Embedded copies are kept
+  // track of, because they may fill gaps but may not overturn a deletion.
+  const records: { record: ArchivedContent; embedded: boolean }[] = [];
+  for (const item of expandQuoted(items)) {
+    const record = item ? toArchived(item) : null;
+    if (record) records.push({ record, embedded: isEmbeddedCopy(item) });
+  }
   if (records.length === 0) return { added: 0, updated: 0 };
 
   const db = await openDb();
@@ -240,11 +244,11 @@ export async function archiveContent(
   let updated = 0;
 
   await Promise.all(
-    records.map(async (record) => {
+    records.map(async ({ record, embedded }) => {
       const existing = (await asPromise(store.get(record.id))) as ArchivedContent | undefined;
       if (existing) {
         updated += 1;
-        store.put(mergeArchived(existing, record));
+        store.put(mergeArchived(existing, record, { embedded }));
       } else {
         added += 1;
         store.put(record);
@@ -403,8 +407,9 @@ export async function listPostsInRange(
       }
       const record = cursor.value as ArchivedContent;
       // Comments live in the same store and share the index; only posts have
-      // threads to refresh.
-      if (record.type === 'post') {
+      // threads to refresh — and not posts already known to be gone, whose
+      // threads cannot be read and would only come back empty.
+      if (record.type === 'post' && !record.deleted) {
         if (skipped < offset) skipped += 1;
         else
           out.push({
@@ -443,12 +448,164 @@ export async function countPostsInRange(
         resolve();
         return;
       }
-      if ((cursor.value as ArchivedContent).type === 'post') total += 1;
+      const record = cursor.value as ArchivedContent;
+      if (record.type === 'post' && !record.deleted) total += 1;
       cursor.continue();
     };
     request.onerror = () => reject(request.error);
   });
   return total;
+}
+
+/**
+ * Posts in a window that a refresh has not seen, and that are not already
+ * known to be gone — the candidates for a deletion check.
+ *
+ * ## Why this is the only sound way to find a deleted post
+ *
+ * A deleted post is **omitted**, not tombstoned: it simply stops appearing in
+ * feeds (docs/API.md#deleted-posts-are-omitted-not-tombstoned). A refresh that
+ * walks a window therefore never *sees* a deletion — it just doesn't see the
+ * post. The evidence is the absence, which can only be found by comparing what
+ * was seen against what is held.
+ *
+ * `last_seen_at` is that comparison, persisted. Every post a refresh reads has
+ * it moved past the refresh's start, so anything in the window still older
+ * than that start was not served. Because the evidence lives on the records
+ * rather than in memory, it survives a pause, a reload, and a resume — and
+ * checking a post either refreshes it or flags it, so each candidate leaves
+ * this set as it is handled and the queue drains on its own.
+ *
+ * Absence is only a *candidate*. A feed can skip, so nothing is flagged until
+ * each post has been looked up by id.
+ */
+export async function listUnseenInRange(
+  start: string,
+  end: string,
+  seenBefore: number,
+  limit = 250,
+  groupId?: string,
+  offset = 0,
+): Promise<QueuedPost[]> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const index = groupId ? store.index('group_created') : store.index('created_at');
+  const range = groupId
+    ? IDBKeyRange.bound([groupId, start], [groupId, end])
+    : IDBKeyRange.bound(start, end);
+
+  const out: QueuedPost[] = [];
+  let skipped = 0;
+
+  await new Promise<void>((resolve, reject) => {
+    const request = index.openCursor(range);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || out.length >= limit) {
+        resolve();
+        return;
+      }
+      const record = cursor.value as ArchivedContent;
+      if (record.type === 'post' && !record.deleted && record.last_seen_at < seenBefore) {
+        if (skipped < offset) skipped += 1;
+        else
+          out.push({
+            id: record.id,
+            comment_count: record.comment_count ?? 0,
+            fetched_at: record.comments_fetched_at,
+          });
+      }
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+
+  return out;
+}
+
+/** How many posts `listUnseenInRange` would return in total. */
+export async function countUnseenInRange(
+  start: string,
+  end: string,
+  seenBefore: number,
+  groupId?: string,
+): Promise<number> {
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const index = groupId ? store.index('group_created') : store.index('created_at');
+  const range = groupId
+    ? IDBKeyRange.bound([groupId, start], [groupId, end])
+    : IDBKeyRange.bound(start, end);
+
+  let total = 0;
+  await new Promise<void>((resolve, reject) => {
+    const request = index.openCursor(range);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      const record = cursor.value as ArchivedContent;
+      if (record.type === 'post' && !record.deleted && record.last_seen_at < seenBefore) total += 1;
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+  });
+  return total;
+}
+
+/**
+ * Records that posts are no longer served, keeping everything they said.
+ *
+ * `needs_comments` is cleared with it: a thread under a post that is gone
+ * cannot be read, and leaving the flag set would have the comment pass spend a
+ * request on every deleted post, every run, forever.
+ */
+export async function markPostsDeleted(
+  ids: string[],
+  via: 'tombstone' | 'missing',
+  at = Date.now(),
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  const db = await openDb();
+  const transaction = tx(db, [CONTENT], 'readwrite');
+  const store = transaction.objectStore(CONTENT);
+  let flagged = 0;
+
+  await Promise.all(
+    ids.map(async (id) => {
+      const record = (await asPromise(store.get(id))) as ArchivedContent | undefined;
+      if (!record || record.deleted) return;
+      store.put({
+        ...record,
+        deleted: 1,
+        deleted_at: at,
+        deleted_via: via,
+        needs_comments: 0,
+      });
+      flagged += 1;
+    }),
+  );
+
+  await done(transaction);
+  return flagged;
+}
+
+/**
+ * Every archived comment under a post, oldest first.
+ *
+ * What lets a post that Yik Yak no longer serves still be *read*: the thread is
+ * reassembled from the `parent_post_id` index, with no network involved.
+ */
+export async function listArchivedThread(postId: string): Promise<ArchivedContent[]> {
+  if (!postId) return [];
+  const db = await openDb();
+  const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+  const rows = (await asPromise(
+    store.index('parent_post_id').getAll(IDBKeyRange.only(postId)),
+  )) as ArchivedContent[];
+  return rows.sort((a, b) => (a.created_at < b.created_at ? -1 : a.created_at > b.created_at ? 1 : 0));
 }
 
 /**
@@ -505,7 +662,7 @@ export async function listQuotedTargets(
     [...targets].map(async (id) => {
       const record = (await asPromise(store.get(id))) as ArchivedContent | undefined;
       // Older than the window only; anything inside it is already queued.
-      if (record && record.type === 'post' && record.created_at < start) {
+      if (record && record.type === 'post' && !record.deleted && record.created_at < start) {
         out.push({
           id: record.id,
           comment_count: record.comment_count ?? 0,
@@ -551,7 +708,7 @@ export async function markMissingCommentsDeleted(
       }
       const record = cursor.value as ArchivedContent;
       if (!seen.has(record.id) && !record.deleted) {
-        cursor.update({ ...record, deleted: 1, deleted_at: at });
+        cursor.update({ ...record, deleted: 1, deleted_at: at, deleted_via: 'missing' });
         flagged += 1;
       }
       cursor.continue();
@@ -1330,6 +1487,10 @@ const _implements: ArchiveStore = {
   countPostsInRange,
   listQuotedTargets,
   markMissingCommentsDeleted,
+  listUnseenInRange,
+  countUnseenInRange,
+  markPostsDeleted,
+  listArchivedThread,
   exportArchive,
   importArchive,
 };

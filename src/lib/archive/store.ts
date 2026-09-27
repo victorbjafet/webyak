@@ -181,6 +181,38 @@ export async function markMissingCommentsDeleted(
   return 0;
 }
 
+export async function listUnseenInRange(
+  _start: string,
+  _end: string,
+  _seenBefore: number,
+  _limit?: number,
+  _groupId?: string,
+  _offset?: number,
+): Promise<QueuedPost[]> {
+  return [];
+}
+
+export async function countUnseenInRange(
+  _start: string,
+  _end: string,
+  _seenBefore: number,
+  _groupId?: string,
+): Promise<number> {
+  return 0;
+}
+
+export async function markPostsDeleted(
+  _ids: string[],
+  _via: 'tombstone' | 'missing',
+  _at?: number,
+): Promise<number> {
+  return 0;
+}
+
+export async function listArchivedThread(_postId: string): Promise<ArchivedContent[]> {
+  return [];
+}
+
 const _implements: ArchiveStore = {
   archiveAvailable,
   archiveContent,
@@ -204,6 +236,10 @@ const _implements: ArchiveStore = {
   countPostsInRange,
   listQuotedTargets,
   markMissingCommentsDeleted,
+  listUnseenInRange,
+  countUnseenInRange,
+  markPostsDeleted,
+  listArchivedThread,
   exportArchive,
   importArchive,
 };

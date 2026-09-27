@@ -313,13 +313,16 @@ query cache ever held.
 - **Media is flagged before it is fetched.** Bytes are not downloaded yet; every
   attachment is recorded with `cached: 0`, so a later back-fill knows exactly
   what to fetch without re-walking any feed.
-- **A deletion never erases a record — and is recorded.** Once a post is removed
-  the API returns its text as the literal `"Deleted Post"`; `mergeArchived` keeps
-  the original text, tokens and last real vote count, and sets `deleted: 1` with
-  a `deleted_at`. So the archive answers both *what did this say* and *was it
-  taken down afterwards*, which is a question only an archive can answer at all.
-  `deleted_at` is when we **noticed**, not when it happened — the API gives no
-  removal timestamp — so treat it as an upper bound.
+- **A deletion never erases a record — and is recorded.** The archive keeps
+  the original text, tokens, score and thread position, and sets `deleted: 1`
+  with a `deleted_at` and a `deleted_via` saying how it was noticed. So it
+  answers both *what did this say* and *was it taken down afterwards*, which is a
+  question only an archive can answer at all. A deleted post is **omitted** by
+  the API rather than returned as a `"Deleted Post"` tombstone, as this entry
+  used to claim, so noticing one means looking it up by id —
+  [ARCHIVE.md](ARCHIVE.md#deletion-is-recorded-not-applied) has how.
+  `deleted_at` is when we **noticed**, not when it happened, so treat it as an
+  upper bound.
 
 ### Open a transaction only when the next thing you do is use it
 

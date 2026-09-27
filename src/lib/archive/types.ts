@@ -90,6 +90,19 @@ export interface ArchivedContent {
    */
   deleted: 0 | 1;
   deleted_at?: number;
+  /**
+   * How the removal was noticed, because the two carry different weight.
+   *
+   * - `tombstone` — the API served the item with its text replaced by
+   *   `"Deleted Post"`. The API said so itself.
+   * - `missing` — the API was asked for this item directly and did not serve
+   *   it. For a post, that is a `/v1/posts/get` lookup coming back empty; for a
+   *   comment, a successfully re-read thread no longer containing it.
+   *
+   * Absence from a *feed* is never enough on its own — a feed can skip — so a
+   * post is only marked `missing` after being looked up by id.
+   */
+  deleted_via?: 'tombstone' | 'missing';
 
   /**
    * Posts only: this post's comments have not been fetched yet.
@@ -170,20 +183,52 @@ export function expandQuoted<T extends PostOrComment>(
   const out: (PostOrComment | null | undefined)[] = [];
   const seen = new Set<string>();
 
+  /*
+    Two passes, so a **direct** copy always wins over an embedded one.
+
+    In one pass, a post quoted early on a page and then listed in its own right
+    later on the same page was kept as its embedded copy and the direct one was
+    dropped as a duplicate. That matters now that the two are not equal: only a
+    direct sighting can restore a post previously thought deleted.
+  */
   for (const item of items) {
     if (item?.id) {
       if (seen.has(item.id)) continue;
       seen.add(item.id);
     }
     out.push(item);
-
+  }
+  for (const item of items) {
     const quoted = item?.quote_post?.post;
     if (quoted?.id && !seen.has(quoted.id)) {
       seen.add(quoted.id);
+      EMBEDDED.add(quoted);
       out.push(quoted);
     }
   }
   return out;
+}
+
+/**
+ * Objects that arrived *inside* another post rather than being served directly.
+ *
+ * A `WeakSet` of the payload objects themselves, so the marker can never be
+ * written to disk or leak into an export — it exists only for the lifetime of
+ * the batch that produced it.
+ */
+const EMBEDDED = new WeakSet<object>();
+
+/**
+ * True when an item came embedded in a quote-repost.
+ *
+ * An embedded copy is a snapshot carried by *another* post, and nothing
+ * guarantees it reflects the original's current state. It is good enough to
+ * archive — it is often the only copy there will ever be — but not good enough
+ * to overturn a deletion. Otherwise every sighting of a quote would resurrect
+ * the post it quoted, and the flag would flap on every page that carried it.
+ */
+export function isEmbeddedCopy(item: object | null | undefined): boolean {
+  return Boolean(item && EMBEDDED.has(item));
 }
 
 export interface ArchiveStats {
@@ -296,7 +341,11 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
     media_pending: media.length > 0 ? 1 : 0,
     first_seen_at: seenAt,
     last_seen_at: seenAt,
-    deleted: 0,
+    // A first sighting can already be a tombstone. It used to be archived as a
+    // live post whose text happened to be "Deleted Post".
+    deleted: item.text === DELETED_PLACEHOLDER ? 1 : 0,
+    deleted_at: item.text === DELETED_PLACEHOLDER ? seenAt : undefined,
+    deleted_via: item.text === DELETED_PLACEHOLDER ? 'tombstone' : undefined,
     // Only a post with replies is worth fetching a thread for.
     needs_comments: !isComment && commentCount > 0 ? 1 : 0,
     tokens: tokenize(item.text, item.identity?.name, item.alias),
@@ -320,9 +369,61 @@ export function toArchived(item: PostOrComment, seenAt = Date.now()): ArchivedCo
 export function mergeArchived(
   existing: ArchivedContent,
   incoming: ArchivedContent,
+  options: {
+    /**
+     * The incoming copy arrived inside a quote-repost rather than being served
+     * directly. It may fill gaps, but it cannot overturn a deletion — see
+     * `isEmbeddedCopy`.
+     */
+    embedded?: boolean;
+  } = {},
 ): ArchivedContent {
   const incomingIsTombstone =
     incoming.text === DELETED_PLACEHOLDER && existing.text !== DELETED_PLACEHOLDER;
+
+  /*
+    Deletion state, decided by the *evidence each side carries*.
+
+    The same function merges two very different things — a fresh sighting into
+    a record, and one archived record into another on import — and an earlier
+    rule (`incomingIsTombstone || existing.deleted`) got the second one wrong: a
+    deletion recorded in the **newer** of two archives was overwritten by the
+    older archive's `deleted: 0`, because a preserved deleted record carries its
+    real text rather than the placeholder. Importing a backup could quietly
+    un-delete posts.
+
+    So:
+    - Incoming says deleted → deleted. The earliest notice is kept, since
+      `deleted_at` is an upper bound on when it happened.
+    - Incoming is live, existing is deleted → restored **only** if the live
+      observation is newer than the notice, and only if it was served
+      directly. A fresh sighting always is newer; an import may not be; an
+      embedded quote copy never counts.
+    - Otherwise, whatever the existing record said.
+  */
+  let deleted = existing.deleted;
+  let deleted_at = existing.deleted_at;
+  let deleted_via = existing.deleted_via;
+
+  if (incoming.deleted) {
+    deleted = 1;
+    deleted_at =
+      existing.deleted && existing.deleted_at !== undefined
+        ? Math.min(existing.deleted_at, incoming.deleted_at ?? existing.deleted_at)
+        : (incoming.deleted_at ?? incoming.last_seen_at);
+    deleted_via = existing.deleted ? (existing.deleted_via ?? incoming.deleted_via) : incoming.deleted_via;
+  } else if (
+    existing.deleted &&
+    !options.embedded &&
+    incoming.last_seen_at > (existing.deleted_at ?? 0)
+  ) {
+    // Served normally, directly, after we decided it was gone: that decision
+    // has been refuted. Most likely a post restored by moderation, or a lookup
+    // that answered wrongly once.
+    deleted = 0;
+    deleted_at = undefined;
+    deleted_via = undefined;
+  }
 
   const media = incoming.media.map((asset) => {
     const held = existing.media.find((m) => m.asset_id === asset.asset_id);
@@ -391,16 +492,18 @@ export function mergeArchived(
     media_pending: media.some((m) => !m.cached) ? 1 : 0,
     first_seen_at: existing.first_seen_at,
     last_seen_at: incoming.last_seen_at,
-    // Record the removal once. `deleted_at` is when we *noticed*, not when it
-    // happened — the API gives no removal timestamp — so it is an upper bound.
-    deleted: incomingIsTombstone || existing.deleted ? 1 : 0,
-    deleted_at: existing.deleted_at ?? (incomingIsTombstone ? incoming.last_seen_at : undefined),
+    // `deleted_at` is when we *noticed*, not when it happened — the API gives
+    // no removal timestamp — so it is an upper bound.
+    deleted,
+    deleted_at,
+    deleted_via,
     // Fetched comments stay fetched — unless the post has gained replies since,
     // in which case there is genuinely more to collect.
     comments_fetched_count: existing.comments_fetched_count,
     comments_fetched_at: existing.comments_fetched_at,
     comments_last_comment_at: existing.comments_last_comment_at,
-    needs_comments: needsComments(existing, incoming),
+    // A thread under a post that is gone cannot be read, so asking is wasted.
+    needs_comments: deleted ? 0 : needsComments(existing, incoming),
   };
 }
 
@@ -472,6 +575,13 @@ export interface UpdateState {
   /** What that pass covered, for display. */
   last_window_start?: string;
   last_window_end?: string;
+  /**
+   * When that pass *began*. Everything it saw has `last_seen_at` after this, so
+   * a post in its window that still predates it was never seen by the pass —
+   * which is how a finished refresh can be checked for deletions afterwards
+   * without walking the feed again.
+   */
+  last_started_at?: number;
 
   /**
    * Where an interrupted pass got to.
@@ -491,6 +601,21 @@ export interface UpdateState {
   resume?: {
     window_start: string;
     window_end: string;
+    /**
+     * The window runs to "now" rather than to a fixed date.
+     *
+     * Without this a resume could never match: an open-ended window's end is
+     * the moment it was started, so the next session's end is always different
+     * and every saved position was silently discarded. Pausing a full re-scrape
+     * restarted it from the top.
+     */
+    open_end?: boolean;
+    /**
+     * When the window was first started, carried across every resume. The
+     * cutoff for "seen by this pass" has to be the *first* session's start, or
+     * everything read before a pause would look unseen afterwards.
+     */
+    started_at?: number;
     /** Feed cursor, for a post refresh. */
     cursor?: string;
     /** Queue position, for a comment refresh. */
@@ -499,6 +624,27 @@ export interface UpdateState {
     through?: string;
     updated_at: number;
   };
+}
+
+/**
+ * Whether a saved position belongs to the window being asked for.
+ *
+ * Shared by the crawler and the settings panel, because they drifted apart
+ * once already — and both compared end timestamps, which for a window that
+ * runs to "now" never match twice.
+ */
+export function resumeMatches(
+  resume: UpdateState['resume'],
+  window: { start: string; end: string; openEnd?: boolean } | undefined,
+): boolean {
+  if (!resume || !window) return false;
+  if (resume.window_start !== window.start) return false;
+  if (window.openEnd || resume.open_end) {
+    // Both must be open-ended: a fixed end and an open one are different
+    // windows even if they happen to share a start.
+    return Boolean(window.openEnd) && Boolean(resume.open_end);
+  }
+  return resume.window_end === window.end;
 }
 
 /** The overlap every refresh re-covers. */

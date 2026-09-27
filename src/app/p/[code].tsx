@@ -2,8 +2,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
-import { isPostId, useComments, usePost, usePostIdByCode } from '@/api/queries';
+import { PostGone } from '@/api/client';
+import { isPostId, useArchivedPost, useComments, usePost, usePostIdByCode } from '@/api/queries';
 import type { PostOrComment } from '@/api/types';
+import { ArchivedPost } from '@/components/archive/archived-post';
 import { GroupAvatar } from '@/components/group-avatar';
 import { CommentComposer } from '@/components/post/comment-composer';
 import { CommentItem } from '@/components/post/comment-item';
@@ -49,7 +51,20 @@ export default function PostDetailScreen() {
   const postId = resolved.postId ?? (resolved.isLoading ? undefined : code);
 
   const post = usePost(postId);
-  const comments = useComments(postId);
+
+  /*
+    When the live post is unavailable, the archive is the fallback — and the
+    reason it is unavailable decides what the screen says.
+
+    `PostGone` means Yik Yak was asked for this post by id and does not serve
+    it: it has been deleted. Anything else (a dropped connection, a server
+    error) says nothing about the post, so the archived copy is shown as a
+    stand-in rather than as a verdict.
+  */
+  const gone = post.error instanceof PostGone;
+  const archived = useArchivedPost(postId, post.isError);
+  // A deleted post has no live thread to load; its thread comes from the archive.
+  const comments = useComments(gone ? undefined : postId);
   const [replyTo, setReplyTo] = useState<PostOrComment | null>(null);
 
   const startReply = useCallback((comment: PostOrComment) => setReplyTo(comment), []);
@@ -63,7 +78,46 @@ export default function PostDetailScreen() {
     );
   }
 
-  const current = post.data ?? cached;
+  // A post confirmed gone is never rendered from a stale cache as if it were
+  // live — the feed that cached it had no way of knowing it would be removed.
+  const current = gone ? undefined : (post.data ?? cached);
+
+  if (!current && post.isError && archived.isLoading) {
+    return (
+      <Screen title="Post" back>
+        <LoadingState label="Looking in the archive…" />
+      </Screen>
+    );
+  }
+
+  if (!current && archived.data) {
+    const record = archived.data.record;
+    return (
+      <Screen title={record.group_name ?? 'Post'} back scroll={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ArchivedPost
+            record={record}
+            thread={archived.data.thread}
+            reason={gone ? 'gone' : 'offline'}
+            error={post.error}
+            onRetry={() => post.refetch()}
+          />
+        </ScrollView>
+      </Screen>
+    );
+  }
+
+  if (!current && gone && isPostId(postId)) {
+    return (
+      <Screen title="Post" back>
+        <EmptyState
+          icon="trash-outline"
+          title="This post is no longer on Yik Yak"
+          body="It was deleted by its author or removed by moderation, and it was never archived on this device — so there is no copy to show."
+        />
+      </Screen>
+    );
+  }
 
   if (!current) {
     // Only now is the format worth mentioning — and only to explain *why* it

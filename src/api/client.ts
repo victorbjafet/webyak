@@ -41,9 +41,25 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    /** The API's own `error_code`, when the body carried one. */
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
+  }
+}
+
+/**
+ * The API answered, and does not serve this post.
+ *
+ * Distinct from `ApiError` on purpose: this is the one failure that is
+ * **evidence**, rather than an obstacle. A network drop, a 5xx or a rate limit
+ * says nothing about whether a post exists; this does.
+ */
+export class PostGone extends Error {
+  constructor(readonly postId: string) {
+    super('This post is no longer on Yik Yak.');
+    this.name = 'PostGone';
   }
 }
 
@@ -132,7 +148,11 @@ export async function unwrap<T>(res: Response, label: string): Promise<T> {
   const body = json as { error_code?: string; message?: string } | null;
   if (body && typeof body === 'object' && (body.error_code || (!res.ok && body.message))) {
     expired();
-    throw new ApiError(body.message || body.error_code || `${label} failed`, res.status);
+    throw new ApiError(
+      body.message || body.error_code || `${label} failed`,
+      res.status,
+      body.error_code,
+    );
   }
   if (!res.ok) {
     expired();
@@ -297,8 +317,61 @@ export async function getGroupPosts(
   return request<PostsAndCursor>(`/v1/posts?${params.toString()}`);
 }
 
-export async function getPost(postId: string) {
-  return (await api.getPost(postId)) as unknown as PostOrComment;
+/**
+ * One post by id, distinguishing "gone" from "unreachable".
+ *
+ * ## Deleted posts are omitted, not tombstoned
+ *
+ * `/v1/posts/get` takes an `include_deleted` flag — sidechat.js exposes it and
+ * documents it, verbatim, as "undocumented" — and defaults it to `false`. With
+ * it off, a deleted post comes back **without a `post` in the body**. The
+ * library returned `json.post`, which is `undefined`, and TanStack rejects
+ * `undefined` query data with an error that names neither the post nor the
+ * cause. That is what opening a deleted post from the archive used to do.
+ *
+ * The archive had assumed the opposite — that a deleted post keeps coming back
+ * with its text replaced by `"Deleted Post"`. That was an early observation
+ * recorded as unverified, and it was built on anyway. Posts simply stop being
+ * served (docs/API.md#deleted-posts-are-omitted-not-tombstoned).
+ *
+ * ## What counts as gone
+ *
+ * Only an answer that is about *this post*: a success with no post in it, a
+ * 404 or 410, or an error whose code or message says not-found. Everything else
+ * — a dropped connection, a 5xx, 401, 403, 429 — rethrows, because none of it
+ * says anything about whether the post exists, and flagging a live post as
+ * deleted is the one mistake an archive must not make quietly.
+ *
+ * Not the library's `getPost`, which `console.error`s before rethrowing, like
+ * its siblings (docs/API.md#sidechatjs-266-defects).
+ */
+export async function lookupPost(postId: string): Promise<PostOrComment> {
+  const params = new URLSearchParams({
+    include_deleted: 'false',
+    post_id: postId,
+    cacheBust: String(Date.now()),
+  });
+
+  let json: { post?: PostOrComment | null };
+  try {
+    json = await request<{ post?: PostOrComment | null }>(`/v1/posts/get?${params.toString()}`);
+  } catch (error) {
+    if (error instanceof ApiError && isNotFound(error)) throw new PostGone(postId);
+    throw error;
+  }
+
+  if (!json?.post?.id) throw new PostGone(postId);
+  return json.post;
+}
+
+const NOT_FOUND = /not[\s_-]?found|deleted|removed|does[\s_-]?not[\s_-]?exist|no longer/i;
+
+function isNotFound(error: ApiError) {
+  if (error.status === 404 || error.status === 410) return true;
+  // Auth, permission and rate limits are about us, not the post.
+  if (error.status === 401 || error.status === 403 || error.status === 429) return false;
+  if (error.status !== undefined && error.status >= 500) return false;
+  return NOT_FOUND.test(error.code ?? '') || NOT_FOUND.test(error.message);
 }
 
 /**

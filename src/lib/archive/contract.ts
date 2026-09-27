@@ -88,6 +88,22 @@ export interface ArchiveStore {
     seenIds: string[],
     at?: number,
   ): Promise<number>;
+  listUnseenInRange(
+    start: string,
+    end: string,
+    seenBefore: number,
+    limit?: number,
+    groupId?: string,
+    offset?: number,
+  ): Promise<QueuedPost[]>;
+  countUnseenInRange(
+    start: string,
+    end: string,
+    seenBefore: number,
+    groupId?: string,
+  ): Promise<number>;
+  markPostsDeleted(ids: string[], via: 'tombstone' | 'missing', at?: number): Promise<number>;
+  listArchivedThread(postId: string): Promise<ArchivedContent[]>;
 
   exportArchive(onProgress?: (rows: number) => void): Promise<Blob>;
   importArchive(

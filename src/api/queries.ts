@@ -10,6 +10,8 @@ import {
   api,
   getGroupPosts,
   getPostComments,
+  lookupPost,
+  PostGone,
   getSavedPosts,
   getUpdates,
   getUpvotedPosts,
@@ -18,7 +20,14 @@ import {
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
 import { getDMThread, getDMThreads, getGroupChats, getJoinedGroupChats } from './chats';
-import { archiveContent, findArchivedByCode } from '@/lib/archive/store';
+import {
+  archiveAvailable,
+  archiveContent,
+  findArchivedByCode,
+  findArchivedById,
+  listArchivedThread,
+  markPostsDeleted,
+} from '@/lib/archive/store';
 import { hasSeenPost, useSeenVersion } from '@/lib/seen-posts';
 import type {
   Cursor,
@@ -156,14 +165,59 @@ export function useUserPosts(username: string | undefined) {
   });
 }
 
+/**
+ * A post, live.
+ *
+ * A post Yik Yak no longer serves rejects with `PostGone` rather than resolving
+ * to `undefined`. It used to resolve — the API omits a deleted post rather than
+ * returning an error, and the library passed the empty result straight through
+ * — which TanStack refuses as query data with an error naming neither the post
+ * nor the cause. Rejecting keeps the `['post']` cache a cache of real posts,
+ * which the vote mutations and the share-code lookup both read as such.
+ *
+ * `PostGone` is not retried: a deleted post stays deleted, and three more
+ * attempts only delay saying so. The deletion is recorded **before** the error
+ * is thrown, so anything that reacts to the error by reading the archive finds
+ * the flag already set.
+ */
 export function usePost(postId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.post(postId ?? ''),
     enabled: Boolean(postId),
+    retry: (count, error) => !(error instanceof PostGone) && count < 3,
     queryFn: async () => {
-      const post = (await api.getPost(postId as string)) as unknown as PostOrComment;
-      void archiveContent([post]).catch(() => {});
-      return post;
+      try {
+        const post = await lookupPost(postId as string);
+        void archiveContent([post]).catch(() => {});
+        return post;
+      } catch (error) {
+        if (error instanceof PostGone) {
+          // Looked up by id and not served: the one lookup that is evidence.
+          await markPostsDeleted([postId as string], 'missing').catch(() => {});
+        }
+        throw error;
+      }
+    },
+  });
+}
+
+/**
+ * The archived copy of a post, and its thread reassembled from the archive.
+ *
+ * For when the live post is unavailable — gone, or unreachable. Reads nothing
+ * from the network: the thread comes back off the `parent_post_id` index, so a
+ * post Yik Yak has removed can still be read in full, replies included.
+ */
+export function useArchivedPost(postId: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ['archive', 'post', postId ?? ''],
+    enabled: Boolean(postId) && enabled && archiveAvailable,
+    retry: false,
+    queryFn: async () => {
+      const record = await findArchivedById(postId as string);
+      if (!record) return null;
+      const thread = record.type === 'post' ? await listArchivedThread(record.id) : [];
+      return { record, thread };
     },
   });
 }
