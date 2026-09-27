@@ -855,11 +855,13 @@ window's end, which for the default window *is* the moment the run began.
 
 #### Can it be done with no per-post requests at all?
 
-Not with what is known. There is no batch lookup, and absence alone cannot be
-trusted, for the reasons above. The one open lead is `include_deleted`: if the
-*feed* accepted it and served deleted posts with a marker, deletions would arrive
-on the pages the walk already reads, at no extra cost. Unprobed
-([API.md](API.md#deleted-posts-are-omitted-not-tombstoned)).
+No. There is no batch lookup, and absence alone cannot be trusted, for the
+reasons above. The last lead was `include_deleted`: if the *feed* accepted it
+and served deleted posts with a marker, deletions would arrive on the pages the
+walk already reads, at no extra cost. **Probed 2026-09-27, and it does nothing** —
+not in the feed, and not by id either, where a deleted post answers 404 with
+the flag on or off ([API.md](API.md#deleted-posts-are-omitted-not-tombstoned)).
+One lookup per candidate is the floor.
 
 ### Refreshing comments
 
@@ -1253,11 +1255,6 @@ The open questions §8 posed, and how they were answered:
 - **Post deletions outside every window are unknowable.** Inside a window,
   absence plus a confirming lookup finds them
   ([G4](#g4-deletions-are-almost-never-noticed--closed-inside-the-window)).
-- **What `include_deleted=true` returns is unknown.** It might offer a direct
-  deletion signal — or the post's final state — for one lookup instead of
-  inferring it from an empty answer; if the feed honours it too, a refresh
-  could see deletions on pages it already reads. Diagnostics → Run probes
-  answers both halves (PLAN Q13).
 - **A comment removed outright is only noticed on a non-empty re-read.** The
   diff skips an empty thread, because that is almost always the post being gone
   ([above](#deleted-comments-are-flagged-not-dropped)). Since deleted comments

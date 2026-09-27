@@ -588,10 +588,13 @@ What actually happens:
   be gone.
 - **`/v1/posts/get` omits it too.** The endpoint takes an `include_deleted`
   flag. sidechat.js exposes it on `getPost(postID, includeDeleted = false)` and
-  its JSDoc describes it, verbatim, as **"undocumented"**. With it `false`, a
-  deleted post comes back with no `post` in the body. The library returns
-  `json.post` — `undefined` — which TanStack rejects as query data, so opening a
-  deleted post failed with *"Query data cannot be undefined"*.
+  its JSDoc describes it, verbatim, as **"undocumented"**. A deleted post
+  answers **404, with no `post` — no keys at all — in the body**. The library
+  never looks at the status and returns `json.post` — `undefined` — which
+  TanStack rejects as query data, so opening a deleted post failed with
+  *"Query data cannot be undefined"*. (This entry first said the post "comes
+  back with no `post` in the body", which read as a 200; that was inferred
+  through the library, which hides the status. The 404 was seen by probe.)
 - **offsides agrees by omission.** It passes `includeDeleted = false`
   explicitly, never handles a missing post (its "show context" action would
   throw on one), never mentions `"Deleted Post"` anywhere, and filters feed
@@ -654,13 +657,22 @@ with no post in it, a 404 or 410, or an error whose code or message says
 not-found. Everything else — network, 5xx, 401, 403, 429 — rethrows, since none
 of it says whether the post exists.
 
-**Still unknown:** what `include_deleted=true` returns. It could carry an explicit
-deletion marker, or the post's final state, and either would be a stronger
-signal than an empty answer — and if the *feed* honours it, a refresh could see
-deletions on the pages it already reads. `probeIncludeDeleted` (Diagnostics →
-Run probes) asks both, against the newest post the archive has flagged
-`missing`, and reports status, keys and deletion-shaped fields only — never text
-or ids (PLAN Q13).
+**`include_deleted=true` does nothing** — probed 2026-09-27 against a post the
+archive had just flagged `missing` (created and deleted the same day):
+
+| | Result |
+|---|---|
+| `/v1/posts/get`, flag `false` | 404, empty body |
+| `/v1/posts/get`, flag `true` | 404, empty body — identical |
+| Feed (`recent`), first page, with and without the flag | 24 posts each, none only with it |
+| Feed with the flag, paged past the post's `created_at` | never appeared; no post on 6 pages carried a deletion marker |
+
+So a deleted post is gone, not hidden behind a flag, and the feed does not
+honour it either: the refresh keeps looking candidates up one by one. Nothing is
+lost by that — the 404 is already a direct answer about the post, which is what
+the flag was hoped to provide. One post is one sample, but the flag changed
+*nothing* observable, so the probe was retired after this run; it is in the git
+history (`11e8a55`) if a second sample is ever wanted.
 
 **Rendering.** A deleted post opened from anywhere — a link, the archive search —
 now shows the archived copy and its archived thread, marked *Removed from Yik
@@ -1125,6 +1137,29 @@ Three things stand out:
 
 Not chased now — recorded so the next session starts from the answer instead of
 the question.
+
+### What `user` carries — and what it does not
+
+The keys of `getUpdates().user`, captured 2026-09-27 by the bio probe (keys
+only; the probe never prints values):
+
+```
+age, awards, conversation_icon, created_at, email_domain, follower_count,
+graduation_year, group_permissions, has_changing_phone_number_verified_email,
+has_changing_school_unverified_email, has_pending_school_email_reclaim,
+has_unverified_email, has_verified_email, id,
+include_username_posts_in_account_feed, incoming_freshman, invite_url,
+notification_preferences, phone_number, roles, type, verified_email
+```
+
+- **No `username`, `bio` or `description`** on this account. `useMyIdentity`
+  reads all three from here, as sidechat.js and offsides do. Either the keys
+  are omitted when unset — offsides reads `user.username` as optional — or the
+  API stopped sending them. Which one depends on whether this account has a
+  username, which is not yet confirmed (PLAN Q10).
+- **`phone_number` and `verified_email` are in it.** This object must never be
+  dumped whole by a probe or a log — keys and shapes only, as the bio probe
+  does ([OPEN-SOURCE.md](OPEN-SOURCE.md)).
 
 ## Messaging (Phase 6)
 

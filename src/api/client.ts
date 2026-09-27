@@ -323,11 +323,12 @@ export async function getGroupPosts(
  * ## Deleted posts are omitted, not tombstoned
  *
  * `/v1/posts/get` takes an `include_deleted` flag — sidechat.js exposes it and
- * documents it, verbatim, as "undocumented" — and defaults it to `false`. With
- * it off, a deleted post comes back **without a `post` in the body**. The
- * library returned `json.post`, which is `undefined`, and TanStack rejects
- * `undefined` query data with an error that names neither the post nor the
- * cause. That is what opening a deleted post from the archive used to do.
+ * documents it, verbatim, as "undocumented" — and defaults it to `false`. A
+ * deleted post answers **404 with no `post` in the body**, and turning the flag
+ * on changes nothing (probed 2026-09-27). The library ignores the status and
+ * returned `json.post`, which is `undefined`, and TanStack rejects `undefined`
+ * query data with an error that names neither the post nor the cause. That is
+ * what opening a deleted post from the archive used to do.
  *
  * The archive had assumed the opposite — that a deleted post keeps coming back
  * with its text replaced by `"Deleted Post"`. That was an early observation

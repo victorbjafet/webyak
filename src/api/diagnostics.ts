@@ -8,7 +8,8 @@
  * is answered and the answer is in `docs/API.md`, re-running it only produces
  * output nobody reads — and a long report makes the two results that matter
  * easy to miss. Twelve settled probes were retired on 2026-09-11 for that
- * reason; their answers live in the docs, not here.
+ * reason, and `probeIncludeDeleted` on 2026-09-27 after one run; their answers
+ * live in the docs, not here.
  *
  * ## Two rules, both learned the hard way
  *
@@ -30,7 +31,6 @@
  * | `probeVideoPoster` | are video thumbnails reachable, or worker-only? |
  * | `probeImageFailures` | what actually failed to render this page load |
  * | `probeImageUpload` | is there an upload route on the CORS-open host? |
- * | `probeIncludeDeleted` | does `include_deleted=true` serve deleted posts — by id, in the feed? (PLAN Q13) |
  * | `probeBioSource` | is your bio on `getUpdates().user`, or only on your public profile? (PLAN Q10) |
  * | `probePostLength`, `probeBioLength` | what length does the server enforce? (PLAN Q11) |
  *
@@ -51,9 +51,6 @@ import {
   request,
   updateProfile,
 } from './client';
-import { parseQuery } from '@/lib/archive/query';
-import { archiveAvailable, searchArchive } from '@/lib/archive/store';
-import { isTombstoneText } from '@/lib/archive/types';
 import { summarizeImageFailures } from '@/lib/image-debug';
 import type { Asset, PostOrComment } from './types';
 
@@ -69,12 +66,6 @@ export interface ProbeResult {
   status: ProbeStatus;
   detail: string;
   evidence?: string;
-}
-
-function preview(value: unknown, max = 420) {
-  const s = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
-  if (!s) return '';
-  return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 
 function fail(base: Omit<ProbeResult, 'status' | 'detail'>, e: unknown): ProbeResult {
@@ -395,7 +386,9 @@ async function probeMessaging(): Promise<ProbeResult> {
             ? `  message keys → ${Object.keys(msgs[0] as object).join(', ')}`
             : '  no messages inlined — the list is metadata only, so previews need another source',
         );
-        steps.push(`  sample thread → ${preview(thread, 700)}`);
+        // No raw sample. It printed other people's messages, chat names and
+        // ids into a report made to be copied — the leak docs/OPEN-SOURCE.md
+        // is about. The keys and the type values are what this proves.
 
         // The system-message heuristic (X left the chat) matches on text
         // because these values have never been dumped. With them it can key on
@@ -427,7 +420,6 @@ async function probeMessaging(): Promise<ProbeResult> {
       steps.push(`\ngetUpdates().chats.chats → ${entries.length} joined chat(s)`);
       if (entries[0]) {
         steps.push(`  UNWRAPPED keys → ${Object.keys(inner(entries[0])).join(', ')}`);
-        steps.push(`  sample → ${preview(inner(entries[0]), 500)}`);
       }
     } catch (e) {
       steps.push(`getUpdates().chats → FAILED: ${e instanceof Error ? e.message : String(e)}`);
@@ -590,193 +582,6 @@ async function probeShareCode(): Promise<ProbeResult> {
 }
 
 /* ------------------------------------------------------------------------ *
- * Deletions
- * ------------------------------------------------------------------------ */
-
-/** Keys that could mark a post as removed. */
-const DELETION_KEY = /delet|remov|hidden|visib|moderat/i;
-
-/**
- * What in a post could mark it as removed — keys, and values only when they are
- * flags, numbers or enum-like words. Never text: the report is meant to be
- * pasted into a doc, and a string under one of these keys could name someone.
- */
-function deletionSignals(post: Record<string, unknown>): string {
-  const signals = Object.entries(post)
-    .filter(([key]) => DELETION_KEY.test(key))
-    .map(([key, value]) =>
-      value === null || typeof value === 'boolean' || typeof value === 'number'
-        ? `${key}=${String(value)}`
-        : typeof value === 'string' && /^[a-z_]{1,24}$/i.test(value)
-          ? `${key}="${value}"`
-          : `${key}=<${typeof value}>`,
-    );
-  const text = post.text;
-  signals.push(
-    typeof text !== 'string' || !text
-      ? 'text empty'
-      : isTombstoneText(text)
-        ? `text is the placeholder "${text}"`
-        : 'text present',
-  );
-  return signals.join(', ');
-}
-
-const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Does `include_deleted=true` serve what `false` leaves out?
- *
- * With the flag off — how the archive asks — a deleted post comes back with no
- * `post` at all, so a deletion check has to look each candidate up and infer
- * deletion from the silence (docs/ARCHIVE.md#finding-deletions). sidechat.js
- * exposes the flag and calls it "undocumented". If it returns the post
- * *marked*, deletion becomes a direct answer; if the **feed** honours it too, a
- * refresh would see deletions on pages it already reads, and the lookups go.
- *
- * Needs a post already known to be gone: one the archive flagged `missing`. Its
- * id and text stay out of the report.
- */
-async function probeIncludeDeleted(): Promise<ProbeResult> {
-  const base = {
-    id: 'include-deleted',
-    label: 'Deletions — include_deleted=true',
-    question: 'Does the API serve a deleted post when asked to include deleted ones — by id, and in the feed?',
-  };
-  if (!archiveAvailable) {
-    return {
-      ...base,
-      status: 'partial',
-      detail: 'Needs the archive, which only exists on the web build, to know a post that is deleted.',
-    };
-  }
-  const steps: string[] = [];
-
-  try {
-    const { records } = await searchArchive(parseQuery('is:deleted is:post limit:2000'));
-    const known = records
-      .filter((r) => r.deleted_via === 'missing' && r.created_at)
-      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))[0];
-    if (!known) {
-      return {
-        ...base,
-        status: 'partial',
-        detail:
-          'No archived post is flagged as no longer served. Run a refresh with “Check for deleted posts” on, then try again.',
-      };
-    }
-    const daysBack = Math.round((Date.now() - Date.parse(known.created_at)) / 86_400_000);
-    steps.push(
-      `the newest post the archive knows is gone: created ${known.created_at.slice(0, 10)} (${daysBack} days ago); id withheld`,
-    );
-
-    const lookup = async (include: boolean) => {
-      const params = new URLSearchParams({
-        include_deleted: String(include),
-        post_id: known.id,
-        cacheBust: String(Date.now()),
-      });
-      const res = await api.sendRequest(`/v1/posts/get?${params.toString()}`);
-      let body: Record<string, unknown> | null = null;
-      try {
-        body = (await res.json()) as Record<string, unknown>;
-      } catch {
-        /* not JSON — the status says enough */
-      }
-      const post =
-        body?.post && typeof body.post === 'object' ? (body.post as Record<string, unknown>) : undefined;
-      return { status: res.status, keys: body ? Object.keys(body).sort() : [], post };
-    };
-
-    const off = await lookup(false);
-    const on = await lookup(true);
-    steps.push(
-      `\nby id, include_deleted=false → ${off.status}, body keys [${off.keys.join(', ')}], post ${off.post ? 'PRESENT' : 'absent'}`,
-      `by id, include_deleted=true  → ${on.status}, body keys [${on.keys.join(', ')}], post ${on.post ? 'PRESENT' : 'absent'}`,
-    );
-    if (on.post) {
-      steps.push(
-        `  post keys: [${Object.keys(on.post).sort().join(', ')}]`,
-        `  what marks it: ${deletionSignals(on.post)}`,
-      );
-    }
-    if (off.post) {
-      return {
-        ...base,
-        status: 'partial',
-        detail:
-          'The control failed: this post is served again with the flag off, so it is not deleted now — restored, most likely. The next deletion check will unflag it; run this again after.',
-        evidence: steps.join('\n'),
-      };
-    }
-
-    // The feed: the first page both ways, then with the flag on until past the
-    // post's date. Paced like the crawler, a little faster, since it is short.
-    const feed = async (include: boolean, cursor?: string) => {
-      const params = new URLSearchParams({ group_id: known.group_id, type: 'recent' });
-      if (include) params.set('include_deleted', 'true');
-      if (cursor) params.set('cursor', cursor);
-      params.set('cacheBust', String(Date.now()));
-      return request<{ posts?: Record<string, unknown>[]; cursor?: string }>(`/v1/posts?${params.toString()}`);
-    };
-    const plain = await feed(false);
-    await pause(800);
-    const FEED_PAGES = 8;
-    let page = await feed(true);
-    const plainIds = new Set((plain.posts ?? []).map((p) => p.id));
-    const onlyWithFlag = (page.posts ?? []).filter((p) => !plainIds.has(p.id)).length;
-    steps.push(
-      `\nfeed, first page: ${plain.posts?.length ?? 0} posts without the flag, ${page.posts?.length ?? 0} with it, ${onlyWithFlag} only with it`,
-    );
-
-    let pages = 1;
-    let found = false;
-    let reached = false;
-    let marked = 0;
-    for (;;) {
-      const posts = page.posts ?? [];
-      if (posts.some((p) => p.id === known.id)) found = true;
-      marked += posts.filter(
-        (p) =>
-          Object.keys(p).some((key) => DELETION_KEY.test(key) && Boolean(p[key])) ||
-          isTombstoneText(typeof p.text === 'string' ? p.text : undefined),
-      ).length;
-      const oldest = posts[posts.length - 1]?.created_at;
-      if (found || (typeof oldest === 'string' && oldest <= known.created_at)) {
-        reached = true;
-        break;
-      }
-      if (!page.cursor || pages >= FEED_PAGES) break;
-      await pause(800);
-      page = await feed(true, page.cursor);
-      pages += 1;
-    }
-    steps.push(
-      `feed with the flag, ${pages} page${pages === 1 ? '' : 's'}: known-deleted post ${found ? 'PRESENT' : reached ? 'absent (walked past its date)' : 'not reached'}; ${marked} post${marked === 1 ? '' : 's'} carrying a deletion marker`,
-    );
-
-    const byId = on.post
-      ? `By id, the flag works: the deleted post comes back (${deletionSignals(on.post)}).`
-      : 'By id, the flag changes nothing: the deleted post is absent either way, so it is gone for good, not hidden.';
-    const inFeed = found
-      ? ' The feed honours it too — a refresh could see deletions on the pages it already reads.'
-      : reached
-        ? ' The feed does not: walking past the post\'s date with the flag on, it never appeared.'
-        : marked > 0 || onlyWithFlag > 0
-          ? ` The known post was too deep to reach in ${FEED_PAGES} pages, but the flag did change the feed — see the evidence.`
-          : ` The feed half is unanswered: the known post is ${daysBack} days back, too deep for ${FEED_PAGES} pages. Run this again soon after a refresh flags a recent deletion.`;
-    return {
-      ...base,
-      status: on.post ? 'pass' : 'fail',
-      detail: byId + inFeed,
-      evidence: steps.join('\n'),
-    };
-  } catch (e) {
-    return { ...fail(base, e), evidence: steps.join('\n') };
-  }
-}
-
-/* ------------------------------------------------------------------------ *
  * Profile
  * ------------------------------------------------------------------------ */
 
@@ -833,7 +638,9 @@ async function probeBioSource(): Promise<ProbeResult> {
         ? 'getUpdates() carries the bio. The profile fallback is never taken for this account.'
         : onProfile
           ? 'Only the public profile carries it — getUpdates() does not. Without the fallback the You tab showed "No bio yet".'
-          : 'Neither carries a bio. Set one in Edit Profile and run this again to tell the two apart.',
+          : username
+            ? 'Neither carries a bio. Set one in Edit Profile and run this again to tell the two apart.'
+            : 'Neither carries a bio, and getUpdates().user has no username either — so there is no public profile to fall back to. This account cannot settle it; one with a bio can.',
       evidence: steps.join('\n'),
     };
   } catch (e) {
@@ -848,7 +655,6 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
     await probeMessaging(),
     await probeVideoPoster(),
     await probeImageFailures(),
-    await probeIncludeDeleted(),
     await probeBioSource(),
   ];
 }
@@ -856,6 +662,8 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
 /* ------------------------------------------------------------------------ *
  * Length limits — writes, behind their own button (PLAN Q11)
  * ------------------------------------------------------------------------ */
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Filler of an exact length that says what it is. ASCII, so characters, UTF-16 units and bytes agree. */
 function filler(length: number, what: string) {

@@ -102,10 +102,10 @@ export default function DiagnosticsScreen() {
       <View
         style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <ThemedText type="small" themeColor="textSecondary">
-          Read-only. Seven probes, each on a question that is still open: share-code resolution
+          Read-only. Six probes, each on a question that is still open: share-code resolution
           (Blocker 1), the chat message types, video thumbnails, whatever failed to render this
-          page load, whether deleted posts can be asked for directly, and where your bio lives.
-          Settled questions were retired — their answers are in docs/API.md.
+          page load, and where your bio lives. Settled questions were retired — their answers
+          are in docs/API.md.
         </ThemedText>
         <ThemedText type="caption" themeColor="textTertiary">
           For the image probes, browse a feed and a profile first — the failure log is per page

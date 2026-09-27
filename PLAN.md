@@ -648,10 +648,11 @@ and comment it sees** — effectively a Yik Yak downloader
         the importer copies fields by name and they were never added. Found
         while fixing the above; exports were always complete
         ([docs/ARCHIVE.md](docs/ARCHIVE.md#7-import-export-and-merging-archives))
-  - [~] Probe `include_deleted=true` — on `/v1/posts/get` against a known-deleted
-        post, and on the *feed*: if feeds accept it, deletions would arrive on
-        pages already being read, with no per-post lookups at all. The probe is
-        written (Q13); it needs running
+  - [x] Probe `include_deleted=true` — on `/v1/posts/get` against a known-deleted
+        post, and on the *feed*. **Answered 2026-09-27: it does nothing.** By id
+        a deleted post is 404 with the flag on or off; the feed never showed it.
+        Per-post lookups stay
+        ([docs/API.md](docs/API.md#deleted-posts-are-omitted-not-tombstoned))
   - [ ] Deep history outside every window ever run is still never refreshed
         except by an explicit full re-scrape, and no schedule exists — a refresh
         happens when someone starts one
@@ -743,6 +744,12 @@ Resolved ones are kept with their answer so they don't get re-asked.
   path an account takes — **Diagnostics → Run probes → "Profile — where your bio
   lives"** reports it by field shape, never the bio
   ([docs/API.md](docs/API.md#a-user-profile-is-a-group)).
+  *First run, 2026-09-27:* the test account's `user` has **no `username`, `bio`
+  or `description` key at all**, so it cannot settle this. It raises a sharper
+  question: if that account *has* a username, the API has stopped sending it
+  here, and the You tab and Edit Profile — which read it from this object — show
+  "No username yet" for everyone
+  ([docs/API.md](docs/API.md#what-user-carries--and-what-it-does-not)).
 - **Q11 — what does the server actually enforce on length?** Two disagreements,
   neither backed by the server: a **post** is capped at 300 by webyak while
   offsides shows a 256 counter (without blocking); a **bio** is 150 in webyak and
@@ -755,13 +762,12 @@ Resolved ones are kept with their answer so they don't get re-asked.
   client dead since 2025, as a pre-check before registering a school email. Worth
   a probe if school-email registration is ever revisited
   ([docs/API.md](docs/API.md#endpoints-that-exist-but-sidechatjs-doesnt-wrap)).
-- **Q13 — does `include_deleted=true` serve deleted posts?** By id, and in the
-  feed. Yes by id would make a deletion a direct answer rather than an inference
-  from silence; yes in the feed would let a refresh see deletions on the pages
-  it already reads, and drop the per-post lookups. **Diagnostics → Run probes →
-  "Deletions — include_deleted=true"** asks both against the newest post the
-  archive has flagged `missing`
-  ([docs/ARCHIVE.md](docs/ARCHIVE.md#finding-deletions)).
+- **Q13 — does `include_deleted=true` serve deleted posts?** *Answered
+  2026-09-27: no, neither by id nor in the feed.* A deleted post is 404 with the
+  flag on or off, and paging the feed past its date with the flag on never
+  showed it. The per-post lookup stays, and loses nothing: the 404 is already a
+  direct answer. The probe was retired after its run
+  ([docs/API.md](docs/API.md#deleted-posts-are-omitted-not-tombstoned)).
 
 ---
 
