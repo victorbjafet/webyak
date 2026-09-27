@@ -95,12 +95,14 @@ export interface ArchiveStore {
     limit?: number,
     groupId?: string,
     offset?: number,
+    startOpen?: boolean,
   ): Promise<QueuedPost[]>;
   countUnseenInRange(
     start: string,
     end: string,
     seenBefore: number,
     groupId?: string,
+    startOpen?: boolean,
   ): Promise<number>;
   markPostsDeleted(ids: string[], via: 'tombstone' | 'missing', at?: number): Promise<number>;
   listArchivedThread(postId: string): Promise<ArchivedContent[]>;

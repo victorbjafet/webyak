@@ -184,7 +184,51 @@ export function CrawlMonitor({
         </>
       ) : null}
 
-      {verify ? (
+      {verify?.inline ? (
+        <View style={styles.verify}>
+          <ThemedText type="caption" themeColor="textTertiary">
+            Checking for deleted posts as the rescrape passes each slice of the window — only
+            posts missing from the feed are looked up.
+          </ThemedText>
+          <View style={styles.grid}>
+            <Metric
+              label="Missing"
+              value={formatCount(verify.checked)}
+              hint="not in the feed, looked up"
+            />
+            <Metric
+              label="Gone"
+              value={formatCount(verify.gone)}
+              hint="flagged deleted"
+              warn={verify.gone > 0}
+            />
+            <Metric
+              label="Still live"
+              value={formatCount(verify.live)}
+              hint="feed skipped them"
+            />
+            <Metric
+              label="Couldn't check"
+              value={formatCount(verify.errors)}
+              hint="left for next time"
+              warn={verify.errors > 0}
+            />
+          </View>
+          {verify.notReachable ? (
+            <ThemedText type="caption" themeColor="textTertiary">
+              {formatCount(verify.notReachable)} archived post
+              {verify.notReachable === 1 ? ' is' : 's are'} older than anything the feed still
+              serves, so not checked — they have aged out of it, which says nothing about whether
+              they were removed.
+            </ThemedText>
+          ) : null}
+          {verify.lastError ? (
+            <ThemedText type="caption" themeColor="textTertiary" numberOfLines={2}>
+              Last skipped: {verify.lastError}
+            </ThemedText>
+          ) : null}
+        </View>
+      ) : verify ? (
         <View style={styles.verify}>
           <View style={styles.progressTrack}>
             <View

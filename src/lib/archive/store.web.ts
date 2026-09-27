@@ -486,13 +486,19 @@ export async function listUnseenInRange(
   limit = 250,
   groupId?: string,
   offset = 0,
+  /**
+   * Exclude `start` itself. Used when checking the time slice a refresh has
+   * just walked past, whose lower edge is the oldest post on the latest page —
+   * posts at exactly that instant may still be on the next page.
+   */
+  startOpen = false,
 ): Promise<QueuedPost[]> {
   const db = await openDb();
   const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
   const index = groupId ? store.index('group_created') : store.index('created_at');
   const range = groupId
-    ? IDBKeyRange.bound([groupId, start], [groupId, end])
-    : IDBKeyRange.bound(start, end);
+    ? IDBKeyRange.bound([groupId, start], [groupId, end], startOpen)
+    : IDBKeyRange.bound(start, end, startOpen);
 
   const out: QueuedPost[] = [];
   let skipped = 0;
@@ -529,13 +535,14 @@ export async function countUnseenInRange(
   end: string,
   seenBefore: number,
   groupId?: string,
+  startOpen = false,
 ): Promise<number> {
   const db = await openDb();
   const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
   const index = groupId ? store.index('group_created') : store.index('created_at');
   const range = groupId
-    ? IDBKeyRange.bound([groupId, start], [groupId, end])
-    : IDBKeyRange.bound(start, end);
+    ? IDBKeyRange.bound([groupId, start], [groupId, end], startOpen)
+    : IDBKeyRange.bound(start, end, startOpen);
 
   let total = 0;
   await new Promise<void>((resolve, reject) => {

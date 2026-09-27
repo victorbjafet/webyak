@@ -491,7 +491,14 @@ export function mergeArchived(
     has_media: media.length > 0 ? 1 : 0,
     media_pending: media.some((m) => !m.cached) ? 1 : 0,
     first_seen_at: existing.first_seen_at,
-    last_seen_at: incoming.last_seen_at,
+    /*
+      An embedded quote copy does not count as *seeing* the post it carries. It
+      is a snapshot riding along inside another post — the original may since
+      have been deleted — and `last_seen_at` is what the deletion check reads to
+      decide what a refresh saw. Letting a quote advance it would hide every
+      deleted post that something else had quoted.
+    */
+    last_seen_at: options.embedded ? existing.last_seen_at : incoming.last_seen_at,
     // `deleted_at` is when we *noticed*, not when it happened — the API gives
     // no removal timestamp — so it is an upper bound.
     deleted,
@@ -582,6 +589,14 @@ export interface UpdateState {
    * without walking the feed again.
    */
   last_started_at?: number;
+  /**
+   * How far down that pass actually reached — the window's start if it walked
+   * past it, or the oldest post the feed still served if the feed ran out
+   * first. Below this, a post's absence says nothing: the pass never got there.
+   * Bounds a later deletion check, so it cannot mistake posts that have aged out
+   * of the feed for posts that were removed.
+   */
+  last_covered_to?: string;
 
   /**
    * Where an interrupted pass got to.
@@ -622,6 +637,14 @@ export interface UpdateState {
     offset?: number;
     /** Oldest `created_at` reached so far, for display. */
     through?: string;
+    /**
+     * The deletion check's own position: everything in the window newer than
+     * this has been checked. Kept separately from the walk's position because
+     * the check trails the walk by a page — see `checkSlice` in the crawler.
+     */
+    checked_to?: string;
+    /** The oldest post on the most recent page, where the next check starts. */
+    frontier?: string;
     updated_at: number;
   };
 }

@@ -41,6 +41,11 @@ export interface UpdateChoice {
   enabled: boolean;
   start?: string;
   end?: string;
+  /**
+   * Look up posts the walk does not find, to catch deletions. On unless turned
+   * off — `undefined` counts as on, so every existing reset path keeps it.
+   */
+  checkDeletions?: boolean;
 }
 
 /**
@@ -52,7 +57,7 @@ export interface UpdateChoice {
 export function resolveWindow(
   choice: UpdateChoice,
   state: UpdateState | undefined,
-): { start: string; end: string; openEnd: boolean } | undefined {
+): { start: string; end: string; openEnd: boolean; checkDeletions: boolean } | undefined {
   // `enabled` is authoritative: a start date left over from a full re-scrape
   // must not resurrect a refresh the box says is off. The UI keeps the two in
   // step by forcing `enabled` on whenever it sets a whole-archive start.
@@ -63,6 +68,7 @@ export function resolveWindow(
     // "Now" is a moving target, so it cannot be part of a window's identity —
     // two sessions of the same window must still recognise each other.
     openEnd: !choice.end,
+    checkDeletions: choice.checkDeletions !== false,
   };
 }
 
@@ -144,6 +150,32 @@ export function UpdateControls({
         onPress={() => onChange({ ...value, enabled: !value.enabled })}
       />
 
+      {/*
+        A sub-option of re-reading, so it sits directly under it, indented, and
+        is only live while there is a window to check. Posts only: a comment
+        refresh already reads each thread in full, so finding its removed
+        comments costs nothing and is never optional.
+      */}
+      {kind === 'posts' ? (
+        <Check
+          indent
+          checked={(value.enabled || everything) && value.checkDeletions !== false}
+          disabled={disabled || !(value.enabled || everything)}
+          label="Check for deleted posts"
+          hint={
+            value.checkDeletions === false
+              ? 'Off — the rescrape only refreshes what it finds. Removed posts stay unflagged until a check is run.'
+              : 'Looks up each post missing from the feed as the rescrape passes it. Adds one request per missing post — about the cost of a whole page of 24 — so untick it for a much faster run.'
+          }
+          onPress={() => onChange({ ...value, checkDeletions: value.checkDeletions === false })}
+        />
+      ) : (
+        <ThemedText type="caption" themeColor="textTertiary" style={styles.indentNote}>
+          Removed comments are always noted: each thread is read in full anyway, so spotting
+          what has gone from it costs nothing extra.
+        </ThemedText>
+      )}
+
       {earliest ? (
         <Check
           checked={everything}
@@ -159,7 +191,14 @@ export function UpdateControls({
           // cannot disagree: ticking widens the window, editing a date unticks.
           onPress={() =>
             onChange(
-              everything ? { enabled: true } : { enabled: true, start: earliest, end: undefined },
+              everything
+                ? { enabled: true, checkDeletions: value.checkDeletions }
+                : {
+                    enabled: true,
+                    start: earliest,
+                    end: undefined,
+                    checkDeletions: value.checkDeletions,
+                  },
             )
           }
         />
@@ -202,7 +241,7 @@ export function UpdateControls({
                 accessibilityRole="button"
                 accessibilityLabel="Use the default window"
                 disabled={disabled}
-                onPress={() => onChange({ enabled: true })}
+                onPress={() => onChange({ enabled: true, checkDeletions: value.checkDeletions })}
                 style={({ hovered }) => [styles.reset, hovered && { opacity: 0.7 }]}>
                 <ThemedText type="caption" themeColor="textTertiary">
                   Reset
@@ -268,6 +307,7 @@ function Check({
   label,
   hint,
   danger,
+  indent,
   onPress,
 }: {
   checked: boolean;
@@ -275,6 +315,8 @@ function Check({
   label: string;
   hint: string;
   danger?: boolean;
+  /** A sub-option of the row above it. */
+  indent?: boolean;
   onPress: () => void;
 }) {
   const theme = useTheme();
@@ -288,6 +330,7 @@ function Check({
       onPress={onPress}
       style={({ hovered }) => [
         styles.checkRow,
+        indent ? styles.indent : null,
         hovered && !disabled ? { opacity: 0.85 } : null,
         disabled ? { opacity: 0.6 } : null,
       ]}>
@@ -324,6 +367,13 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: 2,
+  },
+  // Lines the sub-option's box up under the parent's label, not its box.
+  indent: {
+    marginLeft: 18 + Spacing.two,
+  },
+  indentNote: {
+    marginLeft: 18 + Spacing.two,
   },
   notice: {
     gap: Spacing.one,

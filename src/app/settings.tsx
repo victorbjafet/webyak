@@ -324,7 +324,9 @@ export default function SettingsScreen() {
           if (next.finished || next.error) void refresh();
         },
         window,
-        { verifyOnly: { seenBefore } },
+        // Bounded by how far that pass reached, where it was recorded — below it
+        // posts aged out of the feed rather than being removed.
+        { verifyOnly: { seenBefore, coveredTo: state.last_covered_to } },
       );
     },
     [refresh, updates],

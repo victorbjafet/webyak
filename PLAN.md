@@ -622,11 +622,19 @@ and comment it sees** — effectively a Yik Yak downloader
         checked the same way without walking again. Opening a deleted post shows
         the archived copy and its thread instead of failing
         ([docs/ARCHIVE.md](docs/ARCHIVE.md#finding-deletions))
+  - [x] **Deletions are checked as the rescrape goes**, slice by slice, rather
+        than after the whole window — a paused re-scrape has already checked what
+        it walked. A checkbox under *Re-read existing posts first*, on by default;
+        unticking loses nothing, since the window can be checked afterwards.
+        Pinned posts no longer skew any walk's sense of position, the feed's floor
+        bounds the check, and quote snapshots no longer count as sightings
+        ([docs/ARCHIVE.md](docs/ARCHIVE.md#finding-deletions))
   - [x] Pause/resume never worked for the default window — its end is "now", so
         no saved position ever matched and a paused re-scrape restarted from the
         top. Fixed, with the first session's start carried through
-  - [ ] Probe `include_deleted=true` against a known-deleted post — it may give a
-        direct deletion signal instead of inferring one from an empty answer
+  - [ ] Probe `include_deleted=true` — on `/v1/posts/get` against a known-deleted
+        post, and on the *feed*: if feeds accept it, deletions would arrive on
+        pages already being read, with no per-post lookups at all
   - [ ] Deep history outside every window ever run is still never refreshed
         except by an explicit full re-scrape, and no schedule exists — a refresh
         happens when someone starts one

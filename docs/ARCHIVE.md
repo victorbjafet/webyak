@@ -725,8 +725,8 @@ screen never does. A window's identity is now its start plus *either* a fixed
 end or "open to now" (`open_end`), checked by one shared `resumeMatches` so the
 crawler and the settings panel cannot disagree about it again.
 
-The resume also carries `started_at` — the **first** session's start, through
-every pause. It is the cutoff for "seen by this pass", which the deletion check
+The resume also carries the deletion check's position (`checked_to`, `frontier`)
+and `started_at` — the **first** session's start, through every pause. It is the cutoff for "seen by this pass", which the deletion check
 depends on: taking the latest session's start instead would make everything read
 before the pause look unseen.
 
@@ -742,39 +742,108 @@ Three rules keep it honest:
 
 ### Finding deletions
 
-A refresh walks a window and re-reads everything it finds. It can never *see* a
-deleted post, because a deleted post is not there to find. The evidence is the
-absence, and that has to be looked for.
+A refresh can never *see* a deleted post, because a deleted post is not there
+to find. The evidence is the absence, and it has to be looked for.
+
+**Only missing posts are ever looked up individually.** Every post the feed
+serves is confirmed twenty-four at a time by the page it arrives on; the
+per-post lookup is spent only on the ones that did not turn up. So the cost of
+checking scales with the number of *deletions*, not the number of posts.
 
 `last_seen_at` is the comparison, persisted. Everything the walk reads has it
-moved past the pass's `started_at`, so once the window is covered, any post in it
-still older than that was not served. Each one is looked up by id:
+moved past the pass's `started_at`, so any post in a range the walk has passed
+that is still older than that was not served:
 
-| Lookup | Result |
+| Lookup by id | Result |
 |---|---|
-| Served | Archived as a fresh sighting — the feed had skipped it, and now it is current |
+| Served | Archived as a fresh sighting — the feed had skipped it, or hidden it from this account |
 | Answered without it | Flagged `deleted_via: 'missing'`, everything it said kept |
-| Failed (network, 5xx) | Left alone, stepped past, still a candidate next time |
+| Failed (network, 5xx) | Left alone and stepped past; it stays unseen, so a later check finds it again |
 | 401 / 429 | Hard stop, like every other pass |
 
-The check runs **before** the watermark is written: a window whose deletions were
-not checked has not been fully refreshed. And it needs no position of its own —
-each lookup either moves `last_seen_at` past the cutoff or flags the post, and
-both take it out of the candidate set. A stopped check resumes by walking one
-page from its saved cursor, finding the window already covered, and picking up
-the candidates that are left.
+Absence is never a verdict on its own. A post can be missing from the feed for
+reasons that have nothing to do with deletion — a block in either direction, a
+page served inconsistently — and only a lookup by id tells those apart.
 
-Cost is one request per candidate, which is mostly real deletions. On a month's
-window that is minutes. On a first full re-scrape it can be hours, and the
-screen says how many there are before starting.
+#### As the walk goes, slice by slice
 
-**Checking a refresh that already finished.** Settings offers *Check it for
-deleted posts* against the last completed window. That pass left `last_seen_at`
-after its start on everything it read, so its unseen posts can be found without
-walking the feed again — which is how a full re-scrape run before any of this
-existed still yields its deletions. `last_started_at` records the start exactly;
-older refreshes fall back to the window's end, which for the default window *is*
-the moment the run began.
+*Changed 2026-09-27.* The check used to run once, after the whole window had
+been walked. It now runs **alongside the walk**. The feed goes newest to oldest,
+so after each page the walk has been served every post newer than that page's
+oldest; the slice it has just passed can be checked immediately, before the next
+page is even requested. The request count is the same either way. What changes:
+
+- **A paused re-scrape has already checked everything it walked.** Before, a
+  multi-day full re-scrape found no deletions at all until its very last page.
+- **Only ground the walk has actually reached is ever checked.** See the floor,
+  below.
+- The candidate query per slice covers a page's worth of time instead of a
+  whole window, so it stays small however large the archive gets.
+
+Three details keep the slices honest:
+
+- **The check trails the walk by one page.** A post exactly on a page boundary,
+  or served a place out of order, turns up on the *next* page. Checking a slice
+  only once the page after it has been read means those arrive before anyone asks
+  whether they are missing. The lower edge of each slice is also open, so posts
+  at exactly the boundary instant belong to the slice below.
+- **Pinned posts do not say where the feed is.** A pinned post rides at the top
+  whatever its age, and counting one made a page appear to leap back to whenever
+  it was posted — a refresh would stop early and claim a window it never walked,
+  and the check would treat everything in between as missing. The frontier is
+  measured on in-order posts only. That applied to every walk, catch-up and
+  backfill included, not just this one.
+- **An inverted or empty slice is skipped, not queried.** `IDBKeyRange.bound`
+  throws on one, and they happen normally: a custom window that ends in the past
+  starts with pages still newer than it.
+
+Both positions — how far the check has got, and the latest page's frontier — are
+saved with the walk's cursor, so a pause resumes the check exactly where it was.
+
+#### The feed's floor
+
+If the feed runs out before the walk reaches the window's start, everything
+archived below its last page is absent — and says nothing. Those posts have aged
+out of the feed, or the floor has moved; they were not removed. So the check
+stops at the lowest point the walk actually reached, reports how many it left
+alone, and the refresh records that point as `last_covered_to`. A later
+standalone check is bounded by it too.
+
+#### Quotes do not count as sightings
+
+A quote-repost carries a snapshot of the post it quotes. If that snapshot moved
+the original's `last_seen_at`, every deleted post that something had quoted
+would look *seen* and never be checked. Embedded copies are still archived —
+they are often the only copy there is — but they leave `last_seen_at` alone.
+
+#### The checkbox, and what it costs
+
+*Check for deleted posts* sits under *Re-read existing posts first*, on by
+default. Each missing post costs one extra request, roughly the price of a whole
+page of 24, so on a window with many deletions a check can take as long as the
+walk itself. Unticking it skips all of that — and loses nothing: the refresh
+still records `last_started_at` and `last_covered_to`, so the window can be
+checked afterwards with *Check it for deleted posts*.
+
+Comments have no such option. A comment refresh reads each thread in full
+anyway, so finding what has gone from it costs nothing extra.
+
+#### Checking a refresh that already finished
+
+Settings offers *Check it for deleted posts* against the last completed window.
+That pass left `last_seen_at` after its start on everything it read, so its
+unseen posts can be found without walking the feed again — which is how a full
+re-scrape run before any of this existed still yields its deletions.
+`last_started_at` records the start exactly; older refreshes fall back to the
+window's end, which for the default window *is* the moment the run began.
+
+#### Can it be done with no per-post requests at all?
+
+Not with what is known. There is no batch lookup, and absence alone cannot be
+trusted, for the reasons above. The one open lead is `include_deleted`: if the
+*feed* accepted it and served deleted posts with a marker, deletions would arrive
+on the pages the walk already reads, at no extra cost. Unprobed
+([API.md](API.md#deleted-posts-are-omitted-not-tombstoned)).
 
 ### Refreshing comments
 

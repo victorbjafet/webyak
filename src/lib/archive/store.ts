@@ -188,6 +188,7 @@ export async function listUnseenInRange(
   _limit?: number,
   _groupId?: string,
   _offset?: number,
+  _startOpen?: boolean,
 ): Promise<QueuedPost[]> {
   return [];
 }
@@ -197,6 +198,7 @@ export async function countUnseenInRange(
   _end: string,
   _seenBefore: number,
   _groupId?: string,
+  _startOpen?: boolean,
 ): Promise<number> {
   return 0;
 }

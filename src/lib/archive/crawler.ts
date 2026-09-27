@@ -108,9 +108,15 @@ export type CrawlPhase = 'updating' | 'verifying' | 'catching-up' | 'backfilling
 /** Candidates looked up per read of the queue. */
 const VERIFY_BATCH = 100;
 
-/** Progress of the deletion check at the end of a refresh. */
+/** Progress of the deletion check — alongside a refresh, or on its own. */
 export interface VerifyProgress {
-  /** Posts in the window the pass did not see, when the check began. */
+  /**
+   * Running alongside the walk, slice by slice, rather than over a whole
+   * finished window. There is no total up front: absences are found as the
+   * walk reaches them.
+   */
+  inline?: boolean;
+  /** Standalone only: posts the pass did not see, counted when the check began. */
   candidates: number;
   checked: number;
   /** Looked up, not served: recorded as deleted. */
@@ -121,6 +127,11 @@ export interface VerifyProgress {
   errors: number;
   /** Why the most recent one could not be checked. */
   lastError?: string;
+  /**
+   * Archived posts older than anything the feed still serves, left unchecked:
+   * the walk never reached them, so their absence is evidence of nothing.
+   */
+  notReachable?: number;
 }
 
 /**
@@ -141,6 +152,12 @@ export interface UpdateWindow {
    * identity for resuming — see `resumeMatches`.
    */
   openEnd?: boolean;
+  /**
+   * Look up posts the walk does not find, to catch deletions (posts only).
+   * On unless turned off. Not part of the window's identity: changing it
+   * between sessions just changes what the rest of the walk does.
+   */
+  checkDeletions?: boolean;
 }
 
 /**
@@ -155,6 +172,7 @@ async function recordUpdate(
   groupId: string,
   window: UpdateWindow,
   startedAt: number,
+  coveredTo?: string,
   at = Date.now(),
 ) {
   const existing = await getUpdateState(kind, groupId);
@@ -167,6 +185,7 @@ async function recordUpdate(
     last_window_start: window.start,
     last_window_end: window.end,
     last_started_at: startedAt,
+    last_covered_to: coveredTo ?? window.start,
     // Completed, so any saved position is stale. Leaving it would make the next
     // run resume past ground it is supposed to re-cover.
     resume: undefined,
@@ -200,7 +219,13 @@ async function saveResume(
   groupId: string,
   window: UpdateWindow,
   startedAt: number,
-  position: { cursor?: string; offset?: number; through?: string },
+  position: {
+    cursor?: string;
+    offset?: number;
+    through?: string;
+    checked_to?: string;
+    frontier?: string;
+  },
 ) {
   const existing = await getUpdateState(kind, groupId);
   await setUpdateState({
@@ -356,7 +381,7 @@ export function startCrawl(
      * deletions were detected at all — be checked without walking the feed
      * again.
      */
-    verifyOnly?: { seenBefore: number };
+    verifyOnly?: { seenBefore: number; coveredTo?: string };
   } = {},
 ): CrawlHandle {
   let stopped = false;
@@ -400,7 +425,8 @@ export function startCrawl(
         start: Cursor | undefined,
         /** Catch-up stops here; backfill passes `undefined` and never does. */
         stopAfterDuplicatePages: number | undefined,
-        onPage: (cursor: Cursor | undefined) => Promise<void>,
+        /** After each page, with the oldest in-order post it carried. */
+        onPage: (cursor: Cursor | undefined, frontier: string | undefined) => Promise<void>,
         /** Refresh stops on a date instead: once the page is older than this. */
         stopWhenOlderThan?: string,
       ): Promise<CrawlEnding> => {
@@ -459,12 +485,25 @@ export function startCrawl(
           progress.total.archived += added;
           progress.error = undefined;
 
-          const oldestOnPage = posts.reduce<string | undefined>(
+          /*
+            How far back this page reached — measured on the posts that are
+            actually in feed order.
+
+            A pinned post sits at the top regardless of its age. Counting one
+            would make a single page appear to leap back to whenever it was
+            posted: a refresh would stop early and claim a window it never
+            walked, the deletion check would treat everything in between as
+            missing, and the backfill would think it had reached history it
+            had not. Pinned posts are still archived like any other; they just
+            do not say where the feed is.
+          */
+          const ordered = posts.filter((post) => !post.pinned);
+          const oldestOnPage = ordered.reduce<string | undefined>(
             (oldest, post) =>
               post.created_at && (!oldest || post.created_at < oldest) ? post.created_at : oldest,
             undefined,
           );
-          const newestOnPage = posts.reduce<string | undefined>(
+          const newestOnPage = ordered.reduce<string | undefined>(
             (newest, post) =>
               post.created_at && (!newest || post.created_at > newest) ? post.created_at : newest,
             undefined,
@@ -506,7 +545,7 @@ export function startCrawl(
           progress.cursor = cursor ? `${cursor.slice(0, 18)}…` : undefined;
           progress.nextDelayMs = PAGE_DELAY_MS;
 
-          await onPage(cursor);
+          await onPage(cursor, oldestOnPage);
           onProgress({ ...progress });
 
           if (!cursor) return 'exhausted';
@@ -553,45 +592,47 @@ export function startCrawl(
       };
 
       /**
-       * Looks up every post in a window that the pass did not see, and records
-       * the ones Yik Yak no longer serves.
+       * Looks up every post in a time range that this pass did not see, and
+       * records the ones Yik Yak no longer serves.
        *
-       * Only a lookup by id can tell a deleted post from a feed that skipped
-       * it, so nothing is flagged on absence alone. A post that comes back is
-       * archived as a fresh sighting instead — the check doubles as a repair
-       * for anything the walk missed. A post that cannot be checked (a dropped
-       * connection, a 5xx) is left alone and stepped past: it stays a candidate
-       * for next time rather than being guessed at.
+       * Only a lookup by id can tell a deleted post from one the feed skipped
+       * or one hidden from this account, so nothing is flagged on absence
+       * alone. A post that comes back is archived as a fresh sighting instead —
+       * the check doubles as a repair for anything the walk missed. One that
+       * cannot be checked (a dropped connection, a 5xx) is left alone and
+       * stepped past: it stays unseen, and a later check will find it again.
        *
-       * The queue drains itself. Each lookup either moves a post's
-       * `last_seen_at` past the cutoff or marks it deleted, and both take it out
-       * of `listUnseenInRange` — so a stopped check resumes exactly where it
-       * was, with no position of its own to save.
+       * The candidate set drains itself. Each lookup either moves a post's
+       * `last_seen_at` past the cutoff or marks it deleted, and both remove it
+       * from `listUnseenInRange` — so a check interrupted part-way needs no
+       * position of its own to resume from.
        */
-      const verifyWindow = async (
-        window: UpdateWindow,
+      const checkRange = async (
+        lower: string,
+        upper: string,
+        lowerOpen: boolean,
         seenBefore: number,
+        verify: VerifyProgress,
       ): Promise<'done' | 'stopped' | 'error'> => {
-        progress.phase = 'verifying';
-        const verify: VerifyProgress = {
-          candidates: await countUnseenInRange(window.start, window.end, seenBefore, groupId),
-          checked: 0,
-          gone: 0,
-          live: 0,
-          errors: 0,
-        };
-        progress.verify = { ...verify };
-        onProgress({ ...progress });
+        /*
+          An empty or inverted range is a normal event, not an error — and
+          `IDBKeyRange.bound` **throws** on one, which would take the whole run
+          down. It happens whenever a page is still newer than the window (a
+          custom end date in the past), or the feed serves a post a place out
+          of order so one page's oldest lands above the previous page's.
+        */
+        if (lower > upper || (lower === upper && lowerOpen)) return 'done';
 
         let skipped = 0;
         while (!stopped) {
           const batch = await listUnseenInRange(
-            window.start,
-            window.end,
+            lower,
+            upper,
             seenBefore,
             VERIFY_BATCH,
             groupId,
             skipped,
+            lowerOpen,
           );
           if (batch.length === 0) return 'done';
 
@@ -632,6 +673,31 @@ export function startCrawl(
           }
         }
         return 'stopped';
+      };
+
+      /**
+       * Checks a whole finished window at once — the standalone check, for a
+       * refresh that ran without checking, or that predates checking at all.
+       */
+      const verifyWindow = async (
+        window: UpdateWindow,
+        seenBefore: number,
+        coveredTo?: string,
+      ): Promise<'done' | 'stopped' | 'error'> => {
+        progress.phase = 'verifying';
+        // Never below where that pass actually reached: under it, absence is
+        // posts that aged out of the feed, not posts that were removed.
+        const lower = coveredTo && coveredTo > window.start ? coveredTo : window.start;
+        const verify: VerifyProgress = {
+          candidates: await countUnseenInRange(lower, window.end, seenBefore, groupId),
+          checked: 0,
+          gone: 0,
+          live: 0,
+          errors: 0,
+        };
+        progress.verify = { ...verify };
+        onProgress({ ...progress });
+        return checkRange(lower, window.end, false, seenBefore, verify);
       };
 
       /** Re-reads the all-time top posts. Small, fixed, and age-blind. */
@@ -694,7 +760,11 @@ export function startCrawl(
       /* ---- standalone deletion check ----------------------------------- */
       if (options.verifyOnly && update) {
         progress.window = update;
-        const outcome = await verifyWindow(update, options.verifyOnly.seenBefore);
+        const outcome = await verifyWindow(
+          update,
+          options.verifyOnly.seenBefore,
+          options.verifyOnly.coveredTo,
+        );
         if (outcome === 'done') {
           progress.finished = 'verified';
           progress.windowCovered = true;
@@ -735,24 +805,77 @@ export function startCrawl(
         // The cutoff for "seen by this pass". The first session's start when
         // resuming, or everything read before the pause would look unseen.
         const startedAt = saved?.started_at ?? progress.run.startedAt;
+        const checking = update.checkDeletions !== false;
+
+        /*
+          ## Checking for deletions as the walk goes
+
+          The feed runs newest to oldest, so after each page the walk has served
+          every post newer than that page's oldest. Anything archived in the
+          slice it just passed, that this pass did not see, is missing — and only
+          those are looked up. Posts the pages served are confirmed twenty-four
+          at a time by the pages themselves.
+
+          The check trails the walk by **one page**. A post sitting exactly on a
+          page boundary, or served a place out of order, turns up on the next
+          page rather than this one; checking a slice only once the page after
+          it has been read means those arrive before anyone asks whether they
+          are missing. It costs nothing: the slice is checked one page later
+          instead of now.
+
+          Two positions are kept. `checkedTo`: everything in the window newer
+          than it has been checked. `frontier`: the oldest post on the latest
+          page, not yet settled. Both are saved with the walk's cursor, so a
+          pause resumes the check exactly where it was. A resume from before
+          this existed starts `checkedTo` at the window's end — which re-reads
+          nothing, since everything the earlier session walked is already
+          *seen*; only its genuine absences come up.
+        */
+        let checkedTo = checking ? (saved?.checked_to ?? update.end) : update.end;
+        let frontier = saved?.frontier;
+        const verify: VerifyProgress = {
+          inline: true,
+          candidates: 0,
+          checked: 0,
+          gone: 0,
+          live: 0,
+          errors: 0,
+        };
+        if (checking) progress.verify = { ...verify };
         onProgress({ ...progress });
+
+        let checkOutcome: 'done' | 'stopped' | 'error' = 'done';
 
         const outcome = await walk(
           saved?.cursor,
           undefined,
-          async (cursor) => {
+          async (cursor, pageFrontier) => {
             await save();
+
+            if (checking && frontier && checkOutcome === 'done') {
+              // Settle the slice the *previous* page reached: (frontier, checkedTo].
+              const settled = frontier;
+              const result = await checkRange(settled, checkedTo, true, startedAt, verify);
+              // Only ever downwards: a slice above the boundary was empty, and
+              // moving the boundary up would re-open ground already checked.
+              if (result === 'done') checkedTo = settled < checkedTo ? settled : checkedTo;
+              else checkOutcome = result;
+            }
+            if (pageFrontier) frontier = pageFrontier;
+
             // Position saved per page: stopping a full re-scrape three days in
             // must not mean starting it again from the top.
             await saveResume('posts', groupId, update, startedAt, {
               cursor,
               through: progress.run.oldestReached,
+              checked_to: checking ? checkedTo : undefined,
+              frontier: checking ? frontier : undefined,
             });
           },
           update.start,
         );
 
-        if (outcome === 'error' || outcome === 'stopped') return;
+        if (outcome === 'error' || outcome === 'stopped' || checkOutcome !== 'done') return;
         if (outcome === 'stalled') {
           progress.finished = 'stalled';
           onProgress({ ...progress });
@@ -763,20 +886,39 @@ export function startCrawl(
         // there was nothing older to read, not that coverage is incomplete.
         if (outcome === 'window-covered' || outcome === 'exhausted') {
           /*
-            Then find what the walk did *not* see.
-
-            A deleted post is omitted from feeds rather than tombstoned, so the
-            walk above can never observe a deletion directly — only the absence.
-            This is the step that turns absence into a verdict, one lookup per
-            candidate. It runs before the watermark is written, because a
-            window whose deletions were not checked has not been fully
-            refreshed; and if it is stopped, the saved position is kept, so the
-            next run skips straight back here.
+            How far down the walk really reached. Past the window's start if it
+            got there; otherwise only as far as the oldest post the feed still
+            serves. Below that, absence means nothing — those posts have aged out
+            of the feed, not been removed — so the check stops there, and says
+            how many it left alone.
           */
-          const verified = await verifyWindow(update, startedAt);
-          if (verified !== 'done') return;
+          const coveredTo =
+            outcome === 'window-covered'
+              ? update.start
+              : frontier && frontier > update.start
+                ? frontier
+                : update.start;
 
-          await recordUpdate('posts', groupId, update, startedAt);
+          if (checking) {
+            // The last slice: everything between the final page and the bottom
+            // of what was covered. Nothing is left to arrive a page late.
+            const result = await checkRange(coveredTo, checkedTo, false, startedAt, verify);
+            if (result !== 'done') return;
+            if (coveredTo < checkedTo) checkedTo = coveredTo;
+
+            if (coveredTo > update.start) {
+              verify.notReachable = await countUnseenInRange(
+                update.start,
+                coveredTo,
+                startedAt,
+                groupId,
+              );
+              progress.verify = { ...verify };
+              onProgress({ ...progress });
+            }
+          }
+
+          await recordUpdate('posts', groupId, update, startedAt, coveredTo);
           progress.windowCovered = true;
           onProgress({ ...progress });
         }
