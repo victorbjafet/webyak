@@ -740,14 +740,22 @@ archive this reports **zero gaps**, which is correct.
 
 ### The edge tells you why a crawl stopped
 
-The report also looks at the oldest week. A crawl that ran out of history stops
-at **full volume**; one that was interrupted or throttled **thins out first**.
-That distinguishes "the server has no more" from "we didn't finish" — which is
-the actual question behind "did something fall apart?".
+The report also looks at the oldest week. A crawl that was throttled or
+interrupted mid-stream **thins out first**; one that stops at **full volume**
+either ran out of history — or was simply stopped.
 
-On the reference archive the first week runs at 296/day against a 285/day median:
-abrupt. The crawl hit Yik Yak's retention floor around 2025-03-28. Posts older
-than that are gone from the server, not missed by the crawl.
+**Corrected 2026-09-27.** This section used to conclude, from the reference
+archive's abrupt edge at 2025-03-28 (296/day against a 285/day median), that the
+crawl had hit Yik Yak's retention floor and older posts were "gone from the
+server, not missed." Both halves were wrong. A later backfill of the same
+community kept going for two more years, to **2023-03-30 — when Sidechat acquired
+Yik Yak and reset the database**, which is where the feed really begins. The
+edge was abrupt because the backfill had been stopped there, and a stopped
+backfill ends at full volume exactly like one that ran out.
+
+So the edge is a hint, not a verdict. Whether a backfill actually ran out of
+feed is recorded — `CrawlState.tail_exhausted` — and the integrity panel now
+reads that instead of inferring it.
 
 ### Structural checks
 

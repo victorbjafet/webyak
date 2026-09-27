@@ -63,9 +63,12 @@ export interface IntegrityReport {
   /**
    * Whether the oldest edge stops abruptly or fades out.
    *
-   * A crawl that ran out of history stops at full volume; one that was
-   * interrupted or throttled thins out first. This is the difference between
-   * "the server has no more" and "we didn't finish".
+   * A crawl that was throttled or interrupted mid-stream thins out first. But an
+   * abrupt edge is **not** proof the server has no more: a backfill someone
+   * stopped also ends at full volume. That mistake was made once — an abrupt
+   * edge at 2025-03-28 was read as Yik Yak's floor, and a later backfill found
+   * two more years of posts. Whether the backfill actually ran out is recorded in
+   * `CrawlState.tail_exhausted`; this is only a hint beside it.
    */
   edge: {
     firstDayCount: number;

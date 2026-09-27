@@ -128,10 +128,13 @@ export interface VerifyProgress {
   /** Why the most recent one could not be checked. */
   lastError?: string;
   /**
-   * Archived posts older than anything the feed still serves, left unchecked:
-   * the walk never reached them, so their absence is evidence of nothing.
+   * Where the feed ran out, when it did so above the window's start, and how
+   * many archived posts sit below it. Those are checked like any other missing
+   * post; the numbers are shown because a feed that ends early is also what a
+   * truncated walk looks like, and a large count is worth a second look.
    */
-  notReachable?: number;
+  feedEndedAt?: string;
+  belowFeedEnd?: number;
 }
 
 /**
@@ -172,7 +175,6 @@ async function recordUpdate(
   groupId: string,
   window: UpdateWindow,
   startedAt: number,
-  coveredTo?: string,
   at = Date.now(),
 ) {
   const existing = await getUpdateState(kind, groupId);
@@ -185,7 +187,6 @@ async function recordUpdate(
     last_window_start: window.start,
     last_window_end: window.end,
     last_started_at: startedAt,
-    last_covered_to: coveredTo ?? window.start,
     // Completed, so any saved position is stale. Leaving it would make the next
     // run resume past ground it is supposed to re-cover.
     resume: undefined,
@@ -381,7 +382,7 @@ export function startCrawl(
      * deletions were detected at all — be checked without walking the feed
      * again.
      */
-    verifyOnly?: { seenBefore: number; coveredTo?: string };
+    verifyOnly?: { seenBefore: number };
   } = {},
 ): CrawlHandle {
   let stopped = false;
@@ -682,14 +683,10 @@ export function startCrawl(
       const verifyWindow = async (
         window: UpdateWindow,
         seenBefore: number,
-        coveredTo?: string,
       ): Promise<'done' | 'stopped' | 'error'> => {
         progress.phase = 'verifying';
-        // Never below where that pass actually reached: under it, absence is
-        // posts that aged out of the feed, not posts that were removed.
-        const lower = coveredTo && coveredTo > window.start ? coveredTo : window.start;
         const verify: VerifyProgress = {
-          candidates: await countUnseenInRange(lower, window.end, seenBefore, groupId),
+          candidates: await countUnseenInRange(window.start, window.end, seenBefore, groupId),
           checked: 0,
           gone: 0,
           live: 0,
@@ -697,7 +694,7 @@ export function startCrawl(
         };
         progress.verify = { ...verify };
         onProgress({ ...progress });
-        return checkRange(lower, window.end, false, seenBefore, verify);
+        return checkRange(window.start, window.end, false, seenBefore, verify);
       };
 
       /** Re-reads the all-time top posts. Small, fixed, and age-blind. */
@@ -760,11 +757,7 @@ export function startCrawl(
       /* ---- standalone deletion check ----------------------------------- */
       if (options.verifyOnly && update) {
         progress.window = update;
-        const outcome = await verifyWindow(
-          update,
-          options.verifyOnly.seenBefore,
-          options.verifyOnly.coveredTo,
-        );
+        const outcome = await verifyWindow(update, options.verifyOnly.seenBefore);
         if (outcome === 'done') {
           progress.finished = 'verified';
           progress.windowCovered = true;
@@ -885,40 +878,45 @@ export function startCrawl(
         // 'exhausted' counts: running out of feed above the window start means
         // there was nothing older to read, not that coverage is incomplete.
         if (outcome === 'window-covered' || outcome === 'exhausted') {
-          /*
-            How far down the walk really reached. Past the window's start if it
-            got there; otherwise only as far as the oldest post the feed still
-            serves. Below that, absence means nothing — those posts have aged out
-            of the feed, not been removed — so the check stops there, and says
-            how many it left alone.
-          */
-          const coveredTo =
-            outcome === 'window-covered'
-              ? update.start
-              : frontier && frontier > update.start
-                ? frontier
-                : update.start;
-
           if (checking) {
-            // The last slice: everything between the final page and the bottom
-            // of what was covered. Nothing is left to arrive a page late.
-            const result = await checkRange(coveredTo, checkedTo, false, startedAt, verify);
-            if (result !== 'done') return;
-            if (coveredTo < checkedTo) checkedTo = coveredTo;
+            /*
+              The last slice: everything from the final page down to the
+              window's start. Nothing is left to arrive a page late.
 
-            if (coveredTo > update.start) {
-              verify.notReachable = await countUnseenInRange(
+              Down to the window's start **even if the feed ran out above it.**
+              An earlier version stopped at the feed's last page, treating
+              anything older as aged out rather than removed. But a post Yik Yak
+              no longer serves is gone from it either way, and the archive's job
+              is to record that — so those are looked up like any other missing
+              post, and flagged if the API will not serve them. Posts it still
+              serves by id stay live: they exist, the feed just does not reach
+              them.
+
+              The feed's end is reported rather than acted on, because it is also
+              what a *truncated* walk looks like — a feed that returned an empty
+              page early would put thousands of live posts below it. Every one
+              is still verified before anything is flagged, so the cost of that
+              is time, never data; showing where the feed ended makes it visible
+              enough to stop.
+            */
+            if (outcome === 'exhausted' && frontier && frontier > update.start) {
+              verify.feedEndedAt = frontier;
+              verify.belowFeedEnd = await countUnseenInRange(
                 update.start,
-                coveredTo,
+                frontier,
                 startedAt,
                 groupId,
               );
               progress.verify = { ...verify };
               onProgress({ ...progress });
             }
+
+            const result = await checkRange(update.start, checkedTo, false, startedAt, verify);
+            if (result !== 'done') return;
+            checkedTo = update.start;
           }
 
-          await recordUpdate('posts', groupId, update, startedAt, coveredTo);
+          await recordUpdate('posts', groupId, update, startedAt);
           progress.windowCovered = true;
           onProgress({ ...progress });
         }

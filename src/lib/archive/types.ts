@@ -589,14 +589,6 @@ export interface UpdateState {
    * without walking the feed again.
    */
   last_started_at?: number;
-  /**
-   * How far down that pass actually reached — the window's start if it walked
-   * past it, or the oldest post the feed still served if the feed ran out
-   * first. Below this, a post's absence says nothing: the pass never got there.
-   * Bounds a later deletion check, so it cannot mistake posts that have aged out
-   * of the feed for posts that were removed.
-   */
-  last_covered_to?: string;
 
   /**
    * Where an interrupted pass got to.

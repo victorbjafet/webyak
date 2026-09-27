@@ -214,12 +214,13 @@ export function CrawlMonitor({
               warn={verify.errors > 0}
             />
           </View>
-          {verify.notReachable ? (
+          {verify.feedEndedAt ? (
             <ThemedText type="caption" themeColor="textTertiary">
-              {formatCount(verify.notReachable)} archived post
-              {verify.notReachable === 1 ? ' is' : 's are'} older than anything the feed still
-              serves, so not checked — they have aged out of it, which says nothing about whether
-              they were removed.
+              The feed ran out at {verify.feedEndedAt.slice(0, 10)}, above the window&rsquo;s
+              start. The {formatCount(verify.belowFeedEnd ?? 0)} archived post
+              {verify.belowFeedEnd === 1 ? '' : 's'} older than that are being looked up too — any
+              Yik Yak no longer serves are flagged. If that number looks far too large, the feed may
+              have ended early; nothing is flagged without a lookup, so stopping loses nothing.
             </ThemedText>
           ) : null}
           {verify.lastError ? (

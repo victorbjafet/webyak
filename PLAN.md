@@ -572,8 +572,11 @@ and comment it sees** — effectively a Yik Yak downloader
       instead of stopping — with the archive's oldest post as a target, since
       duplicates above that line are expected rather than a reason to quit
       ([docs/API.md](docs/API.md#-how-far-back-does-the-recent-feed-page))
-- [ ] Whether `recent` has a true floor is still unknown — no run has reached
-      one
+- [x] `recent` pages all the way back to **2023-03-30**, where Sidechat acquired
+      Yik Yak and reset the database. No aging out observed. An earlier reading
+      of the archive's edge as a "retention floor" at 2025-03-28 was wrong — the
+      backfill had just been stopped there
+      ([docs/API.md](docs/API.md#how-far-back-does-the-recent-feed-page))
 - [x] Import an exported archive back in — streamed, merges by recency, and
       rebuilds anything an older export predates
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#importing-an-export))
@@ -626,8 +629,8 @@ and comment it sees** — effectively a Yik Yak downloader
         than after the whole window — a paused re-scrape has already checked what
         it walked. A checkbox under *Re-read existing posts first*, on by default;
         unticking loses nothing, since the window can be checked afterwards.
-        Pinned posts no longer skew any walk's sense of position, the feed's floor
-        bounds the check, and quote snapshots no longer count as sightings
+        Posts below where the feed ends are checked too, and flagged if gone;
+        quote snapshots no longer count as sightings
         ([docs/ARCHIVE.md](docs/ARCHIVE.md#finding-deletions))
   - [x] Pause/resume never worked for the default window — its end is "now", so
         no saved position ever matched and a paused re-scrape restarted from the

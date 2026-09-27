@@ -324,9 +324,7 @@ export default function SettingsScreen() {
           if (next.finished || next.error) void refresh();
         },
         window,
-        // Bounded by how far that pass reached, where it was recorded — below it
-        // posts aged out of the feed rather than being removed.
-        { verifyOnly: { seenBefore, coveredTo: state.last_covered_to } },
+        { verifyOnly: { seenBefore } },
       );
     },
     [refresh, updates],
@@ -732,9 +730,19 @@ export default function SettingsScreen() {
                 {/* The question behind "did something fall apart": did the crawl
                     stop because history ran out, or because it gave up? */}
                 <ThemedText type="caption" themeColor="textTertiary">
-                  {report.edge.abrupt
-                    ? `Oldest week runs at ${Math.round(report.edge.firstWeekPerDay)}/day — full volume, so the crawl reached a limit on Yik Yak's side rather than petering out. Older posts are gone, not missed.`
-                    : `Oldest week runs at ${Math.round(report.edge.firstWeekPerDay)}/day against a typical ${Math.round(report.medianPerDay)} — it thins out, which suggests the crawl stopped early rather than running out of history.`}
+                  {/*
+                    Whether the backfill ran out of feed is recorded, so it is
+                    read rather than guessed from the edge's shape. The shape
+                    alone once concluded Yik Yak had "nothing older" than a date
+                    two years short of where the feed actually ends — a backfill
+                    someone *stopped* ends at full volume too, which is exactly
+                    what running out looks like.
+                  */}
+                  {crawls.length > 0 && crawls.every((c) => c.tail_exhausted)
+                    ? `Oldest week runs at ${Math.round(report.edge.firstWeekPerDay)}/day. The backfill ran out of feed here, so Yik Yak serves nothing older.`
+                    : report.edge.abrupt
+                      ? `Oldest week runs at ${Math.round(report.edge.firstWeekPerDay)}/day, but the backfill has not reached the end of the feed yet — older posts may still exist. Resume it from the Backfill card.`
+                      : `Oldest week runs at ${Math.round(report.edge.firstWeekPerDay)}/day against a typical ${Math.round(report.medianPerDay)} — it thins out, which suggests the crawl was interrupted mid-stream, and the backfill has not reached the end of the feed yet.`}
                 </ThemedText>
 
                 {report.gaps.length === 0 ? (

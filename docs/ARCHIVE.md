@@ -775,8 +775,8 @@ page is even requested. The request count is the same either way. What changes:
 
 - **A paused re-scrape has already checked everything it walked.** Before, a
   multi-day full re-scrape found no deletions at all until its very last page.
-- **Only ground the walk has actually reached is ever checked.** See the floor,
-  below.
+- **Slices are only checked once the walk has passed them**, so nothing ahead of
+  it is ever mistaken for missing.
 - The candidate query per slice covers a page's worth of time instead of a
   whole window, so it stays small however large the archive gets.
 
@@ -787,12 +787,10 @@ Three details keep the slices honest:
   only once the page after it has been read means those arrive before anyone asks
   whether they are missing. The lower edge of each slice is also open, so posts
   at exactly the boundary instant belong to the slice below.
-- **Pinned posts do not say where the feed is.** A pinned post rides at the top
-  whatever its age, and counting one made a page appear to leap back to whenever
-  it was posted — a refresh would stop early and claim a window it never walked,
-  and the check would treat everything in between as missing. The frontier is
-  measured on in-order posts only. That applied to every walk, catch-up and
-  backfill included, not just this one.
+- **Pinned posts are left out of the frontier.** A pinned post would ride at the
+  top whatever its age and make a page appear to leap back to when it was posted.
+  Pinned posts reportedly no longer exist on Yik Yak, so this is defensive only:
+  the field is still in the payload, and the filter costs nothing.
 - **An inverted or empty slice is skipped, not queried.** `IDBKeyRange.bound`
   throws on one, and they happen normally: a custom window that ends in the past
   starts with pages still newer than it.
@@ -800,14 +798,26 @@ Three details keep the slices honest:
 Both positions — how far the check has got, and the latest page's frontier — are
 saved with the walk's cursor, so a pause resumes the check exactly where it was.
 
-#### The feed's floor
+#### Below where the feed ends
 
-If the feed runs out before the walk reaches the window's start, everything
-archived below its last page is absent — and says nothing. Those posts have aged
-out of the feed, or the floor has moved; they were not removed. So the check
-stops at the lowest point the walk actually reached, reports how many it left
-alone, and the refresh records that point as `last_covered_to`. A later
-standalone check is bounded by it too.
+*Changed 2026-09-27.* If the feed runs out before the walk reaches the window's
+start, everything archived below its last page is absent from it. An earlier
+version left those alone, reasoning that they had aged out of the feed rather
+than been removed. That was the wrong call for an archive: a post Yik Yak no
+longer serves is gone from it either way, and that is what `deleted` records.
+In practice the feed reaches back to 2023-03-30, where Sidechat reset the
+database, and nothing has been seen to age out — but if anything ever does, it
+should be flagged.
+
+So those posts are checked like any other missing post: looked up by id, and
+flagged if the API will not serve them. Posts it still serves by id stay live —
+they exist, the feed simply does not reach them.
+
+Where the feed ended, and how many archived posts sit below it, is shown rather
+than acted on. A feed that ended early is also what a *truncated* walk looks
+like — one empty page served by mistake would put thousands of live posts below
+the "end". Every one is still verified before anything is flagged, so the cost of
+that mistake is time, never data, and the count makes it visible enough to stop.
 
 #### Quotes do not count as sightings
 
@@ -822,7 +832,7 @@ they are often the only copy there is — but they leave `last_seen_at` alone.
 default. Each missing post costs one extra request, roughly the price of a whole
 page of 24, so on a window with many deletions a check can take as long as the
 walk itself. Unticking it skips all of that — and loses nothing: the refresh
-still records `last_started_at` and `last_covered_to`, so the window can be
+still records `last_started_at`, so the window can be
 checked afterwards with *Check it for deleted posts*.
 
 Comments have no such option. A comment refresh reads each thread in full

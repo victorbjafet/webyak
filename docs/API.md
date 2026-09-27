@@ -1366,7 +1366,13 @@ whose feed has been exhausted is marked, so a later run starts from the newest
 posts instead of immediately hitting the end again.
 
 
-## ⚠️ How far back does the `recent` feed page?
+## How far back does the `recent` feed page?
+
+**Answered 2026-09-27: all the way.** Backfills of Virginia Tech reached
+**2023-03-30** — the point where Sidechat acquired Yik Yak and reset the
+database, so there is nothing older to reach. No aging out has been observed:
+posts stay in the feed from then on. The history of the question is kept below,
+because the wrong turns in it are instructive.
 
 **Open question, raised by a real backfill 2026-09-11.** A crawl of Virginia
 Tech archived ~3,500 posts over 203 pages and then stopped producing anything
@@ -1403,8 +1409,8 @@ of these — that was a conclusion the evidence did not support.
 hand repeatedly pushed past the apparent limit and kept finding new posts, so the
 unproductive stretches are transient — the server intermittently stops advancing
 and then resumes. The crawler now waits those out instead of stopping, which
-removes the manual restarts. Whether there is an eventual true floor is still
-unknown; no run has reached one.
+removes the manual restarts. Whether there was an eventual true floor was
+still open then; it is answered at the top of this section.
 
 **If it turns out to be a window**, backfilling beyond it needs a different
 route, and the ones worth trying are the user-scoped endpoints that are already
