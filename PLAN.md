@@ -571,7 +571,7 @@ and comment it sees** — effectively a Yik Yak downloader
       straight past it, so the crawler now waits out unproductive stretches
       instead of stopping — with the archive's oldest post as a target, since
       duplicates above that line are expected rather than a reason to quit
-      ([docs/API.md](docs/API.md#-how-far-back-does-the-recent-feed-page))
+      ([docs/API.md](docs/API.md#how-far-back-does-the-recent-feed-page))
 - [x] `recent` pages all the way back to **2023-03-30**, where Sidechat acquired
       Yik Yak and reset the database. No aging out observed. An earlier reading
       of the archive's edge as a "retention floor" at 2025-03-28 was wrong — the
@@ -603,7 +603,7 @@ and comment it sees** — effectively a Yik Yak downloader
       *and* per kind, sits in the export header, and records a month before the
       run so every pass re-covers the month before it; only a pass that reached
       the end of its window may write one
-      ([docs/ARCHIVE.md](docs/ARCHIVE.md#refreshing-what-is-already-archived))
+      ([docs/ARCHIVE.md](docs/ARCHIVE.md#6-refreshing-what-is-already-archived))
   - [x] Comment change detection no longer trusts `comment_count` — a thread
         that loses one and gains one reports the same number. Paired with the
         newest comment's timestamp, and the flag re-arms on movement in either
@@ -667,7 +667,14 @@ and comment it sees** — effectively a Yik Yak downloader
 - [ ] Capture official-client traffic for the rest: follow, report, awards, and
       the *write* path for save
 - [ ] Implement each via `client.sendRequest()`
-- [ ] Upstream the four sidechat.js bugs as a PR
+- [ ] ~~Upstream the four sidechat.js bugs as a PR~~ — *unlikely to land.* Its
+      author deprecated offsides on 2026-09-14 in favour of the official Android
+      app, and 2.6.6 (2026-07-10) looks like the final release. Bypassing is the
+      fix ([docs/OFFSIDES.md](docs/OFFSIDES.md))
+- [ ] Parity with offsides 1.0: a **"YOU" badge** on your own comments, and your
+      own name linking to the **You tab** rather than your public profile — both
+      from `authored_by_user`, which we already read
+      ([docs/OFFSIDES.md](docs/OFFSIDES.md#round-7--the-10-release-and-the-end-of-the-project-2026-09-27))
 
 ### Phase 9 — polish & ship
 - [ ] Accessibility pass (focus order, labels, contrast, reduced motion)
@@ -705,7 +712,26 @@ Resolved ones are kept with their answer so they don't get re-asked.
 - **Q9 — why does `getUpdates` return fewer groups than `memberships`?** New,
   minor. One id (`3e27b02b-…`) is in `/v1/users/me` but not `getUpdates`. Not
   blocking; matters for Phase 5's "your groups" list, which should seed from
-  `memberships[]` rather than assume `getUpdates` is complete.
+  `memberships[]` rather than assume `getUpdates` is complete. *Related, from
+  offsides 1.0:* a karma entry can name a group absent from `getUpdates().groups`
+  — they crashed on it. Both suggest `groups` omits communities the account is
+  still associated with, most plausibly ones it has left
+  ([docs/API.md](docs/API.md#yakarma)).
+- **Q10 — does the bio actually load?** From the offsides 1.0 pass. offsides
+  reads your bio from `getUpdates().user` and, when it is not there, from your
+  public profile's `description` — commented *"The bio lives on the public
+  profile object."* webyak reads `getUpdates().user.bio` only, so the You tab may
+  show "No bio yet" and Edit Profile may open empty for an account that has one.
+  Check with a real bio; the fix is the same fallback
+  ([docs/API.md](docs/API.md#a-user-profile-is-a-group)).
+- **Q11 — what does the server actually enforce on length?** Two disagreements,
+  neither backed by the server: a **post** is capped at 300 by webyak while
+  offsides shows a 256 counter (without blocking); a **bio** is 150 in webyak and
+  200 in offsides. One over-length write each would settle both.
+- **Q12 — `GET /v1/groups/login_type?email=`.** Seen only in SidechatProxy, a
+  client dead since 2025, as a pre-check before registering a school email. Worth
+  a probe if school-email registration is ever revisited
+  ([docs/API.md](docs/API.md#endpoints-that-exist-but-sidechatjs-doesnt-wrap)).
 
 ---
 
@@ -719,6 +745,12 @@ Resolved ones are kept with their answer so they don't get re-asked.
   ([docs/API.md](docs/API.md#blocker-1-resolved--by-changing-the-url-not-the-api)).
 - **Private API.** sidechat.js is reverse-engineered and unofficial. Endpoints can change or break
   without notice, and this likely runs against Yik Yak's ToS.
+- **The prior art stops here.** offsides was deprecated on 2026-09-14 in favour of an upcoming
+  **official Yik Yak app for Android**, and sidechat.js — same author — has had no release since
+  2.6.6 (2026-07-10). From now on an API change will have no reference implementation that hit it
+  first, and the official Android launch is precisely when the API is most likely to move (Q4's
+  `App-Version` question included). Owning the request layer in `src/api/client.ts`, as most calls
+  already do, is what keeps that survivable ([docs/OFFSIDES.md](docs/OFFSIDES.md)).
 - **Publishing this repo.** It goes open source; the release audit passed 2026-08-27 and found
   nothing. The *ongoing* risk remains: probe output is our main documentation input and it carries
   live tokens and user ids, so every commit gets checked. [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md).

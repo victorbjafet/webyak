@@ -376,6 +376,23 @@ user's public profile as a group object, which is why the profile typedef carrie
 Consequence: anything that renders a group renders a profile. Worth reusing
 rather than building a parallel component.
 
+More, from offsides 1.0 (2026-09-27 pass —
+[OFFSIDES.md](OFFSIDES.md#public-profiles-98c3fd5)):
+
+- **A profile can be private, and a username can change.** offsides reads a
+  missing or non-object result as *"The user may have changed their username or
+  made their profile private."* A username is not a stable key for a person —
+  `/u/<username>` links can go dead, and the archive's `author` is the name as it
+  was when seen.
+- **The bio is the profile's `description`**, with `bio` as a fallback key.
+- **Your own bio is not reliably on `getUpdates().user`.** offsides checks there
+  first and falls back to fetching your public profile's `description`. webyak
+  reads `getUpdates().user.bio` only, so it may show no bio for an account that
+  has one — unverified; tracked in PLAN.
+- **Writing it** is `PATCH /v1/users/<id>` with `{bio}` — what sidechat.js's
+  `setUserBio` sends and what `updateProfile` sends. offsides caps the field at
+  200 characters; webyak at 150. Neither limit comes from the server.
+
 ### ⛔ Images that don't render — under investigation (Phase 5)
 
 **Re-framed 2026-08-27.** The previous entry here called this "one bug, not
@@ -646,6 +663,12 @@ The activity `type` seen so far is `votes`; treat it as an open set. Because
 `text` is pre-rendered server-side, the notifications screen can ship without
 knowing every type.
 
+One lead, unverified: **`GET /v1/groups/login_type?email=<email>`**. SidechatProxy
+— the Kotlin client offsides succeeded, dead since 2025 — calls it before
+registering a school email and shows the user any `message` it returns, so it
+appears to be a pre-check of whether an address can be used. Not probed, and
+from a client two years old ([OFFSIDES.md](OFFSIDES.md#sidechatproxy)).
+
 Still not found:
 
 - **How to follow.** Swept `posts/follow`, `posts/set_follow`,
@@ -663,6 +686,12 @@ a tooltip explaining why, rather than hiding them — a bookmark that appears on
 on already-saved posts reads as a bug.
 
 ## sidechat.js 2.6.6 defects
+
+**2.6.6 is still the latest release** (published 2026-07-10), and it is likely to
+stay that way: its author deprecated offsides on 2026-09-14 in favour of the
+official Android app ([OFFSIDES.md](OFFSIDES.md)). Nothing below should be
+expected to be fixed upstream, and a new API behaviour will not be reflected in
+the library. Bypassing a method is the fix, not a stopgap.
 
 Read from source. Workarounds live in
 [src/api/client.ts](../src/api/client.ts); all of them use `client.sendRequest()`,
@@ -768,15 +797,23 @@ request shapes are right rather than merely accepted.
 
 | Action | Endpoint | Body |
 |---|---|---|
-| Vote | `POST /v1/posts/set_vote` | `{post_id, vote_status}` — takes a **comment** id equally |
+| Vote | `POST /v1/posts/set_vote` | `{post_id, vote_status}` — takes a **comment** id equally. **The returned total is stale when a vote is removed** — see below |
 | Create post | `POST /v1/posts` | `{type: "post", group_ids: [id], text, assets, attachments, dms_disabled, comments_disabled, using_identity, quote_post_id?, poll_request?}` |
 | Create comment | `POST /v1/posts` | same endpoint, `{type: "comment", …, reply_post_id, reply_comment_post_id, parent_post_id}` |
 | Delete | `POST /v1/posts/delete` | `{post_id}` — posts and comments both |
 | Vote on poll | `POST /v1/polls/vote` | `{poll_id, choice}` — `choice` is the **index** |
 | Mark results viewed | `POST /v1/polls/view_results` | `{poll_id}` — note the corrected path |
 
-Three things worth knowing before touching this code:
+Four things worth knowing before touching this code:
 
+- **Removing a vote returns the old total.** Learned from offsides 1.0
+  (`f817472`, 2026-09-06): setting `vote_status: "none"` answers with the status
+  cleared but `vote_total` unchanged from *before* the removal. Take that number
+  as authoritative and the count snaps back as the arrow loses its colour. Their
+  commit names comments; assume posts too. webyak's `useVote` never reads the
+  returned total — it applies the delta locally and only rolls back on error —
+  so it is not affected
+  ([OFFSIDES.md](OFFSIDES.md#voting-the-servers-total-is-not-authoritative)).
 - **`using_identity` is the inverse of the anonymous toggle.** The API models it
   as "post as yourself", the UI asks "post anonymously". Inverting it by accident
   deanonymises the user, which is the worst available bug in a Yik Yak client, so
@@ -942,6 +979,11 @@ as the fallback label until the id was joined against the user's own group list.
 Which key holds that id is also unconfirmed, so `KarmaGroup` accepts both
 `group_id` and `id`, and `karma-panel.tsx` resolves the display name and colour
 from `useCurrentGroup().groups` rather than trusting the payload.
+
+**An entry can name a community you are not in.** offsides 1.0 fixed a crash
+reading the name of a karma group missing from `updates.groups` — most likely a
+community since left, whose karma still counts. The fallback label above covers
+it; it is a real case, not a defensive one.
 
 Rendered in [karma-panel.tsx](../src/components/me/karma-panel.tsx): a total row
 plus one row per community, each expanding to the post/comment split. Collapsed

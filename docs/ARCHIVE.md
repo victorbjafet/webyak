@@ -4,7 +4,7 @@ Everything about how posts and comments get into the local archive, how a run
 resumes, what re-seeing something changes, and — the part that matters most for
 what comes next — **what the current design does not keep up to date.**
 
-The last section, [What is stale and why](#what-is-stale-and-why), is written for
+The last section, [What is stale and why](#8-what-is-stale-and-why), is written for
 the planned refresh pass. Read it before designing that.
 
 Related: [ARCHITECTURE.md](ARCHITECTURE.md) covers the IndexedDB schema, search
@@ -193,7 +193,7 @@ Otherwise: start at the top with no cursor, page backwards, and stop after
 a single overlapping page is normal at any frontier.
 
 Three pages is also, incidentally, the **entire refresh window** of the whole
-system. See [G2](#g2-nothing-revisits-an-archived-post).
+system. See [G2](#g2-nothing-revisits-an-archived-post--closed).
 
 This pass deliberately does **not** move `tail_cursor`. It is walking a region
 the backfill has already passed; letting it write the tail would throw away real
@@ -366,7 +366,7 @@ needs_comments = comment_count > comments_fetched_count ? 1 : 0
 fetched**, rather than a boolean. So a post that gains replies later comes back
 around for another pass instead of being permanently considered done — but only
 if something re-sees the post and notices the higher count. That "if" is
-[G3](#g3-comment-counts-freeze-the-same-way).
+[G3](#g3-comment-counts-freeze-the-same-way--closed).
 
 ---
 

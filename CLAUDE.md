@@ -72,6 +72,11 @@ source for it.** They have already hit most of what we will hit. Anything new
 learned from them goes into [docs/OFFSIDES.md](docs/OFFSIDES.md), including the
 cases where we deliberately do it differently and why.
 
+offsides was **deprecated on 2026-09-14** in favour of the official Android app,
+and sidechat.js has had no release since 2.6.6. Still check it first — but it
+only knows the API as it was then, so a behaviour it doesn't cover may simply be
+newer than it.
+
 Blockers live in **two** places on purpose: the detail in `docs/API.md` or
 `docs/ARCHITECTURE.md`, and a one-line pointer in the relevant `PLAN.md` phase so
 it is impossible to start that phase without seeing it.
