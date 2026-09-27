@@ -12,6 +12,12 @@ Status legend: `[ ]` todo · `[~]` in progress · `[x]` done · `⛔` blocked/ga
 [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) (secret hygiene, release audit).
 The rule for keeping them current is in [CLAUDE.md](CLAUDE.md).
 
+> **⛔ Queued fixes, verified but not applied — start here:
+> [docs/PENDING-FIXES.md](docs/PENDING-FIXES.md).** Deleted comments are never
+> flagged and a re-read overwrites their text; plus the fixes from the offsides
+> 1.0 re-analysis. Written 2026-09-27 as a self-contained handoff. Remove this
+> note when that file is empty.
+
 ---
 
 ## 1. Current state

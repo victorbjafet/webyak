@@ -61,6 +61,7 @@ obvious from the code or `git log`.
 | [docs/OFFSIDES.md](docs/OFFSIDES.md) | What the reference Android client already solved, and where we diverge |
 | [docs/WORKER.md](docs/WORKER.md) | The deferred Cloudflare Worker: why, what it does, how to wire it in |
 | [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | Release audit before going public: what must be scrubbed, the standing pre-commit rule |
+| [docs/PENDING-FIXES.md](docs/PENDING-FIXES.md) | **A queue of verified fixes not yet applied** — apply top to bottom, delete each as it lands, delete the file when empty |
 
 ## Check offsides first
 
