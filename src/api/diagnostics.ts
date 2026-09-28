@@ -29,6 +29,7 @@
  * |---|---|
  * | `probeAuth` | control — is the token live at all? |
  * | `probeActivity` | alert types with no label yet, and whether a fresh takedown's id lands in `unacknowledged_removed_post_ids` (PLAN Q14) |
+ * | `probeKarmaPeriods` | do `quarterly_karma`, `season_karma` and `season` hold history? (B5) |
  * | `probePostLength`, `probeBioLength` | what length does the server enforce? (PLAN Q11) |
  *
  * The length probes **write** — they post and edit your bio, undoing both — so
@@ -325,8 +326,74 @@ async function probeActivity(): Promise<ProbeResult> {
   }
 }
 
+/* ------------------------------------------------------------------------ *
+ * Karma over time (B5)
+ * ------------------------------------------------------------------------ */
+
+/**
+ * A value's structure, a few levels deep: keys and types, and array lengths.
+ * Numbers are shown as `number`, strings by length, except short enum-like
+ * ones and ISO dates, whose shape is the point.
+ */
+function deepShape(value: unknown, depth = 0): string {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) {
+    return `array(${value.length})${value.length && depth < 3 ? ` of ${deepShape(value[0], depth + 1)}` : ''}`;
+  }
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) return 'date string';
+    return /^[A-Za-z_ ]{1,20}$/.test(value) ? 'short string' : shape(value);
+  }
+  if (typeof value !== 'object') return typeof value;
+  if (depth >= 3) return 'object';
+  const entries = Object.entries(value as Raw);
+  if (entries.length > 12) {
+    return `object of ${entries.length} keys, e.g. ${idShape(entries[0][0])}: ${deepShape(entries[0][1], depth + 1)}`;
+  }
+  return `{${entries.map(([k, v]) => `${idShape(k)}: ${deepShape(v, depth + 1)}`).join(', ')}}`;
+}
+
+/**
+ * Does `getUpdates()` hold karma *history*, or only current totals?
+ *
+ * B5 wants yakarma over time. Beside `karma` ({post, comment, groups}) the
+ * updates payload carries `quarterly_karma`, `season_karma` and `season`, never
+ * inspected (docs/API.md#what-else-is-in-getupdates). If any of them is a
+ * series, the chart can be drawn from the server; if they are single numbers
+ * for the current period, the only history is what this device samples.
+ *
+ * Read-only. Shapes only. The payload also carries the session token, so only
+ * these four keys are read from it.
+ */
+async function probeKarmaPeriods(): Promise<ProbeResult> {
+  const base = {
+    id: 'karma-periods',
+    label: 'Yakarma — history in getUpdates?',
+    question: 'Are quarterly_karma, season_karma and season a history, or current values? (B5)',
+  };
+  try {
+    const updates = (await getUpdates()) as Raw;
+    const keys = ['karma', 'quarterly_karma', 'season_karma', 'season'] as const;
+    const lines = keys.map((key) => `${key} → ${deepShape(updates?.[key])}`);
+    const series = keys.filter((key) => {
+      const v = updates?.[key];
+      return Array.isArray(v) || (v && typeof v === 'object' && Object.values(v).some(Array.isArray));
+    });
+    return {
+      ...base,
+      status: 'pass',
+      detail: series.length
+        ? `Something list-shaped: ${series.join(', ')}. Look at the evidence before building a sampler.`
+        : 'No lists: current values only, so history has to be sampled on this device.',
+      evidence: lines.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
-  return [await probeAuth(), await probeActivity()];
+  return [await probeAuth(), await probeActivity(), await probeKarmaPeriods()];
 }
 
 /* ------------------------------------------------------------------------ *

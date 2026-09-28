@@ -227,10 +227,9 @@ export interface MyIdentity {
  */
 export interface KarmaGroup {
   /**
-   * Which key carries the id is unconfirmed — the payload is undocumented and
-   * the entries observed so far carry **no name at all**, which is why the You
-   * tab resolves the label against the user's own group list rather than
-   * reading it from here. Both plausible keys are accepted.
+   * The community. **`group_id`**, confirmed 2026-09-28 (the Yakarma probe);
+   * `id` is still accepted. Entries carry **no name**, which is why the You tab
+   * resolves the label against the user's own group list.
    */
   group_id?: string;
   id?: string;

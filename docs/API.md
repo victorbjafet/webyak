@@ -1299,8 +1299,13 @@ Three things stand out:
   ([alerts](#the-activity-feed-alerts)).
 - **`quarterly_karma`, `season_karma`, `season`** — karma has more dimensions
   than the lifetime total the You tab shows. Relevant to [B5](../PLAN.md)
-  (karma over time), which assumed only a current value existed; there may be
-  period-scoped values to read instead of sampling.
+  (karma over time). **Probed 2026-09-28: current values, not history.**
+  `quarterly_karma` and `season_karma` have `karma`'s own shape, `{post,
+  comment, groups: [{group_id, post, comment}]}`, for the current quarter and
+  season. `season` is `{year, season, remaining_days}`, `season` a short word.
+  Nothing is a series, so a chart of karma over time has to be sampled on the
+  device. The per-community entries are keyed by **`group_id`**, which settles
+  the guess in `KarmaGroup`.
 - **`new_posts`, `hot_posts`, `top_posts`, `user_posts`, `user_comments`** — the
   updates call appears to carry pre-fetched feeds. If those are usable, a cold
   start could render without a second request. Unverified; the shapes have not
