@@ -250,6 +250,14 @@ timestamp owning a `setInterval` and waking the main thread out of phase.
 Tick rate matches what is displayed: 30s for the collapsed relative age, 1s for
 the expanded view, which shows seconds and would look broken frozen.
 
+### The action row wraps rather than overflowing
+
+A post's footer is votes and comments on the left, actions pushed right by
+their own margin. Someone else's post has five actions, and at 360px that is
+more than the card holds, so the footer wraps: the actions move to a line of
+their own, still right-aligned. Found in the 2026-09-28 responsive pass, where
+the fifth button (Hide) was being clipped by the card's edge.
+
 ### Show unavailable actions, dimmed
 
 Save and repost render in their real positions but are inert, with a tooltip

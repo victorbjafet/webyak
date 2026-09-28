@@ -818,7 +818,10 @@ and comment it sees** — effectively a Yik Yak downloader
 - [x] Rate-limit handling + friendly error surfaces (2026-09-28): a 429
       pauses every request for its `Retry-After` or a minute, and bare
       failures get plain words ([ARCHITECTURE.md](docs/ARCHITECTURE.md#a-429-pauses-everything))
-- [ ] Responsive QA: 360px → 2560px
+- [~] Responsive QA: 360px → 2560px. **First pass 2026-09-28** at 360 and
+      1280 wide in the stand-in tab (Home, a thread, Alerts, You, Settings):
+      no horizontal overflow; one clipped action row, fixed by letting the
+      footer wrap. Not yet: 2560, tablet widths, the composer and Explore
 - [ ] iOS/Android smoke test (universal comes nearly free)
 - [x] Logo: a simple outline laptop (Lucide's `laptop`, ISC) in near-black on
       the accent green, as favicon, sidebar mark, iPhone home-screen icon, and

@@ -172,8 +172,15 @@ export function PostCard({
           </ThemedText>
         </Pressable>
 
-        <View style={styles.spacer} />
-        <PostActions post={post} onDeleted={onDeleted} />
+        {/*
+          Pushed right by its own margin rather than a spacer, so that when a
+          narrow card can't fit it (five actions on someone else's post, at
+          360px) the group wraps to a line of its own, still right-aligned,
+          instead of running off the card's edge.
+        */}
+        <View style={styles.actions}>
+          <PostActions post={post} onDeleted={onDeleted} />
+        </View>
       </View>
     </View>
   );
@@ -215,9 +222,14 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
-    gap: Spacing.three,
+    columnGap: Spacing.two,
+    rowGap: Spacing.one,
     paddingTop: Spacing.one,
+  },
+  actions: {
+    marginLeft: 'auto',
   },
   commentButton: {
     flexDirection: 'row',
