@@ -73,8 +73,26 @@ export function activityTarget(item: ActivityItem): ActivityTarget {
     const commentId = [item.comment_reply_id, item.comment_id].find(isPostId);
     return { kind: 'post', postId: item.post_id, ...(commentId ? { commentId } : {}) };
   }
+  // A takedown has no `post_id`, but `takedown_data.id` is the removed post.
+  // It 404s, so the post screen shows the archived copy if there is one, or
+  // says the post is gone. A removed comment would need its post, which the
+  // alert doesn't carry, so it leads nowhere.
+  const removed = item.takedown_data;
+  if (removed?.id && isPostId(removed.id) && (removed.type ?? 'post') === 'post') {
+    return { kind: 'post', postId: removed.id };
+  }
   const group = item.suggested_sidechats_data?.group_ids_to_suggest?.find(Boolean);
   return group ? { kind: 'group', groupId: group } : { kind: 'none' };
+}
+
+/**
+ * What a takedown says beyond its sentence. The sentence is only "Your post was
+ * removed"; `client_facing_removal_text` is the notice the server words for the
+ * user, and the removal notice B3 asks for. Null when it adds nothing.
+ */
+export function takedownNotice(item: ActivityItem): string | null {
+  const notice = item.takedown_data?.client_facing_removal_text?.trim();
+  return notice && notice !== item.text?.trim() ? notice : null;
 }
 
 /**
@@ -104,6 +122,7 @@ export function ActivityRow({
   const unread = !item.is_seen;
   const when = activityDate(item);
   const text = activityText(item);
+  const notice = takedownNotice(item);
   // A new follower's own icon, where offsides draws one.
   const icon = item.type === 'new_follower' ? item.conversation_icon : undefined;
   const leads = activityTarget(item).kind !== 'none';
@@ -111,7 +130,7 @@ export function ActivityRow({
   return (
     <Pressable
       accessibilityRole={leads ? 'link' : 'button'}
-      accessibilityLabel={`${unread ? 'Unread. ' : ''}${kind.label}. ${text}`}
+      accessibilityLabel={`${unread ? 'Unread. ' : ''}${kind.label}. ${text}${notice ? ` ${notice}` : ''}`}
       onPress={() => onPress(item)}
       style={({ hovered, pressed }) => [
         styles.row,
@@ -141,6 +160,14 @@ export function ActivityRow({
         <ThemedText type="small" themeColor={unread ? 'text' : 'textSecondary'} numberOfLines={3}>
           {text || 'No details'}
         </ThemedText>
+        {notice ? (
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={[styles.notice, { borderLeftColor: theme.borderStrong }]}>
+            {notice}
+          </ThemedText>
+        ) : null}
       </View>
 
       {unread ? <View style={[styles.dot, { backgroundColor: theme.brand }]} /> : null}
@@ -181,6 +208,11 @@ const styles = StyleSheet.create({
   title: {
     flex: 1,
     minWidth: 0,
+  },
+  notice: {
+    marginTop: Spacing.one,
+    paddingLeft: Spacing.two,
+    borderLeftWidth: 2,
   },
   dot: {
     width: 8,

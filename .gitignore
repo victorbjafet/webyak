@@ -66,3 +66,6 @@ diagnostics-*.json
 # other people's content, tens of thousands of rows — and have no business in
 # the repo. See docs/OPEN-SOURCE.md.
 *.ndjson
+
+# Agent run reports for the owner. Local notes, not project docs.
+*.local.md

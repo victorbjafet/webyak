@@ -93,6 +93,21 @@ async (page) => {
         comment_reply_id: id('cccccccc', 20),
       },
       {
+        id: `takedown~${id('bbbbbbbb', 99)}`,
+        type: 'takedown',
+        timestamp: iso(90),
+        is_seen: false,
+        text: 'Your post was removed',
+        takedown_data: {
+          id: id('bbbbbbbb', 99),
+          type: 'post',
+          client_facing_removal_text: 'Stand-in notice: this post broke a stand-in rule.',
+          reason: 'stand_in',
+          moderator_type: 'stand_in',
+          is_acknowledged: false,
+        },
+      },
+      {
         id: `votes~${P1.id}~10`,
         type: 'votes',
         timestamp: iso(60),

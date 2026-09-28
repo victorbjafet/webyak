@@ -306,6 +306,12 @@ Built 2026-09-27; what the API gives it is in
   new type needs a label, not a fix.
 - **The server's sentence is shown as sent.** The one edit is offsides': a
   leading 📈 on *Popular* and *Followed post*, whose icon already says it.
+- **A takedown shows its notice.** The alert's sentence is only "Your post was
+  removed"; the server's `client_facing_removal_text` goes under it, set off by
+  a `borderStrong` rule like a quote, so the reason is visible without opening
+  anything. Tapping it opens the removed post by id: it 404s, so the post
+  screen shows the archived copy if this device has one, or says it's gone.
+  This is B3's removal notice.
 - **An alert about a comment opens at that comment**, not at the top of the
   thread: scrolled to once, with some of the comment above left showing, and
   tinted `brandMuted` so it can be found again after scrolling away. The reply

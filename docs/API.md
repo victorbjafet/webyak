@@ -892,9 +892,13 @@ activity list is opened, without ever showing the state.
 
 - A type it doesn't know still renders, as its own name with a bell, because
   `text` says what happened.
-- An alert without `post_id` leads nowhere. The first version fell back to a
-  UUID inside the id, which the table shows was wrong: in `comment~<uuid>` that
-  UUID is not the post.
+- An alert without `post_id` leads nowhere, with one exception: a `takedown`
+  of a post opens `takedown_data.id`, the removed post, which the post screen
+  answers from the archive. The first version fell back to a UUID inside the
+  id, which the table shows was wrong: in `comment~<uuid>` that UUID is not the
+  post.
+- An alert naming a comment opens the thread at it: `comment_reply_id` if
+  there is one, else `comment_id`.
 - `timestamp` is still read as epoch seconds, epoch milliseconds or a date
   string, since two types haven't been seen yet.
 
