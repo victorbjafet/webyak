@@ -323,8 +323,12 @@ Rules behind it:
 - **No region segment.** If `cy` ever turns out to mean something we need, it
   becomes a query param, not a path segment.
 
-Yik Yak → webyak redirect compatibility (so real Yik Yak links opened in webyak
-resolve to `/p/<code>`) is a Phase 7 nicety, not a requirement.
+**Yik Yak paths redirect (2026-09-28).** A yikyak.com path on webyak's host,
+`/cy/<group>/comments/<code>/<slug>`, goes to `/p/<code>`, and `/cy/<group>`
+to `/g/<group>`. It lives in the not-found route (`yikYakRedirect` in
+src/lib/yikyak-url.ts), so it adds no route to the auth-guarded stack and
+can't shadow one. The code then resolves as any `/p/<code>` does: cache,
+archive, then the Worker.
 
 ## App structure
 

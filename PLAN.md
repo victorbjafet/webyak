@@ -45,7 +45,7 @@ and let a friend sign in on your computer.
 | **Deploying the Worker** | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. **The Worker is built (2026-09-28)** in [worker/](worker/), every client path is wired to it, and both were tested end to end against stubs ([WORKER.md](docs/WORKER.md)). Deploying it is the owner's: [worker/SETUP.md](worker/SETUP.md), about ten minutes in the Cloudflare dashboard |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
 | **A probe run** | Hiding a user's posts, once, to see what the server does with it (a write). One post with a *Library* image, to confirm the API takes a library id (a write). Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
-| **Nothing: buildable now** | Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **Nothing: buildable now** | Phase 7 extras. Phase 9 polish |
 | **The owner** | Deploy the Worker ([worker/SETUP.md](worker/SETUP.md)) and set the `WORKER_URL` repository variable. Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
 **Next:** the buildable Alerts follow-ups above, now that Q14 says what their
@@ -616,8 +616,14 @@ and comment it sees** — effectively a Yik Yak downloader
       rather than a flat average, plus structural checks. A flat average flags 33
       days on the reference archive and every one is summer break
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#integrity-checking-local-medians-not-a-flat-average))
-- [ ] **Media back-fill** — download the bytes for flagged attachments. The
-      schema and flags exist; the fetching does not
+- [ ] ⛔ **Media back-fill** — download the bytes for flagged attachments. The
+      schema and flags exist; the fetching does not. **Blocked (2026-09-28)
+      on the Worker and a decision.** Post images are presigned R2 URLs: an
+      `<img>` shows them, but R2 sends no CORS headers, so JavaScript can't
+      read the bytes to store them without the Worker's `/media` relay. Old
+      URLs have expired, so each post needs a fresh read first. And across an
+      archive of hundreds of thousands of posts, how much to fetch and keep is
+      a storage and account-risk call for the owner
 - [x] **Search over the archive** — a `multiEntry` token index built at write
       time, which is IndexedDB's native inverted index. Terms resolve to ids,
       intersect, and only survivors are deserialized
@@ -742,7 +748,8 @@ and comment it sees** — effectively a Yik Yak downloader
       ([DESIGN.md](docs/DESIGN.md#palette))
 - [ ] Draft autosave, offline cache, JSON export
 - [ ] PWA manifest + service worker
-- [ ] Redirect real Yik Yak URLs (`/cy/<group>/comments/<code>/<slug>`) to `/p/<code>`
+- [x] Redirect real Yik Yak URLs (`/cy/<group>/comments/<code>/<slug>`) to `/p/<code>`,
+      and `/cy/<group>` to `/g/<group>` (2026-09-28)
 
 ### Phase 8 — gap-filling
 - [x] `/v1/posts/saved` and `/v1/activity` found, and their shapes probed

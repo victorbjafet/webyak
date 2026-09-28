@@ -1,14 +1,17 @@
-import { Link, usePathname } from 'expo-router';
+import { Link, Redirect, usePathname } from 'expo-router';
 import { Pressable, StyleSheet } from 'react-native';
 
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { yikYakRedirect } from '@/lib/yikyak-url';
 
 export default function NotFoundScreen() {
   const theme = useTheme();
   const pathname = usePathname();
+  const redirect = yikYakRedirect(pathname);
+  if (redirect) return <Redirect href={redirect as never} />;
 
   return (
     <Screen title="Not found">
