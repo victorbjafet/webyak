@@ -922,10 +922,11 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * Beside the title: which build this is, and where its code lives. The link is
- * `ExternalLink` itself, not `asChild` around a Pressable, because on web
- * `asChild` passes `target` to the child as a bare prop, which react-native-web
- * drops, so the page would open in this tab.
+ * At the right of the title: which build this is, and where its code lives.
+ * The link is outlined like a ghost button. It's `ExternalLink` itself, not
+ * `asChild` around a Pressable, because on web `asChild` passes `target` to the
+ * child as a bare prop, which react-native-web drops, so the page would open in
+ * this tab.
  */
 function VersionAndSource() {
   const theme = useTheme();
@@ -934,7 +935,10 @@ function VersionAndSource() {
       <ThemedText type="caption" themeColor="textTertiary" selectable>
         v{APP_VERSION}
       </ThemedText>
-      <ExternalLink href={SOURCE_URL} accessibilityLabel="View source on GitHub">
+      <ExternalLink
+        href={SOURCE_URL}
+        accessibilityLabel="View source on GitHub"
+        style={[styles.sourceLink, { borderColor: theme.borderStrong }]}>
         <Ionicons name="logo-github" size={13} color={theme.textSecondary} />
         <ThemedText type="caption" themeColor="textSecondary">
           {' '}View source
@@ -947,8 +951,14 @@ function VersionAndSource() {
 const styles = StyleSheet.create({
   meta: {
     flexDirection: 'row',
-    alignItems: 'baseline',
+    alignItems: 'center',
     gap: Spacing.two,
+  },
+  sourceLink: {
+    borderWidth: 1,
+    borderRadius: Radius.pill,
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two + Spacing.half,
   },
   content: {
     width: '100%',

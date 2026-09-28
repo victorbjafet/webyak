@@ -584,5 +584,7 @@ and `suggested_sidechats` ([API.md](API.md#the-activity-feed-alerts)).
 
 **They have no chat read state either.** Neither `MessagesScreen` nor
 `ThreadScreen` reads `last_read_timestamp` or sends anything when a thread
-opens, so there's no mark-read call to borrow
-([API.md](API.md#chats-dont-mark-read-from-here)).
+opens, so there was no mark-read call to borrow. webyak found one by probe on
+2026-09-28, `POST /v1/chats/read` with `{chat_id, timestamp}`, and sends it when
+a thread opens: a deliberate step past offsides, whose chats stayed unread in
+the official app ([API.md](API.md#marking-a-chat-read)).

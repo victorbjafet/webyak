@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, View } from 'react-native';
 
+import { useChatReadSync } from '@/api/chat-read-sync';
 import { useDMThreads } from '@/api/queries';
 import { isGroupChat, isUnreadThread, type DirectThread } from '@/api/types';
 import { Screen } from '@/components/screen';
@@ -35,8 +36,10 @@ const FILTERS: { value: Filter; label: string }[] = [
  *
  * So: one query, one list, and a filter for when you want only one kind.
  *
- * Unread counts this device's own read marks as well as the server's, because
- * opening a thread here doesn't move the server's (src/lib/chat-reads.ts).
+ * Unread counts this device's own read marks as well as the server's. Reading
+ * a chat, or *Mark all read*, writes the local mark, which clears it at once;
+ * `useChatReadSync` then tells the server (src/lib/chat-reads.ts,
+ * src/api/chat-read-sync.ts).
  */
 export default function ChatsScreen() {
   const theme = useTheme();
@@ -45,6 +48,7 @@ export default function ChatsScreen() {
   const threads = useDMThreads();
   const [filter, setFilter] = useState<Filter>('all');
   const reads = useChatReads();
+  useChatReadSync(threads.data);
 
   const unread = useMemo(
     () => (threads.data ?? []).filter((t) => isUnreadThread(t, reads.get(t.id))),

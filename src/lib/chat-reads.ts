@@ -6,21 +6,20 @@ import { cacheStorage } from './storage';
 /**
  * How far this device has read each chat.
  *
- * Opening a thread in webyak does not mark it read on the server.
- * `last_read_timestamp` only moves when the official app reads the chat, and
- * no call that moves it from here is known: sidechat.js, offsides and the
- * official web client have none. Finding one is PLAN Q19
- * (docs/API.md#chats-dont-mark-read-from-here). So webyak keeps its own mark
- * per chat, and a chat is unread only when something arrived after both.
+ * Opening a thread, or *Mark all read* on Chats, writes a mark here first, and
+ * the UI reads it, so a chat clears the moment it's read. The server hears
+ * next: `useChatReadSync` (src/api/chat-read-sync.ts) sends it each mark it
+ * doesn't have yet, and the official app agrees
+ * (docs/API.md#marking-a-chat-read). Until 2026-09-28 that call wasn't known,
+ * and these marks were all there was.
  *
- * Per-device, like the For You unread filter: a chat read here is read here,
- * and still unread in the official app. Once Q19 finds the route, the places
- * that write these marks send it too.
+ * A chat is unread only when something arrived after both this mark and the
+ * server's, so one the server refused still reads as read here.
  *
  * A mark is the chat's own `updated_at` when it was read, never this device's
- * clock, so a clock running fast can't swallow a message. Marks are kept per
- * account too, since friends at one school share its group chats
- * (src/lib/account-scope.ts).
+ * clock, so a clock running fast can't swallow a message. That also makes it
+ * the right value to send. Marks are kept per account too, since friends at
+ * one school share its group chats (src/lib/account-scope.ts).
  */
 
 const STORAGE_KEY = 'webyak.chatReads';

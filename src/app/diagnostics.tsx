@@ -4,7 +4,6 @@ import { StyleSheet, View } from 'react-native';
 
 import {
   runAllProbes,
-  runChatReadProbe,
   runLengthProbes,
   SAMPLE_GROUP_ID,
   type ProbeResult,
@@ -33,8 +32,7 @@ export default function DiagnosticsScreen() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirmingLengths, setConfirmingLengths] = useState(false);
-  const [confirmingChatRead, setConfirmingChatRead] = useState(false);
-  const { userId, primaryGroup, deviceId } = useSession();
+  const { userId, primaryGroup } = useSession();
   // Your own community when the session knows it: posting where you are not a
   // member would be refused for that, and read as a length limit.
   const home = primaryGroup && !isForYouFeed(primaryGroup) ? primaryGroup : null;
@@ -68,17 +66,6 @@ export default function DiagnosticsScreen() {
       setBusy(false);
     }
   }, [lengthGroupId, userId]);
-
-  const runChatReadProbeNow = useCallback(async () => {
-    setConfirmingChatRead(false);
-    setBusy(true);
-    setCopied(false);
-    try {
-      setResults(await runChatReadProbe(deviceId));
-    } finally {
-      setBusy(false);
-    }
-  }, [deviceId]);
 
   const copy = useCallback(async () => {
     if (!results) return;
@@ -142,35 +129,6 @@ export default function DiagnosticsScreen() {
           />
         </View>
       </View>
-
-      <View
-        style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <ThemedText type="bodyBold">Chat read state</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          Writes. Opening a chat here doesn&rsquo;t mark it read on the server, so it stays unread
-          in the official app. The first run found the route — POST /v1/chats/read — but not what
-          it wants. This sends it fourteen different bodies for one unread chat, reports the
-          server&rsquo;s own error for each, and stops at the first that marks the chat read. Have
-          an unread chat first — one the official app hasn&rsquo;t opened.
-        </ThemedText>
-        <View style={styles.actions}>
-          <Button
-            label="Run chat read probe"
-            variant="secondary"
-            onPress={() => setConfirmingChatRead(true)}
-            disabled={busy}
-          />
-        </View>
-      </View>
-
-      <ConfirmDialog
-        visible={confirmingChatRead}
-        title="Try marking a chat read?"
-        body="This sends up to fourteen guesses at what the mark-read request wants, for one unread chat. If one works, that chat is read — in the official app too. Nothing is sent to anyone, and no message is posted."
-        confirmLabel="Run it"
-        onCancel={() => setConfirmingChatRead(false)}
-        onConfirm={runChatReadProbeNow}
-      />
 
       <ConfirmDialog
         visible={confirmingLengths}

@@ -29,6 +29,7 @@ import type { DirectThread, GroupChat, JoinChatIdentity } from './types';
  * | List threads | `GET /v1/chats` → `{chats: [{chat}], cursor}` |
  * | One thread | `GET /v1/chats/messages?chat_id=` → `{chat}` |
  * | Send | `POST /v1/chats/send` |
+ * | Mark read | `POST /v1/chats/read` — found by probe, in no library |
  * | Start | `POST /v1/chats/start` |
  * | Explore group chats | `GET /v1/chats/explore` → `{chats}` |
  * | Join a group chat | `POST /v1/chats/groups/join` |
@@ -124,6 +125,20 @@ export async function sendDM(
     anonymous,
     assets: [],
   });
+}
+
+/**
+ * Marks a chat read on the server, up to `timestamp`: the chat's own
+ * `updated_at` when it was read, the kind of value the probe sent.
+ *
+ * Found by probe on 2026-09-28, since no client has it
+ * (docs/API.md#marking-a-chat-read). Without `timestamp` the server fails a
+ * database condition whose one value is missing, so the timestamp is what that
+ * condition checks. Answers `200 {}`. Called through `useChatReadSync`
+ * (src/api/chat-read-sync.ts), never straight from a screen.
+ */
+export async function markChatRead(chatId: string, timestamp: string) {
+  return request<unknown>('/v1/chats/read', 'POST', { chat_id: chatId, timestamp });
 }
 
 /**

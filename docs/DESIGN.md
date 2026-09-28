@@ -263,7 +263,9 @@ Sort tabs live in the header rather than scrolling with the posts, so switching
 sort never requires scrolling back up. `Screen` takes `leading`, `headerBelow`
 and `action` slots for exactly this, `titleContent` for a title that is itself a
 control (the home feed's community switcher), and `titleAccessory` for small print
-on the title's own line: Settings' version and its *View source* link to GitHub.
+at the right end of the title's line: Settings' version, then its *View source*
+link to GitHub, outlined like a ghost button. Below about 370px the pair wraps
+under the title, still at the right.
 
 ## Explore is three tabs
 
@@ -309,12 +311,11 @@ Built 2026-09-27; what the API gives it is in
 
 - **Opening a thread marks it read, and so does *Mark all read* on the list.**
   Reading a chat is exactly what the official app treats as read, unlike alerts.
-- **The mark is this device's for now.** The server's read mark only moves when
-  the official app reads the chat, and the call that moves it hasn't been found
-  (PLAN Q19). So webyak records its own mark, and a chat reads as unread only
-  when something arrived after both. The official app still shows a chat read
-  here as unread until Q19 is answered
-  ([API.md](API.md#chats-dont-mark-read-from-here)).
+- **Read here is read everywhere.** webyak marks the chat on this device first,
+  so it clears the moment it's opened, then tells the server, so the official
+  app shows it read too ([API.md](API.md#marking-a-chat-read)). A chat is
+  unread only when something arrived after both marks, so one the server
+  refuses still reads as read here.
 - *Mark all read* sits in the header's action slot, as it does on Alerts, and
   appears only while something is unread.
 

@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { useChatReadSync } from '@/api/chat-read-sync';
 import { useSendDM } from '@/api/mutations';
 import { useDMThread, useDMThreads, usePost } from '@/api/queries';
 import { isComment, isGroupChat, isSystemMessage, type DirectMessage } from '@/api/types';
@@ -70,10 +71,12 @@ export default function ChatThreadScreen() {
   const openTarget = sourceIsComment ? parent.data : source.data;
 
   /*
-    Opening a thread is reading it. The server isn't told — no route that moves
-    its read mark is known (PLAN Q19) — so this marks it read on this device, up
-    to the newest thing either copy of the thread has seen, and again whenever
-    a poll brings in more while it's open (src/lib/chat-reads.ts).
+    Opening a thread is reading it: marked read on this device at once, up to
+    the newest thing either copy of the thread has seen, and again whenever a
+    poll brings in more while it's open (src/lib/chat-reads.ts). The sync then
+    sends the server that mark, so the official app agrees
+    (src/api/chat-read-sync.ts). It runs here too, for a thread opened straight
+    from a link, with no list behind it.
   */
   const readUpTo = latestOf([
     chat?.updated_at,
@@ -83,6 +86,7 @@ export default function ChatThreadScreen() {
   useEffect(() => {
     if (id && readUpTo) markChatsRead([{ id, at: readUpTo }]);
   }, [id, readUpTo]);
+  useChatReadSync(chat ? [chat] : undefined);
 
   // Newest at the bottom, so a new message should bring itself into view. Keyed
   // on the count rather than the array so a poll returning the same messages

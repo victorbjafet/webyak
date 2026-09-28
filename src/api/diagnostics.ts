@@ -8,7 +8,8 @@
  * is answered and the answer is in `docs/API.md`, re-running it only produces
  * output nobody reads — and a long report makes the two results that matter
  * easy to miss. Twelve settled probes were retired on 2026-09-11 for that
- * reason, and seven more on 2026-09-27; their answers live in the docs
+ * reason, seven more on 2026-09-27, and the chat read probe on 2026-09-28;
+ * their answers live in the docs
  * (docs/API.md#probes-what-is-still-asked-and-what-was-retired), not here.
  *
  * ## Two rules, both learned the hard way
@@ -29,11 +30,9 @@
  * | `probeAuth` | control — is the token live at all? |
  * | `probeActivity` | alert types with no label yet, what `takedown_data` holds, whose post each type opens (PLAN Q14) |
  * | `probePostLength`, `probeBioLength` | what length does the server enforce? (PLAN Q11) |
- * | `probeChatRead` | what body does `POST /v1/chats/read` want? (PLAN Q19) |
  *
- * The length probes **write** — they post and edit your bio, undoing both — and
- * `probeChatRead` can mark one chat read. Each has its own button behind a
- * confirm.
+ * The length probes **write** — they post and edit your bio, undoing both — so
+ * they have their own button behind a confirm.
  */
 
 import { ACTIVITY_TYPES } from './activity';
@@ -424,163 +423,4 @@ export async function runLengthProbes(groupId: string, userId: string | null): P
         detail: 'Not signed in.',
       };
   return [posts, bio];
-}
-
-/* ------------------------------------------------------------------------ *
- * Chats — the body `POST /v1/chats/read` wants (PLAN Q19)
- * ------------------------------------------------------------------------ */
-
-interface ChatUnderTest {
-  id: string;
-  updatedAt?: string;
-  latestMessageId?: string;
-  deviceId?: string;
-}
-
-/**
- * Bodies to try. The first sweep (2026-09-27) sent twelve candidate routes:
- * ten answered `404` exactly like the nonsense control, and
- * `POST /v1/chats/read` answered `500` to both `{chat_id}` and
- * `{chat_id, message_id}`. So the route is real and the body is wrong. An empty
- * body goes first, because the error for "nothing at all" is the likeliest to
- * name the field it misses.
- */
-const CHAT_READ_BODIES: { label: string; path?: (id: string) => string; body: (c: ChatUnderTest) => Raw }[] = [
-  { label: '{}', body: () => ({}) },
-  { label: '{chat_id}', body: (c) => ({ chat_id: c.id }) },
-  { label: '{chat_id, message_id}', body: (c) => ({ chat_id: c.id, message_id: c.latestMessageId }) },
-  { label: '{chat_id, last_message_id}', body: (c) => ({ chat_id: c.id, last_message_id: c.latestMessageId }) },
-  { label: '{chat_id, last_read_message_id}', body: (c) => ({ chat_id: c.id, last_read_message_id: c.latestMessageId }) },
-  { label: '{chat_id, message_ids}', body: (c) => ({ chat_id: c.id, message_ids: [c.latestMessageId] }) },
-  { label: '{chat_id, last_read_timestamp}', body: (c) => ({ chat_id: c.id, last_read_timestamp: c.updatedAt }) },
-  { label: '{chat_id, timestamp}', body: (c) => ({ chat_id: c.id, timestamp: c.updatedAt }) },
-  { label: '{chat_id, client_id}', body: (c) => ({ chat_id: c.id, client_id: c.deviceId }) },
-  { label: '{chat_ids}', body: (c) => ({ chat_ids: [c.id] }) },
-  { label: '{ids}', body: (c) => ({ ids: [c.id] }) },
-  { label: '{id}', body: (c) => ({ id: c.id }) },
-  { label: '?chat_id= and {}', path: (id) => `/v1/chats/read?chat_id=${encodeURIComponent(id)}`, body: () => ({}) },
-  {
-    label: '{chat_id} without its -v2 suffix',
-    body: (c) => ({ chat_id: c.id.replace(/-v2$/, '') }),
-  },
-];
-
-/**
- * What a response said, in a form safe to paste: a 2xx by shape, an error by
- * the server's own `error_code` and `message`, with ids masked.
- */
-async function describeResponse(res: Response, hide: (text: string) => string) {
-  const text = await res.text().catch(() => '');
-  if (!text) return 'empty body';
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    return `${text.length} chars, not JSON`;
-  }
-  if (res.ok) return `json ${fieldShapes(json)}`;
-  const body = (json ?? {}) as Raw;
-  const said = [body.error_code, body.message, body.error]
-    .filter((part): part is string => typeof part === 'string' && part.length > 0)
-    .map((part) => hide(part).replace(UUID_ANYWHERE, '<uuid>').slice(0, 160));
-  return said.length ? `"${said.join(' — ')}"` : `json ${fieldShapes(json)}`;
-}
-
-/**
- * What body does `POST /v1/chats/read` want?
- *
- * Opening a thread in webyak doesn't mark it read on the server, so a chat read
- * here stays unread in the official app (webyak keeps its own mark meanwhile,
- * src/lib/chat-reads.ts). This sends each body to the one route known to be
- * real, for one chat the server has unread, and re-reads the list after each.
- * The right body is the one after which that chat's `last_read_timestamp`
- * moves. It stops there.
- *
- * Writes: it can mark one chat read, which is what webyak wants to do anyway.
- * Ids are masked in everything it reports; error messages are the server's own
- * words, which is the point of this round.
- */
-async function probeChatRead(deviceId: string | null): Promise<ProbeResult> {
-  const base = {
-    id: 'chat-read',
-    label: 'Chats — what POST /v1/chats/read wants',
-    question: 'Which body makes POST /v1/chats/read mark a chat read on the server? (PLAN Q19)',
-  };
-  const steps: string[] = [];
-  const chats = async () =>
-    ((await request<{ chats?: unknown[] }>('/v1/chats'))?.chats ?? []).map(
-      (entry) => ((entry as { chat?: unknown })?.chat ?? entry) as Raw,
-    );
-  const lastRead = (chat: Raw | undefined) =>
-    typeof chat?.last_read_timestamp === 'string' ? chat.last_read_timestamp : null;
-  const unreadOnServer = (chat: Raw) =>
-    typeof chat.updated_at === 'string' &&
-    (!lastRead(chat) || Date.parse(chat.updated_at) > Date.parse(lastRead(chat) as string));
-
-  try {
-    const all = (await chats()).filter((chat) => typeof chat.id === 'string');
-    const target = all.find(unreadOnServer);
-    if (!target) {
-      return {
-        ...base,
-        status: 'partial',
-        detail:
-          "No chat is unread on the server, so there is nothing whose read mark could visibly move. Wait for a new message — one the official app hasn't opened — and run it again.",
-        evidence: `/v1/chats → ${all.length} chat(s), none unread by last_read_timestamp`,
-      };
-    }
-    const messages = (Array.isArray(target.messages) ? target.messages : []) as Raw[];
-    const latest = [...messages]
-      .filter((m) => typeof m.id === 'string' && typeof m.created_at === 'string')
-      .sort((a, b) => Date.parse(b.created_at as string) - Date.parse(a.created_at as string))[0];
-    const chat: ChatUnderTest = {
-      id: target.id as string,
-      updatedAt: typeof target.updated_at === 'string' ? target.updated_at : undefined,
-      latestMessageId: typeof latest?.id === 'string' ? latest.id : undefined,
-      deviceId: deviceId ?? undefined,
-    };
-    const hide = (text: string) => text.split(chat.id).join('<chat_id>');
-    const before = lastRead(target);
-    steps.push(
-      `/v1/chats → ${all.length} chat(s), ${all.filter(unreadOnServer).length} unread by the server's mark. Testing one of those: a ${target.type === 'group' || target.name ? 'group chat' : 'DM'}, id ${/-v2$/.test(chat.id) ? 'ending -v2' : 'without a suffix'}, ${messages.length} message(s) inlined`,
-    );
-
-    let found: string | null = null;
-    for (const candidate of CHAT_READ_BODIES) {
-      const path = candidate.path?.(chat.id) ?? '/v1/chats/read';
-      try {
-        const res = await api.sendRequest(path, 'POST', JSON.stringify(candidate.body(chat)));
-        const said = await describeResponse(res, hide);
-        await pause(600);
-        const after = lastRead((await chats()).find((c) => c.id === chat.id));
-        const moved = after !== before;
-        steps.push(`${candidate.label} → ${res.status}, ${said}${moved ? '  ✓ last_read_timestamp MOVED' : ''}`);
-        if (moved) {
-          found = candidate.label;
-          break;
-        }
-      } catch (e) {
-        steps.push(`${candidate.label} → error: ${e instanceof Error ? hide(e.message) : String(e)}`);
-      }
-    }
-
-    return {
-      ...base,
-      status: found ? 'pass' : 'fail',
-      detail: found
-        ? `POST /v1/chats/read with ${found} marks a chat read on the server. webyak can send it on open and for Mark all read, and the official app will agree.`
-        : `None of ${CHAT_READ_BODIES.length} bodies moved last_read_timestamp. The server's error messages above are the next clue; failing that, a capture of the official app's traffic.`,
-      evidence: steps.join('\n'),
-    };
-  } catch (e) {
-    return fail(base, e);
-  }
-}
-
-/**
- * Separate from the read-only run because it writes: it can mark one chat
- * read, in the official app too.
- */
-export async function runChatReadProbe(deviceId: string | null): Promise<ProbeResult[]> {
-  return [await probeChatRead(deviceId)];
 }

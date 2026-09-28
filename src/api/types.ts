@@ -308,9 +308,10 @@ export interface DirectThread {
   type?: string;
   updated_at: string;
   /**
-   * When you last read it — in the official app. Opening a thread here doesn't
-   * move it (PLAN Q19), so `isUnreadThread` also takes this device's own mark.
-   * There is no `unread_count` on this payload.
+   * When you last read it, in any app. webyak moves it with
+   * `POST /v1/chats/read` a moment after a chat is read here
+   * (src/api/chat-read-sync.ts); `isUnreadThread` also takes this device's own
+   * mark, which is there at once. There is no `unread_count` on this payload.
    */
   last_read_timestamp?: string;
   /** Inlined by the list endpoint, so previews need no extra request. */
@@ -379,8 +380,9 @@ export function isComment(item: { type?: string; parent_post_id?: string }): boo
 
 /**
  * Unread when something arrived after you last read it, by either measure:
- * the server's `last_read_timestamp`, which only the official app moves, or
- * `readAt`, this device's own mark (src/lib/chat-reads.ts).
+ * the server's `last_read_timestamp`, or `readAt`, this device's own mark
+ * (src/lib/chat-reads.ts). The local one is there the moment a chat is read;
+ * the server's follows once it has been told.
  */
 export function isUnreadThread(thread: DirectThread, readAt?: string): boolean {
   if (!thread.updated_at) return false;

@@ -17,9 +17,9 @@ interface ScreenProps {
    */
   titleContent?: React.ReactNode;
   /**
-   * Small print on the title's line, right after it — Settings' version and
-   * source link. Wraps under the title when the line runs out. Ignored when
-   * `titleContent` replaces the title.
+   * Small print at the right end of the title's line — Settings' version and
+   * source link. When the line runs out it wraps under the title, still at the
+   * right. Ignored when `titleContent` replaces the title.
    */
   titleAccessory?: React.ReactNode;
   subtitle?: string;
@@ -97,7 +97,7 @@ export function Screen({
           (titleText && titleAccessory ? (
             <View style={styles.titleLine}>
               {titleText}
-              {titleAccessory}
+              <View style={styles.titleAccessory}>{titleAccessory}</View>
             </View>
           ) : (
             titleText
@@ -166,16 +166,22 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: Spacing.half,
   },
-  // Baseline, so the small print sits on the title's line rather than
-  // centred against its taller box.
+  // Centred, like the header's other controls: the accessory holds a bordered
+  // link, and a box set on the title's baseline hangs below it.
   titleLine: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    alignItems: 'baseline',
+    alignItems: 'center',
     columnGap: Spacing.two,
+    rowGap: Spacing.one,
   },
   titleBeside: {
     flexShrink: 1,
+  },
+  // The auto margin takes the line's spare room, so the accessory sits at the
+  // right end, on the title's line or wrapped onto its own.
+  titleAccessory: {
+    marginLeft: 'auto',
   },
   back: {
     width: 36,

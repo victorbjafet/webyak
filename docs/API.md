@@ -1359,7 +1359,8 @@ Consequences:
   "joinable but not openable" limitation was an artefact of the wrapper, not a
   missing endpoint.
 - **Unread state is `updated_at > last_read_timestamp`.** There is no
-  `unread_count` on this payload.
+  `unread_count` on this payload. webyak moves the mark itself
+  ([marking a chat read](#marking-a-chat-read)).
 - **Group-chat messages carry an `identity`** — `{display_name, emoji, color,
   secondary_color}` — so senders are attributable. DM messages don't, being
   anonymous unless the sender chose otherwise.
@@ -1498,45 +1499,61 @@ offsides never got here: it has no group-chat path and its `leaveChat` is a stub
 marked *"Waiting for sidechat.js implementation."*
 
 
-### Chats don't mark read from here
+### Marking a chat read
 
-**Confirmed by the owner, 2026-09-27: opening a chat in webyak leaves it
-unread.** `last_read_timestamp` only moves when the official app reads the
-chat, and webyak never sends anything that moves it. Fetching the thread,
-`GET /v1/chats/messages?chat_id=`, isn't enough.
+**`POST /v1/chats/read` with `{chat_id, timestamp}` answers `200 {}` and moves
+the chat's `last_read_timestamp`** (found 2026-09-28). webyak sends it when a
+thread is opened and for *Mark all read*, so the official app shows those chats
+read too. No client had the call: sidechat.js has no chat read method, offsides
+has no read handling at all, and web.yikyak.com is a read-only public viewer
+with no chats. Fetching the thread, `GET /v1/chats/messages?chat_id=`, marks
+nothing, with or without `&mark_read=true`.
 
-No client shows the call. sidechat.js has no chat read method, offsides has no
-read handling at all, and the official web client is no help:
-web.yikyak.com is a read-only public viewer whose bundle calls only
-`/api/publicGroups`, `/api/home/posts` and `/api/groups/…`. It has no chats.
+`timestamp` is how far the chat has been read. webyak sends the chat's own
+`updated_at` as the server gave it, or a newer message's `created_at` if one
+has arrived since, and never this device's clock
+([src/lib/chat-reads.ts](../src/lib/chat-reads.ts)).
 
-**The first sweep, 2026-09-27, found the route but not its body.** Twelve
-candidates were sent for one chat the server has unread, each followed by a
-re-read of the list, against a nonsense control:
+**How it was found:** two probe runs, on 2026-09-27 and 2026-09-28. Each picked
+one chat the server had unread, and re-read the list after every request,
+next to a nonsense control:
 
 | Request | Answer |
 |---|---|
 | control, `POST /v1/chats/webyak-control-…` | `404 {error}` |
 | `POST` `/v1/chats/seen` (twice, two bodies), `/v1/chats/mark_read`, `/v1/chats/messages/seen`, `/v1/chats/messages/read`, `/v1/chats/last_read`, `/v1/chats/update`, `/v1/chats/<id>/read`; `PATCH /v1/chats/<id>` | `404 {error}`, byte-identical to the control: **not routes** |
-| **`POST /v1/chats/read`** with `{chat_id}`, and with `{chat_id, message_id}` | **`500 {error_code, message}`**: a real route, refusing the body |
 | `GET /v1/chats/messages?chat_id=&mark_read=true` | `200`, the thread, and nothing moved |
+| `POST /v1/chats/read` with `{}` | `500`, a `TypeError`: *"Cannot read properties of undefined (reading 'endsWith')"* |
+| … with `{chat_id}`, or `chat_id` plus any of `message_id`, `last_message_id`, `last_read_message_id`, `message_ids`, `last_read_timestamp` | `500`, a `ValidationException`: *"Invalid ConditionExpression: An expression attribute value used in expression is not defined; attribute value: :0"* |
+| **… with `{chat_id, timestamp}`** | **`200 {}`, and `last_read_timestamp` moved** |
 
 The catch-all differs by method: a `GET` under `/v1/chats/` answers `200` with
-an empty body, a `POST` answers `404`. So a `500` where the control got `404`
-is the tell.
+an empty body, and a `POST` answers `404`. So a `500` where the control got a
+`404` was the sign that `/v1/chats/read` was real.
 
-**Now:** the same probe sends `POST /v1/chats/read` fourteen body shapes, the
-empty one first, since the error for "nothing at all" is the likeliest to name
-the field it wants. It reports the server's own `error_code` and `message` with
-ids masked, and stops at the first body after which `last_read_timestamp`
-moves.
+What the two errors gave away:
 
-**Until then, webyak keeps its own marks**
-([src/lib/chat-reads.ts](../src/lib/chat-reads.ts)). Opening a thread, or
-*Mark all read* on Chats, records the chat's `updated_at` on this device, and a
-chat is unread only if something arrived after both marks. It's per-device: a
-chat read here is still unread in the official app. The server call joins the
-same two places once Q19 finds it.
+- **The server reads `chat_id` first, as a string**, calling `.endsWith(…)` on
+  it. Group chat ids end in `-v2`, so it most likely checks for that suffix to
+  tell group chats from DMs.
+- **`timestamp` is the value in a database condition.** `:0` is the first value
+  a DynamoDB condition refers to, and it went missing exactly when `timestamp`
+  did, whatever else was sent. The condition most likely stops a mark moving
+  backwards. That's untested, but webyak never sends a mark older than the
+  server's anyway.
+
+**Tested on a group chat. DMs are inferred.** The probe's chat was a group
+chat, and DMs are sent the same body. The `endsWith` check suggests one handler
+serves both kinds. PLAN.md §1 asks the owner to confirm on a DM.
+
+**How webyak sends it**
+([src/api/chat-read-sync.ts](../src/api/chat-read-sync.ts)): opening a thread,
+or *Mark all read*, writes a mark on this device first, and the UI reads that,
+so a chat clears at once. The sync then sends each mark the server doesn't have
+yet, one request at a time. Each mark is tried once per page load, taken or
+refused, so a refusal isn't repeated on every poll. A refused chat stays read
+here and is tried again on the next load. Marks made before the call was known
+go out the first time the list loads.
 
 
 ## Probes: what is still asked, and what was retired
@@ -1546,13 +1563,15 @@ same two places once Q19 finds it.
 down here, re-running it produces output nobody reads and buries the one or two
 results that still matter.
 
-**Still asked, as of 2026-09-27** — the list at the top of
+**Still asked, as of 2026-09-28** — the list at the top of
 [src/api/diagnostics.ts](../src/api/diagnostics.ts):
 
 - The token control.
 - **Alerts — unmapped types and fields** ([Q14](#the-activity-feed-alerts)).
 - The length probes (PLAN Q11).
-- **Chats — what `POST /v1/chats/read` wants** ([Q19](#chats-dont-mark-read-from-here)).
+
+**Retired on 2026-09-28:** the chat read probe, once its second run found the
+body ([marking a chat read](#marking-a-chat-read)).
 
 **Retired on 2026-09-27**, seven of them:
 
