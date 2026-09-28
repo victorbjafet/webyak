@@ -156,7 +156,7 @@ src/
 | 10 | Delete own content | `deletePostOrComment` | |
 | 11 | Polls | `voteOnPoll`, `viewPollResults` | |
 | 12 | Image upload | `uploadAssetWeb` | ✅ web. ⛔ native needs `expo-image-picker` |
-| 13 | Group asset library | `getAssetLibrary` | stickers/memes per group |
+| 13 | Asset library | `getAssetLibrary` | **Probed 2026-09-28: one shared stock library**, 4,526+ items, not per group, not your uploads ([API.md](docs/API.md#the-asset-library-sidechats-stock-images-not-yours)) |
 | 14 | Explore groups | `getAvailableGroups`, `searchAvailableGroups` | `onePage` toggles via `App-Version: 0` |
 | 15 | Group metadata | `getGroupMetadata` | |
 | 16 | Join / leave group | `setGroupMembership` | |

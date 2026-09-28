@@ -1064,6 +1064,28 @@ One thing settled that had been an open assumption: **`createPost` returns an
 `index_code`** on the new post (observed: `eVYkniqy`). New posts are therefore
 shareable immediately, with no refetch needed to get a URL.
 
+### The asset library: Sidechat's stock images, not yours
+
+**Probed 2026-09-28** (read-only, *Sticker library — what is it?*).
+`GET /v1/assets/library` → `{items, cursor}`. The first page alone held
+**4,526 items**, and a 152-character cursor says there is more. None names a
+community, and the newest was 613 days old, the oldest over four years. So it
+is **one shared, long-unchanged stock library**, not per-community stickers
+(the parity matrix's guess) and not your own uploads.
+
+- **Items:** `{id, created_at, url, metadata: {type, content_type, width,
+  height}, sorting_priority?, thumbnail_asset?}`. `metadata` was `image/jpeg`
+  ×4,264, `video/mov` ×223, `image/gif` ×39.
+- **`thumbnail_asset`** is on some items (the videos, going by type):
+  `{id, type, url, width, height}`.
+- **`sorting_priority`** is an optional number, 212 distinct values.
+- **URLs are `/v1/assets/library/<uuid>`**, the same form an upload returns,
+  so they need the bearer (`AuthedImage`), and an item is plausibly attachable
+  to a post by its `id` exactly as an uploaded asset is. **Unverified**: that
+  takes creating a post.
+- Groups carry `asset_library_visibility: "show" | "hide"`, presumably whether
+  the composer offers the library there.
+
 ### Hiding a user's posts
 
 **Built 2026-09-28 on the library's word; unobserved.** sidechat.js 2.6.2 added

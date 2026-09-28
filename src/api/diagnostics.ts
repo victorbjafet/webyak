@@ -326,8 +326,72 @@ async function probeActivity(): Promise<ProbeResult> {
   }
 }
 
+/**
+ * What is in `/v1/assets/library`? sidechat.js calls it "the entire
+ * accessible asset library", a ~1.5 MB download, and PLAN's parity matrix
+ * guessed per-community stickers. Its items' URLs have the same
+ * `/v1/assets/library/<id>` form an upload returns, so it may instead be
+ * **your own uploaded images**. That decides whether the composer can attach
+ * from it without the Worker (PLAN, "the community sticker library").
+ *
+ * Read-only. Counts, keys and types only; no URLs, ids or dates.
+ */
+async function probeAssetLibrary(): Promise<ProbeResult> {
+  const base = {
+    id: 'asset-library',
+    label: 'Sticker library — what is it?',
+    question: 'Is /v1/assets/library community stickers, or your own uploads? What shape are its items?',
+  };
+  try {
+    const json = await request<Raw>('/v1/assets/library');
+    const items = rawItems(json);
+    const keys = new Set<string>();
+    const types = new Map<string, number>();
+    const urlShapes = new Set<string>();
+    let withGroup = 0;
+    let oldest = Infinity;
+    let newest = -Infinity;
+    for (const item of items) {
+      for (const key of Object.keys(item)) keys.add(key);
+      const meta = (item.metadata ?? {}) as Raw;
+      const type = `${String(meta.type)}/${String(meta.content_type)}`;
+      types.set(type, (types.get(type) ?? 0) + 1);
+      if (typeof item.url === 'string') {
+        urlShapes.add(idShape(item.url.replace(/\?.*$/, '')).replace(/^https:\/\/[^/]+/, ''));
+      }
+      if (item.group_id || item.group_ids || item.group) withGroup += 1;
+      const at = typeof item.created_at === 'string' ? Date.parse(item.created_at) : NaN;
+      if (Number.isFinite(at)) {
+        oldest = Math.min(oldest, at);
+        newest = Math.max(newest, at);
+      }
+    }
+    const days = (ms: number) => Math.round((Date.now() - ms) / 86_400_000);
+    const topKeys = Object.keys(json ?? {}).sort();
+    return {
+      ...base,
+      status: items.length ? 'pass' : 'partial',
+      detail: items.length
+        ? `${items.length} item(s)${withGroup ? `, ${withGroup} naming a community` : ', none naming a community'}. Newest ${days(newest)} day(s) old, oldest ${days(oldest)}.`
+        : 'The library came back empty.',
+      evidence: [
+        `envelope keys [${topKeys.join(', ')}]`,
+        `item keys [${[...keys].sort().join(', ')}]`,
+        `metadata type/content_type: ${[...types].map(([t, n]) => `${t} ×${n}`).join(', ')}`,
+        `url paths: ${[...urlShapes].slice(0, 4).join(' | ')}`,
+        `cursor: ${shape((json ?? {}).cursor)}`,
+        `thumbnail_asset: ${[...new Set(items.slice(0, 50).map((i) => fieldShapes(i.thumbnail_asset)))].join(' | ')}`,
+        `thumbnail url paths: ${[...new Set(items.slice(0, 50).map((i) => { const u = (i.thumbnail_asset as Raw | undefined)?.url; return typeof u === 'string' ? idShape(u.replace(/\?.*$/, '')).replace(/^https:\/\/[^/]+/, '') : shape(u); }))].join(' | ')}`,
+        `sorting_priority: ${[...new Set(items.slice(0, 50).map((i) => typeof i.sorting_priority))].join(', ')}, ${new Set(items.map((i) => i.sorting_priority)).size} distinct`,
+      ].join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
-  return [await probeAuth(), await probeActivity()];
+  return [await probeAuth(), await probeActivity(), await probeAssetLibrary()];
 }
 
 /* ------------------------------------------------------------------------ *
