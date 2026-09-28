@@ -753,7 +753,8 @@ and comment it sees** — effectively a Yik Yak downloader
       cache left: the archive already keeps every post readable offline, and
       the query persister was removed on purpose
       ([ARCHITECTURE.md](docs/ARCHITECTURE.md#why-indexeddb-and-why-the-persister-had-to-go))
-- [ ] PWA manifest + service worker
+- [x] PWA manifest + service worker (2026-09-28): installable, offline shell,
+      never caches another origin ([ARCHITECTURE.md](docs/ARCHITECTURE.md#installable-and-an-offline-shell))
 - [x] Redirect real Yik Yak URLs (`/cy/<group>/comments/<code>/<slug>`) to `/p/<code>`,
       and `/cy/<group>` to `/g/<group>` (2026-09-28)
 

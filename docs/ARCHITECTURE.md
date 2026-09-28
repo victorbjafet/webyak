@@ -180,6 +180,42 @@ already in place and inert, so enabling it is config plus one call.
 Full spec, verified request/response shapes, and the wiring steps:
 **[docs/WORKER.md](WORKER.md)**.
 
+## Installable, and an offline shell
+
+**Added 2026-09-28** (Phase 7). webyak installs as an app (Add to Home Screen,
+or the browser's install button) and opens without a network. Three files in
+`public/`, which the export copies to the site root:
+
+- **`manifest.json`** and `icon-192.png` / `icon-512.png` (from
+  `assets/images/icon.png`). `display: standalone`, black theme and background
+  to match the dark default.
+- **`index.html`**, Expo's template for `web.output: "single"`, plus the
+  manifest link, the iOS meta tags, and the worker's registration. Expo still
+  injects its CSS and script into it.
+- **`sw.js`**, hand-written and deliberately narrow:
+  - **It never touches another origin.** No API response, image, video or
+    token is ever cached by it. The archive (IndexedDB) is what keeps posts
+    readable offline; this only keeps the app itself loadable.
+  - Page loads are **network first**, so a deploy is picked up as soon as
+    it's online; offline, the last shell that loaded is served for any path,
+    which the router then resolves.
+  - `/_expo/static/` is **cache first**: those names carry a content hash.
+    Old ones are dropped when the cache version changes.
+
+**It only registers on a built bundle.** The registration checks for a script
+under `/_expo/static/js/`, which the dev server's bundle isn't. A worker in dev
+would serve a stale bundle and break hot reload, so `localhost:8081` never gets
+one.
+
+Checked on 2026-09-28 against a scratch export: the worker took control, the
+cache held the shell, bundle, CSS and icons and nothing else, API requests
+still went out, and with the static server stopped a deep link to `/me` still
+loaded.
+
+**To take it out of service**, deploy an `sw.js` that calls
+`self.registration.unregister()`. Browsers check for a new worker on each
+visit, so that removes it everywhere it was installed.
+
 ## Versioning
 
 The version is a date: `yyyy.mm.dd.v`, where `v` counts that day's commits from
