@@ -8,8 +8,9 @@
  * is answered and the answer is in `docs/API.md`, re-running it only produces
  * output nobody reads — and a long report makes the two results that matter
  * easy to miss. Twelve settled probes were retired on 2026-09-11 for that
- * reason, and `probeIncludeDeleted` on 2026-09-27 after one run; their answers
- * live in the docs, not here.
+ * reason, `probeIncludeDeleted` on 2026-09-27 after one run, and `probeMessaging`
+ * the same day once both of its questions were answered; their answers live in
+ * the docs, not here.
  *
  * ## Two rules, both learned the hard way
  *
@@ -27,21 +28,22 @@
  * |---|---|
  * | `probeAuth` | control — is the token live at all? |
  * | `probeShareCode` | Blocker 1: can an `index_code` be resolved without the worker? |
- * | `probeMessaging` | the `message.type` values the system-message heuristic needs; whether `/v1/chats/explore` pages |
  * | `probeVideoPoster` | are video thumbnails reachable, or worker-only? |
  * | `probeImageFailures` | what actually failed to render this page load |
  * | `probeImageUpload` | is there an upload route on the CORS-open host? |
  * | `probeBioSource` | is your bio on `getUpdates().user`, or only on your public profile? (PLAN Q10) |
-| `probeActivity` | the alert types, what each points at, whether the feed pages, and whether marking read sticks (PLAN Q14–Q17) |
+ * | `probeActivity` | alert types with no label yet, what `takedown_data` holds, whose post each type opens (PLAN Q14) |
  * | `probePostLength`, `probeBioLength` | what length does the server enforce? (PLAN Q11) |
+ * | `probeChatRead` | which request marks a chat read on the server? (PLAN Q19) |
  *
- * `probeImageUpload` is not read-only — it requests an upload URL — and the two
- * length probes **write**: they post and edit your bio, undoing both. Each set
- * has its own button behind a confirm. The earlier write round-trip probes were
+ * `probeImageUpload` is not read-only — it requests an upload URL — the two
+ * length probes **write**: they post and edit your bio, undoing both — and
+ * `probeChatRead` marks one chat read. Each set has its own button behind a
+ * confirm. The earlier write round-trip probes were
  * retired once writes were verified against the live app.
  */
 
-import { activityDate, getSeenLog, type ActivityItem } from './activity';
+import { ACTIVITY_TYPES } from './activity';
 import { fetchUserGroups } from './groups';
 import {
   ApiError,
@@ -340,175 +342,6 @@ async function probeImageFailures(): Promise<ProbeResult> {
   };
 }
 
-/* ------------------------------------------------------------------------ *
- * Phase 5b — the You tab and the For You feed
- * ------------------------------------------------------------------------ */
-
-/* ------------------------------------------------------------------------ *
- * Phase 6 — messaging
- * ------------------------------------------------------------------------ */
-
-/**
- * The DM and group-chat surface, and the two gaps in it.
- *
- * Everything in Phase 6 was built against shapes read out of sidechat.js's
- * source rather than observed, because this account may have no threads. This
- * reports what the endpoints actually return, and sweeps for the two routes the
- * UI currently has to apologise for: accepting a message request, and reading a
- * group chat's messages.
- *
- * Read-only — it lists and inspects, and never sends or joins.
- */
-async function probeMessaging(): Promise<ProbeResult> {
-  const base = {
-    id: 'messaging',
-    label: 'Phase 6 — DMs and group chats',
-    question: 'What is inside the chat envelopes, and which /v1/chats routes are real?',
-  };
-  const steps: string[] = [];
-
-  // Round 1 established the envelope: entries are `{chat, cursor}`, not threads.
-  // This unwraps before reporting, so the keys below are the real ones.
-  const inner = (entry: unknown): Record<string, unknown> => {
-    if (!entry || typeof entry !== 'object') return {};
-    const wrapper = entry as { chat?: unknown };
-    return ((wrapper.chat ?? entry) as Record<string, unknown>) ?? {};
-  };
-
-  try {
-    try {
-      const dms = await request<{ chats?: unknown[] }>('/v1/chats');
-      const list = dms?.chats ?? [];
-      steps.push(`/v1/chats → ${list.length} thread(s)`);
-      if (list[0]) {
-        const thread = inner(list[0]);
-        steps.push(`  UNWRAPPED thread keys → ${Object.keys(thread).join(', ')}`);
-        steps.push(`  accept_status values → ${[...new Set(list.map((t) => String(inner(t).accept_status)))].join(', ')}`);
-        const msgs = thread.messages as unknown[] | undefined;
-        steps.push(
-          Array.isArray(msgs) && msgs[0]
-            ? `  message keys → ${Object.keys(msgs[0] as object).join(', ')}`
-            : '  no messages inlined — the list is metadata only, so previews need another source',
-        );
-        // No raw sample. It printed other people's messages, chat names and
-        // ids into a report made to be copied — the leak docs/OPEN-SOURCE.md
-        // is about. The keys and the type values are what this proves.
-
-        // The system-message heuristic (X left the chat) matches on text
-        // because these values have never been dumped. With them it can key on
-        // the field instead — see isSystemMessage in types.ts.
-        const allTypes = new Set<string>();
-        for (const entry of list) {
-          for (const m of (inner(entry).messages as { type?: string }[] | undefined) ?? []) {
-            if (m?.type) allTypes.add(m.type);
-          }
-        }
-        steps.push(`  distinct message.type values → ${[...allTypes].join(', ') || '(none)'}`);
-      }
-    } catch (e) {
-      steps.push(`/v1/chats → FAILED: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    try {
-      const explore = await request<{ chats?: unknown[]; cursor?: string }>('/v1/chats/explore');
-      const list = explore?.chats ?? [];
-      steps.push(`\n/v1/chats/explore → ${list.length} chat(s)`);
-      if (list[0]) steps.push(`  UNWRAPPED chat keys → ${Object.keys(inner(list[0])).join(', ')}`);
-      // Does it page? One request returned exactly 20, and getGroupChats now
-      // follows a cursor if there is one. Counts and overlap only.
-      steps.push(`  top-level keys → ${Object.keys(explore ?? {}).join(', ')}`);
-      if (explore?.cursor) {
-        const next = await request<{ chats?: unknown[]; cursor?: string }>(
-          `/v1/chats/explore?cursor=${encodeURIComponent(explore.cursor)}`,
-        );
-        const firstIds = new Set(list.map((c) => inner(c).id));
-        const page2 = next?.chats ?? [];
-        const repeats = page2.filter((c) => firstIds.has(inner(c).id)).length;
-        steps.push(
-          `  page 2 via cursor → ${page2.length} chat(s), ${repeats} already on page 1, ${next?.cursor ? 'another cursor' : 'no further cursor'}`,
-        );
-      } else {
-        steps.push('  no cursor — one page is all this endpoint serves');
-      }
-    } catch (e) {
-      steps.push(`/v1/chats/explore → FAILED: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    try {
-      const updates = (await getUpdates()) as { chats?: { chats?: unknown[] } };
-      const entries = Array.isArray(updates?.chats) ? updates.chats : (updates?.chats?.chats ?? []);
-      steps.push(`\ngetUpdates().chats.chats → ${entries.length} joined chat(s)`);
-      if (entries[0]) {
-        steps.push(`  UNWRAPPED keys → ${Object.keys(inner(entries[0])).join(', ')}`);
-      }
-    } catch (e) {
-      steps.push(`getUpdates().chats → FAILED: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    /*
-     * ⚠️ The control this probe was missing.
-     *
-     * Round 1 reported /v1/chats/accept, /v1/chats/requests, /v1/chats/decline
-     * and /v1/chats/groups all answering 200, which read as four discovered
-     * endpoints. But every *two*-segment path 404'd, which is the signature of a
-     * catch-all matching /v1/chats/:something — under which a 200 means nothing.
-     *
-     * A nonsense single-segment path settles it. Without this control the whole
-     * sweep is uninterpretable, which is the same mistake the `period` probe was
-     * built to avoid and I repeated here.
-     */
-    const controlPath = `/v1/chats/webyak-control-${Date.now()}`;
-    let controlStatus = 0;
-    let controlBody = '';
-    try {
-      const res = await api.sendRequest(controlPath);
-      controlStatus = res.status;
-      controlBody = (await res.text()).slice(0, 160);
-    } catch {
-      controlStatus = -1;
-    }
-    steps.push(
-      `\nCONTROL ${controlPath} → ${controlStatus}` +
-        (controlStatus === 200
-          ? `\n  ⚠️ 200 on a nonsense path — /v1/chats/:x is a catch-all, so every 200 below is meaningless.\n  body: ${controlBody}`
-          : '\n  ✅ a nonsense path does not 200, so a 200 below is a real route.'),
-    );
-
-    steps.push('\nRoutes (compare each against the control):');
-    for (const path of [
-      '/v1/chats/groups',
-      '/v1/chats/accept',
-      '/v1/chats/requests',
-      '/v1/chats/decline',
-    ]) {
-      try {
-        const res = await api.sendRequest(path);
-        const body = (await res.text()).slice(0, 200);
-        steps.push(
-          `  ${path} → ${res.status}` +
-            (res.status === controlStatus && body === controlBody
-              ? '  (identical to control — not a real route)'
-              : `  body: ${body}`),
-        );
-      } catch (e) {
-        steps.push(`  ${path} → threw ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-
-    return {
-      ...base,
-      status: steps.some((l) => l.includes('FAILED')) ? 'partial' : 'pass',
-      detail:
-        controlStatus === 200
-          ? 'A nonsense path also returns 200 — treat every route result here as unproven and compare the bodies.'
-          : 'Control behaved, so the route results below are real.',
-      evidence: steps.join('\n'),
-    };
-  } catch (e) {
-    return fail(base, e);
-  }
-}
-
 /**
  * Can a share code be resolved to a post? (Blocker 1, re-attacked.)
  *
@@ -682,59 +515,57 @@ function idShape(id: string) {
     .replace(/\d+/g, '<n>');
 }
 
-/** How a timestamp is written — the thing `activityDate` has to guess. */
-function timeShape(value: unknown) {
-  if (typeof value === 'number') return value < 1e12 ? 'epoch seconds' : 'epoch ms';
-  if (typeof value === 'string' && /^\d+(\.\d+)?$/.test(value)) {
-    return Number(value) < 1e12 ? 'epoch seconds, as a string' : 'epoch ms, as a string';
-  }
-  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) return 'ISO string';
-  return shape(value);
-}
-
 type Raw = Record<string, unknown>;
 
 function rawItems(page: { items?: unknown } | null | undefined): Raw[] {
   return (Array.isArray(page?.items) ? page.items : []) as Raw[];
 }
 
+/** An object's keys and the types of their values — never the values. */
+function fieldShapes(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return shape(value);
+  const fields = Object.entries(value as Raw).map(
+    ([key, v]) => `${key}: ${Array.isArray(v) ? 'array' : v === null ? 'null' : typeof v}`,
+  );
+  return `{${fields.sort().join(', ')}}`;
+}
+
 /**
- * Alerts — what the activity feed carries, and whether marking read sticks.
+ * Alerts — the types webyak has no label for, and the fields it doesn't read.
  *
- * Most of what the Alerts screen assumes came from offsides' source rather
- * than a response (docs/API.md#the-activity-feed-alerts). This reports, per
- * type: the keys that arrive, the id's structure, the timestamp's format and
- * what `post_id` resolves to. Then whether the feed pages, whether
- * `getUpdates().activity_items` is the same list, and — for anything the
- * Alerts screen marked read this page load — whether the server now agrees.
+ * The first run (2026-09-27) answered the rest, and those checks were retired
+ * (docs/API.md#the-activity-feed-alerts). The feed pages, 30 at a time. Marking
+ * read sticks, and batches. `getUpdates().activity_items` is the same list.
+ * Timestamps are ISO, and every `post_id` opens a post. What's left: any type
+ * outside `ACTIVITY_TYPES`, what `takedown_data` holds, and whose post each
+ * type opens — yours or someone else's, and whether it quotes another — which
+ * decides what tapping a `quote` alert should show.
  *
- * Read-only: it lists and looks up, and never marks anything. Types, keys and
- * counts only. An alert's text quotes posts, so it never enters the report.
+ * Read-only. Types, keys and counts only: an alert's text quotes posts.
  */
 async function probeActivity(): Promise<ProbeResult> {
   const base = {
     id: 'activity',
-    label: 'Alerts — the activity feed',
+    label: 'Alerts — unmapped types and fields',
     question:
-      'Which alert types arrive, what does each point at, does the feed page, and does marking read stick? (PLAN Q14–Q17)',
+      'Which alert types have no label yet, what does takedown_data hold, and whose post does each type open? (PLAN Q14)',
   };
   const steps: string[] = [];
   try {
+    // Two pages, for more types to look at.
     const first = await request<Raw>('/v1/activity');
     const items = rawItems(first);
-    steps.push(
-      `/v1/activity → ${items.length} item(s) · envelope [${Object.keys(first ?? {}).sort().join(', ')}] · cursor ${shape(first?.cursor)}`,
-    );
+    if (typeof first?.cursor === 'string' && first.cursor) {
+      items.push(
+        ...rawItems(await request<Raw>(`/v1/activity?cursor=${encodeURIComponent(first.cursor)}`)),
+      );
+    }
 
-    // Q14 — per type: how many, which keys, the id's structure, the time format.
     interface Stats {
       count: number;
-      unread: number;
       keys: Set<string>;
       ids: Set<string>;
-      times: Set<string>;
-      withPostId: number;
-      postIdInId: number;
+      takedown: Set<string>;
       samplePostId?: string;
     }
     const byType = new Map<string, Stats>();
@@ -742,40 +573,37 @@ async function probeActivity(): Promise<ProbeResult> {
       const type = typeof item.type === 'string' ? item.type : `(type ${shape(item.type)})`;
       const stats: Stats = byType.get(type) ?? {
         count: 0,
-        unread: 0,
         keys: new Set(),
         ids: new Set(),
-        times: new Set(),
-        withPostId: 0,
-        postIdInId: 0,
+        takedown: new Set(),
       };
       stats.count += 1;
-      if (!item.is_seen) stats.unread += 1;
       for (const key of Object.keys(item)) stats.keys.add(key);
       if (typeof item.id === 'string') stats.ids.add(idShape(item.id));
-      stats.times.add(timeShape(item.timestamp));
-      if (typeof item.post_id === 'string' && item.post_id) {
-        stats.withPostId += 1;
-        if (typeof item.id === 'string' && item.id.includes(item.post_id)) stats.postIdInId += 1;
-        stats.samplePostId ??= item.post_id;
-      }
+      if (item.takedown_data !== undefined) stats.takedown.add(fieldShapes(item.takedown_data));
+      if (typeof item.post_id === 'string' && item.post_id) stats.samplePostId ??= item.post_id;
       byType.set(type, stats);
     }
+
+    const known = new Set<string>(ACTIVITY_TYPES);
     const types = [...byType.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const unmapped = types.filter(([type]) => !known.has(type)).map(([type]) => type);
+    steps.push(`/v1/activity, two pages → ${items.length} alert(s) of ${types.length} type(s)`);
     for (const [type, stats] of types) {
       steps.push(
-        `  ${type}: ${stats.count} (${stats.unread} unread) · id ${[...stats.ids].join(' | ')} · timestamp ${[...stats.times].join(' | ')} · post_id on ${stats.withPostId}/${stats.count}${stats.withPostId ? `, inside the id on ${stats.postIdInId}` : ''}`,
+        `  ${type}${known.has(type) ? '' : ' — NO LABEL YET'}: ${stats.count} · id ${[...stats.ids].join(' | ')} · keys [${[...stats.keys].sort().join(', ')}]`,
       );
-      steps.push(`    keys [${[...stats.keys].sort().join(', ')}]`);
+      if (stats.takedown.size) steps.push(`    takedown_data → ${[...stats.takedown].join(' | ')}`);
     }
 
-    // Q14 — what a post_id opens: a post, or a comment? One lookup per type.
+    // Whose post each type opens. One lookup per type.
     for (const [type, stats] of types) {
       if (!stats.samplePostId) continue;
       try {
         const post = await lookupPost(stats.samplePostId);
-        const isComment = Boolean(post.parent_post_id && post.parent_post_id !== post.id);
-        steps.push(`  ${type} post_id → ${isComment ? 'a comment' : 'a post'}`);
+        steps.push(
+          `  ${type} post_id → ${post.authored_by_user ? 'your own post' : "someone else's post"}${post.quote_post_id ? ', which quotes another post' : ''}`,
+        );
       } catch (e) {
         steps.push(
           `  ${type} post_id → ${e instanceof PostGone ? 'gone (404)' : `error: ${e instanceof Error ? e.message : String(e)}`}`,
@@ -783,97 +611,15 @@ async function probeActivity(): Promise<ProbeResult> {
       }
     }
 
-    // Q15 — does it page, and how far back does page one reach?
-    const ages = items
-      .map((item) => activityDate(item as unknown as ActivityItem))
-      .filter((iso): iso is string => Boolean(iso))
-      .map((iso) => Math.round((Date.now() - Date.parse(iso)) / 86_400_000));
-    if (ages.length) {
-      steps.push(`page 1 spans ${Math.min(...ages)} to ${Math.max(...ages)} day(s) ago`);
-    }
-    let more: Raw[] = [];
-    let paging = 'one page';
-    const cursor = typeof first?.cursor === 'string' && first.cursor ? first.cursor : null;
-    if (cursor) {
-      const second = await request<Raw>(`/v1/activity?cursor=${encodeURIComponent(cursor)}`);
-      more = rawItems(second);
-      const onFirst = new Set(items.map((item) => item.id));
-      const repeated = more.filter((item) => onFirst.has(item.id)).length;
-      steps.push(
-        `page 2 → ${more.length} item(s), ${repeated} repeated from page 1, cursor ${shape(second?.cursor)}`,
-      );
-      paging = more.length > repeated ? 'pages' : 'a cursor that leads nowhere new';
-    } else {
-      steps.push('no cursor on page 1 — this is the whole feed, or it does not page');
-    }
-
-    // Q17 — is getUpdates().activity_items the same list?
-    const embedded = ((await getUpdates()) as Raw)?.activity_items as Raw | undefined;
-    const embeddedItems = rawItems(embedded);
-    const onPage = new Set(items.map((item) => item.id));
-    steps.push(
-      embedded === undefined
-        ? 'getUpdates().activity_items → absent'
-        : `getUpdates().activity_items → envelope [${Object.keys(embedded ?? {}).sort().join(', ')}], ${embeddedItems.length} item(s), ${embeddedItems.filter((item) => onPage.has(item.id)).length} also on /v1/activity page 1, ${embeddedItems.filter((item) => !item.is_seen).length} unread`,
-    );
-
-    // Q16 — did what the Alerts screen marked read stick? Read back, never re-sent.
-    const log = getSeenLog();
-    const known = new Map([...items, ...more].map((item) => [item.id, item] as const));
-    const readBack = (ids: readonly string[]) => {
-      let read = 0;
-      let unread = 0;
-      let absent = 0;
-      for (const id of ids) {
-        const item = known.get(id);
-        if (!item) absent += 1;
-        else if (item.is_seen) read += 1;
-        else unread += 1;
-      }
-      return { read, unread, absent };
-    };
-    let marking = 'untested';
-    if (log.calls.length === 0) {
-      steps.push(
-        'marking read → nothing sent this page load. Open Alerts, tap an unread alert or use Mark all read, then run this again.',
-      );
-    } else {
-      steps.push(
-        `marking read → ${log.calls.length} request(s): ${log.calls
-          .map(
-            (call) =>
-              `${call.count} id(s) → ${call.outcome}${call.status ? ` ${call.status}` : ''}${call.bodyKeys ? `, body [${call.bodyKeys.join(', ')}]` : ''}`,
-          )
-          .join('; ')}`,
-      );
-      const all = readBack(log.ids);
-      steps.push(
-        `  read back: of ${log.ids.length} id(s) marked, ${all.read} now read, ${all.unread} still unread, ${all.absent} not on the pages fetched`,
-      );
-      const batches = log.calls.filter((call) => call.count > 1 && call.outcome === 'ok');
-      if (batches.length) {
-        const batched = readBack(batches.flatMap((call) => call.ids));
-        steps.push(
-          `  batched requests: ${batches.length}, their ids ${batched.read} read, ${batched.unread} still unread`,
-        );
-      }
-      marking = log.calls.some((call) => call.outcome !== 'ok')
-        ? 'failed'
-        : all.unread > 0
-          ? "doesn't stick"
-          : all.read > 0
-            ? 'sticks'
-            : 'untested (nothing marked is on the pages fetched)';
-    }
-
-    const status: ProbeStatus =
-      marking === 'failed' || marking === "doesn't stick" ? 'fail' : items.length && marking === 'sticks' ? 'pass' : 'partial';
     return {
       ...base,
-      status,
-      detail: items.length
-        ? `${items.length} alert(s) on page 1, of ${types.length} type(s): ${types.map(([type, stats]) => `${type} ${stats.count}`).join(', ')}. The feed: ${paging}. Marking read: ${marking}.`
-        : 'No alerts on this account right now, so there is nothing to classify. Run it again once something has happened.',
+      status: items.length === 0 ? 'partial' : unmapped.length ? 'fail' : 'pass',
+      detail:
+        items.length === 0
+          ? 'No alerts on this account right now. Run it again once something has happened.'
+          : unmapped.length
+            ? `${unmapped.length} type(s) with no label yet: ${unmapped.join(', ')}. They still render, under their own name.`
+            : `Every type on two pages has a label: ${types.map(([type, stats]) => `${type} ${stats.count}`).join(', ')}.`,
       evidence: steps.join('\n'),
     };
   } catch (e) {
@@ -885,7 +631,6 @@ export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
     await probeShareCode(),
-    await probeMessaging(),
     await probeActivity(),
     await probeVideoPoster(),
     await probeImageFailures(),
@@ -1104,4 +849,172 @@ export async function runLengthProbes(groupId: string, userId: string | null): P
  */
 export async function runUploadProbe(): Promise<ProbeResult[]> {
   return [await probeImageUpload()];
+}
+
+/* ------------------------------------------------------------------------ *
+ * Chats — the mark-read route, behind its own button (PLAN Q19)
+ * ------------------------------------------------------------------------ */
+
+interface ChatUnderTest {
+  id: string;
+  updatedAt?: string;
+  lastMessageId?: string;
+}
+
+interface ChatReadCandidate {
+  method: 'GET' | 'POST' | 'PATCH';
+  path: (id: string) => string;
+  body?: (chat: ChatUnderTest) => Raw;
+}
+
+/**
+ * Where a chat might be marked read. No client has this call — sidechat.js,
+ * offsides and the official web client all lack it — so these are guesses in
+ * the API's own style, `/v1/<thing>/<verb>` with the id as `chat_id`. They are
+ * ordered by likeness to the one read call that does exist:
+ * `POST /v1/activity/seen {ids}`.
+ */
+const CHAT_READ_CANDIDATES: ChatReadCandidate[] = [
+  { method: 'POST', path: () => '/v1/chats/seen', body: (c) => ({ chat_id: c.id }) },
+  { method: 'POST', path: () => '/v1/chats/seen', body: (c) => ({ ids: [c.id] }) },
+  { method: 'POST', path: () => '/v1/chats/read', body: (c) => ({ chat_id: c.id }) },
+  { method: 'POST', path: () => '/v1/chats/mark_read', body: (c) => ({ chat_id: c.id }) },
+  { method: 'POST', path: () => '/v1/chats/messages/seen', body: (c) => ({ chat_id: c.id }) },
+  { method: 'POST', path: () => '/v1/chats/messages/read', body: (c) => ({ chat_id: c.id }) },
+  {
+    method: 'POST',
+    path: () => '/v1/chats/read',
+    body: (c) => ({ chat_id: c.id, message_id: c.lastMessageId }),
+  },
+  {
+    method: 'POST',
+    path: () => '/v1/chats/last_read',
+    body: (c) => ({ chat_id: c.id, last_read_timestamp: c.updatedAt }),
+  },
+  {
+    method: 'POST',
+    path: () => '/v1/chats/update',
+    body: (c) => ({ chat_id: c.id, last_read_timestamp: c.updatedAt }),
+  },
+  { method: 'PATCH', path: (id) => `/v1/chats/${id}`, body: (c) => ({ last_read_timestamp: c.updatedAt }) },
+  { method: 'POST', path: (id) => `/v1/chats/${id}/read`, body: () => ({}) },
+  { method: 'GET', path: (id) => `/v1/chats/messages?chat_id=${id}&mark_read=true` },
+];
+
+/** A response body, described by shape: `empty`, `json {…}`, or its length. */
+async function bodyShape(res: Response) {
+  const text = await res.text().catch(() => '');
+  if (!text) return 'empty';
+  try {
+    return `json ${fieldShapes(JSON.parse(text))}`;
+  } catch {
+    return `${text.length} chars`;
+  }
+}
+
+/**
+ * Chats — which request marks a chat read on the server?
+ *
+ * Opening a thread in webyak doesn't mark it read: `last_read_timestamp` only
+ * moves when the official app reads it, so a chat stayed unread here, and
+ * still does in the official app (webyak now keeps its own mark,
+ * src/lib/chat-reads.ts). Every path under `/v1/chats/` answers `200`, so a
+ * status proves nothing. This sends each candidate for one unread chat and
+ * re-reads the list after each; the route is the one after which that chat's
+ * `last_read_timestamp` moves. It stops at the first that works.
+ *
+ * Writes: it marks one chat read, which is what webyak wants to do anyway.
+ * Paths are reported with the id replaced, and bodies by their keys.
+ */
+async function probeChatRead(): Promise<ProbeResult> {
+  const base = {
+    id: 'chat-read',
+    label: 'Chats — the mark-read route',
+    question: 'Which request marks a chat read on the server, so the official app agrees? (PLAN Q19)',
+  };
+  const steps: string[] = [];
+  const chats = async () =>
+    ((await request<{ chats?: unknown[] }>('/v1/chats'))?.chats ?? []).map(
+      (entry) => ((entry as { chat?: unknown })?.chat ?? entry) as Raw,
+    );
+  const lastRead = (chat: Raw | undefined) =>
+    typeof chat?.last_read_timestamp === 'string' ? chat.last_read_timestamp : null;
+  const unreadOnServer = (chat: Raw) =>
+    typeof chat.updated_at === 'string' &&
+    (!lastRead(chat) || Date.parse(chat.updated_at) > Date.parse(lastRead(chat) as string));
+
+  try {
+    const all = (await chats()).filter((chat) => typeof chat.id === 'string');
+    const target = all.find(unreadOnServer) ?? all[0];
+    if (!target) {
+      return { ...base, status: 'partial', detail: 'No chats on this account to test with.' };
+    }
+    const unread = unreadOnServer(target);
+    const messages = (Array.isArray(target.messages) ? target.messages : []) as Raw[];
+    const last = messages[messages.length - 1];
+    const chat: ChatUnderTest = {
+      id: target.id as string,
+      updatedAt: typeof target.updated_at === 'string' ? target.updated_at : undefined,
+      lastMessageId: typeof last?.id === 'string' ? last.id : undefined,
+    };
+    const before = lastRead(target);
+    steps.push(
+      `/v1/chats → ${all.length} chat(s), ${all.filter(unreadOnServer).length} unread by the server's mark. Testing one that is ${unread ? 'unread' : 'already read, so a miss proves less'}; its last_read_timestamp is ${before ? 'set' : 'unset'}`,
+    );
+
+    const hide = (path: string) => path.split(chat.id).join('<chat_id>');
+    const control = await api.sendRequest(
+      `/v1/chats/webyak-control-${Date.now()}`,
+      'POST',
+      JSON.stringify({ chat_id: chat.id }),
+    );
+    const controlBody = await bodyShape(control);
+    steps.push(`CONTROL POST /v1/chats/webyak-control-… → ${control.status}, body ${controlBody}`);
+
+    let found: string | null = null;
+    for (const candidate of CHAT_READ_CANDIDATES) {
+      const path = candidate.path(chat.id);
+      const body = candidate.body?.(chat);
+      const label = `${candidate.method} ${hide(path)}${body ? ` {${Object.keys(body).join(', ')}}` : ''}`;
+      try {
+        const res = await api.sendRequest(
+          path,
+          candidate.method,
+          body === undefined ? undefined : JSON.stringify(body),
+        );
+        const shapeOf = await bodyShape(res);
+        await pause(600);
+        const after = lastRead((await chats()).find((c) => c.id === chat.id));
+        const moved = after !== before;
+        steps.push(
+          `${label} → ${res.status}, body ${shapeOf}${res.status === control.status && shapeOf === controlBody ? ' (same as control)' : ''}${moved ? '  ✓ last_read_timestamp MOVED' : ''}`,
+        );
+        if (moved) {
+          found = label;
+          break;
+        }
+      } catch (e) {
+        steps.push(`${label} → error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+
+    return {
+      ...base,
+      status: found ? 'pass' : 'fail',
+      detail: found
+        ? `${found} marks a chat read on the server. webyak can send it on open and for Mark all read, and the official app will agree.`
+        : `None of ${CHAT_READ_CANDIDATES.length} candidates moved last_read_timestamp${unread ? '' : ' — though the chat was already read, which makes a miss less telling'}. The route is elsewhere; a capture of the official app's traffic would find it.`,
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
+/**
+ * Separate from the read-only run because it writes: it marks one chat read,
+ * in the official app too if a candidate works.
+ */
+export async function runChatReadProbe(): Promise<ProbeResult[]> {
+  return [await probeChatRead()];
 }

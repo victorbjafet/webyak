@@ -306,8 +306,9 @@ export interface DirectThread {
   type?: string;
   updated_at: string;
   /**
-   * When you last opened it. `updated_at > last_read_timestamp` is the unread
-   * signal — there is no `unread_count` on this payload.
+   * When you last read it — in the official app. Opening a thread here doesn't
+   * move it (PLAN Q19), so `isUnreadThread` also takes this device's own mark.
+   * There is no `unread_count` on this payload.
    */
   last_read_timestamp?: string;
   /** Inlined by the list endpoint, so previews need no extra request. */
@@ -374,11 +375,18 @@ export function isComment(item: { type?: string; parent_post_id?: string }): boo
   return item.type === 'comment' || Boolean(item.parent_post_id);
 }
 
-/** Unread when something arrived after you last opened it. */
-export function isUnreadThread(thread: DirectThread): boolean {
+/**
+ * Unread when something arrived after you last read it, by either measure:
+ * the server's `last_read_timestamp`, which only the official app moves, or
+ * `readAt`, this device's own mark (src/lib/chat-reads.ts).
+ */
+export function isUnreadThread(thread: DirectThread, readAt?: string): boolean {
   if (!thread.updated_at) return false;
-  if (!thread.last_read_timestamp) return true;
-  return new Date(thread.updated_at) > new Date(thread.last_read_timestamp);
+  const marks = [thread.last_read_timestamp, readAt]
+    .map((at) => (at ? Date.parse(at) : NaN))
+    .filter(Number.isFinite);
+  if (marks.length === 0) return true;
+  return Date.parse(thread.updated_at) > Math.max(...marks);
 }
 
 /**

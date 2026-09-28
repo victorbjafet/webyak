@@ -1,4 +1,4 @@
-import { ApiError, api, request, unwrap } from './client';
+import { request } from './client';
 import type { ConversationIcon } from './types';
 
 /**
@@ -8,32 +8,58 @@ import type { ConversationIcon } from './types';
  * them. The list endpoint, `/v1/activity`, was found by the 2026-08-28 sweep
  * (docs/API.md#the-activity-feed-alerts). offsides never called it either: it
  * reads the copy of the same `{items, cursor}` list that `getUpdates()` carries
- * as `activity_items` (docs/OFFSIDES.md#round-8--alerts-2026-09-27). We call the endpoint
- * itself, because it pages and is a fraction of the size of the updates payload
- * a poll would otherwise re-download.
+ * as `activity_items` (docs/OFFSIDES.md#round-8--alerts-2026-09-27) — the same
+ * list, confirmed. We call the endpoint itself, because it pages and is a
+ * fraction of the size of the updates payload a poll would otherwise
+ * re-download.
  *
- * **Most of the item shape is borrowed, not observed.** Our own probe saw
- * `{id, timestamp, type, is_seen, text}` on `votes` items. `post_id`, the other
- * types and their extra fields come from offsides' `ActivityItem`. The Alerts
- * probe in /diagnostics reports what really arrives (PLAN Q14–Q18), and
- * everything below degrades to the server's own sentence when a guess is wrong.
+ * The shape below was first borrowed from offsides' `ActivityItem`, then
+ * checked against a live account on 2026-09-27: 60 alerts over two pages.
  */
 
+/**
+ * Types webyak has a label for (components/alerts/activity-row.tsx).
+ *
+ * Seen live: `votes`, `trending_post`, `followed_post`, `comment`, and two that
+ * offsides never handled, `quote` and `takedown`. From offsides only, not yet
+ * seen here: `comment_reply`, `new_follower`, `suggested_sidechats`. Any other
+ * type still renders, and the Alerts probe lists it.
+ */
+export const ACTIVITY_TYPES = [
+  'votes',
+  'trending_post',
+  'followed_post',
+  'comment',
+  'comment_reply',
+  'quote',
+  'takedown',
+  'new_follower',
+  'suggested_sidechats',
+] as const;
+
+export type ActivityType = (typeof ACTIVITY_TYPES)[number];
+
 export interface ActivityItem {
-  /** e.g. `votes~<post uuid>~25`: the kind, what it is about, and a threshold. */
+  /** `<type>~<uuid>…`. For `comment` the UUID is not the post — most likely the comment. */
   id: string;
-  /** An open set. See `activityKind` in components/alerts. */
+  /** An open set — see `ACTIVITY_TYPES`. */
   type: string;
-  /** Format unconfirmed, so it is only ever read through `activityDate`. */
+  /** An ISO string on every type seen so far. Read through `activityDate`. */
   timestamp?: string | number;
   is_seen?: boolean;
   /** A finished sentence, rendered by the server — "Your post reached 25 karma: …". */
   text?: string;
-  /** The post the alert is about. Read by offsides for every type. */
+  /** The post the alert is about. On every type seen except `takedown`, and always a post. */
   post_id?: string;
-  /** `suggested_sidechats` only: the communities it suggests. */
+  /** `comment` and `followed_post`: the comment in question. Not yet used. */
+  comment_id?: string;
+  /** `followed_post`: the reply in question. Not yet used. */
+  comment_reply_id?: string;
+  /** `takedown` only, in place of `post_id`. Its shape is unrecorded (PLAN Q14). */
+  takedown_data?: unknown;
+  /** `suggested_sidechats` only, per offsides: the communities it suggests. */
   suggested_sidechats_data?: { group_ids_to_suggest?: string[] };
-  /** `new_follower` only: the follower's icon. */
+  /** `new_follower` only, per offsides: the follower's icon. */
   conversation_icon?: ConversationIcon;
 }
 
@@ -47,7 +73,7 @@ function isActivityItem(value: unknown): value is ActivityItem {
   return Boolean(item && typeof item.id === 'string' && typeof item.type === 'string');
 }
 
-/** One page, newest first. `cursor` continues it. */
+/** One page of 30, newest first. `cursor` continues it. */
 export async function getActivity(cursor?: string | null): Promise<ActivityPage> {
   const params = new URLSearchParams();
   if (cursor) params.set('cursor', cursor);
@@ -64,10 +90,9 @@ export async function getActivity(cursor?: string | null): Promise<ActivityPage>
 /**
  * When an alert happened, as an ISO string, or null when it can't be read.
  *
- * offsides hands `timestamp` to a library that takes dates, epoch numbers and
- * strings alike, so its format was never pinned down. This takes all three:
- * a number or digit string under 10^12 is epoch seconds, anything larger is
- * milliseconds, and anything else is parsed as a date.
+ * Every type seen so far sends an ISO string. Epoch seconds and milliseconds
+ * are still accepted, because three types have not been seen yet, and offsides
+ * handed the field to a library that takes all three.
  */
 export function activityDate(item: ActivityItem): string | null {
   const raw = item.timestamp;
@@ -88,78 +113,15 @@ export function activityDate(item: ActivityItem): string | null {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 
-/* ------------------------------------------------------------------------ *
- * Marking seen
- * ------------------------------------------------------------------------ */
-
 /**
- * What each mark-seen request did, this page load — read by the Alerts probe
- * (PLAN Q16). In memory and capped, like the image failure log: it only has to
- * live long enough to be read from /diagnostics.
- */
-export interface SeenCall {
-  at: number;
-  /** How many ids went in one request. More than one tests batching. */
-  count: number;
-  /** Kept in memory to read back; the probe reports counts, never ids. */
-  ids: readonly string[];
-  outcome: 'ok' | 'http' | 'network';
-  status?: number;
-  /** The response body's keys, never its values. */
-  bodyKeys?: string[];
-}
-
-const MAX_CALLS = 20;
-const seenCalls: SeenCall[] = [];
-/** Every id this page load asked the server to mark seen. */
-const markedIds = new Set<string>();
-
-function logSeenCall(call: Omit<SeenCall, 'at'>) {
-  seenCalls.push({ ...call, at: Date.now() });
-  if (seenCalls.length > MAX_CALLS) seenCalls.splice(0, seenCalls.length - MAX_CALLS);
-}
-
-export function getSeenLog(): { calls: readonly SeenCall[]; ids: readonly string[] } {
-  return { calls: seenCalls, ids: [...markedIds] };
-}
-
-/**
- * Marks alerts seen, several per request.
+ * Marks alerts seen, many per request: `POST /v1/activity/seen` with
+ * `{ids: [...]}`, answered by a 200 and `{}`.
  *
- * The body is `{ids: [...]}` — an array, though sidechat.js's `readActivity`
- * only ever sends one. Batching is unverified; the probe reads back whether a
- * multi-id request stuck.
- *
- * Any 2xx counts as success whatever the body says. `request()` treats a body
- * that isn't JSON as a failure, and whether this endpoint answers with one is
- * exactly what is unknown. A non-2xx still goes through `unwrap`, for the API's
- * own error message and the sign-out on an expired token.
+ * Confirmed 2026-09-27 to stick and to batch: seven ids marked, five of them
+ * in one request, all read back as seen — though sidechat.js's `readActivity`
+ * only ever sends one.
  */
 export async function markActivitySeen(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
-  for (const id of ids) markedIds.add(id);
-
-  let res: Response;
-  try {
-    res = await api.sendRequest('/v1/activity/seen', 'POST', JSON.stringify({ ids }));
-  } catch (error) {
-    logSeenCall({ count: ids.length, ids, outcome: 'network' });
-    throw error;
-  }
-
-  if (res.ok) {
-    let bodyKeys: string[] | undefined;
-    try {
-      const body = (await res.json()) as unknown;
-      bodyKeys = body && typeof body === 'object' ? Object.keys(body).sort() : [];
-    } catch {
-      bodyKeys = undefined;
-    }
-    logSeenCall({ count: ids.length, ids, outcome: 'ok', status: res.status, bodyKeys });
-    return;
-  }
-
-  logSeenCall({ count: ids.length, ids, outcome: 'http', status: res.status });
-  await unwrap(res, 'POST /v1/activity/seen');
-  throw new ApiError(`POST /v1/activity/seen failed with ${res.status}`, res.status);
+  await request<unknown>('/v1/activity/seen', 'POST', { ids });
 }

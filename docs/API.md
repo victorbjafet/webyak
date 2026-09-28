@@ -815,59 +815,71 @@ on already-saved posts reads as a bug.
 ## The activity feed (Alerts)
 
 Built into the Alerts tab on 2026-09-27, replacing a placeholder that still
-said the list endpoint had not been found. **Most of what the tab assumes is
-borrowed from offsides rather than observed**, and each borrowed assumption is
-an open question with a probe
-([OFFSIDES.md](OFFSIDES.md#round-8--alerts-2026-09-27)).
+said the list endpoint had not been found. It was built on offsides' reading
+of the item shape ([OFFSIDES.md](OFFSIDES.md#round-8--alerts-2026-09-27)), then
+**checked against a live account the same day**: 60 alerts over two pages.
+The answers below are from that run.
 
-**Listing: `GET /v1/activity?cursor=`** → `{items, cursor}`. Our own sweep saw
-items of type `votes` shaped `{id, timestamp, type, is_seen, text}`, where
-`text` is a finished sentence. sidechat.js has no method for it.
+**Listing: `GET /v1/activity?cursor=`** → `{items, cursor}`, **30 to a page**,
+newest first. The cursor is an opaque string of about 256 characters. Page 2
+repeated nothing from page 1, and page 1 alone spanned 0–32 days. sidechat.js
+has no method for it.
 
-**The same list rides on `getUpdates()`** as `activity_items`, which is where
-offsides reads it from. We poll the endpoint instead, because re-downloading
-the whole updates payload every two minutes to refresh one badge would be
-wasteful.
+**`getUpdates().activity_items` is the same list:** the same `{cursor, items}`
+envelope, and all 30 of its items were on `/v1/activity`'s page 1. offsides
+reads that copy; we poll the endpoint, which is lighter than re-downloading the
+whole updates payload to refresh one badge.
 
-**Marking read: `POST /v1/activity/seen` with `{ids: [...]}`**, from
-sidechat.js's `readActivity`, which sends one id and parses a JSON reply.
-webyak had never sent it before this. The body is an array, and Mark all read
-depends on it accepting many.
+**Marking read: `POST /v1/activity/seen` with `{ids: [...]}`** → `200` and
+`{}`. **It sticks, and it batches.** Seven ids were marked from the Alerts
+screen, five of them in one request, and all seven read back as seen. That
+matters because sidechat.js's `readActivity` only ever sends one.
 
-**What an item carries, according to offsides:**
+**Types, and what each carries** (keys only; `text` is a finished sentence that
+quotes posts, so it was never recorded):
 
-| Field | Meaning | Observed by us? |
-|---|---|---|
-| `post_id` | the post the alert is about; opened on tap, for every type | no |
-| `type` | `votes`, `trending_post`, `followed_post`, `comment`, `comment_reply`, `new_follower`, `suggested_sidechats` — an open set | `votes` only |
-| `suggested_sidechats_data.group_ids_to_suggest` | the communities a suggestion is for | no |
-| `conversation_icon` | a new follower's avatar | no |
-| `timestamp` | when; format never pinned down | present, format unrecorded |
+| Type | Seen | id | Extra keys | `post_id` opens |
+|---|---|---|---|---|
+| `votes` | 19 | `votes~<post>~<n>`, `n` the karma threshold | — | a post |
+| `trending_post` | 4 | `trending_post~<uuid>~<uuid>` | — | a post |
+| `followed_post` | 2 | `followed_post~<uuid>~<uuid>` | `comment_id`, `comment_reply_id` | a post |
+| `comment` | 2 | `comment~<uuid>` — **not the post's**; most likely the comment's | `comment_id` | a post |
+| `quote` | 2 | `quote~<uuid>~<uuid>` | — | a post |
+| `takedown` | 1 | `takedown~<uuid>` | **`takedown_data`, and no `post_id`** | — |
 
-**What the client does about each unknown:**
+Every item also has `id`, `type`, `timestamp` (an **ISO string** on every type),
+`is_seen` and `text`. `post_id` is on every type but `takedown`, and it always
+resolved to a post, never a comment.
+
+**Two types offsides never handled:** `quote`, someone quoting your post, and
+`takedown`, a moderation notice. `takedown` is the removal signal
+[B3](../PLAN.md) wants, arriving as an alert. Three types offsides renders were
+**not** seen here: `comment_reply`, `new_follower` and `suggested_sidechats`.
+They stay in the table on offsides' word.
+
+**Read state is ours, not the official app's.** The owner reports the official
+app shows no read/unread state for alerts at all (Q18). webyak's *Unread*
+filter and tab badge are the owner's B2, an addition, built on `is_seen`.
+Worth noting: all 30 alerts on page 1 came back seen, including 23 webyak never
+marked. So something marks them — most plausibly the official app, when its
+activity list is opened, without ever showing the state.
+
+**What the client does with the rest:**
 
 - A type it doesn't know still renders, as its own name with a bell, because
   `text` says what happened.
-- A missing `post_id` falls back to a UUID inside the id (`votes~<uuid>~25`).
-- `timestamp` is read as epoch seconds, epoch milliseconds or a date string,
-  whichever it turns out to be.
-- A mark-read request counts as done on any 2xx, whatever its body.
+- An alert without `post_id` leads nowhere. The first version fell back to a
+  UUID inside the id, which the table shows was wrong: in `comment~<uuid>` that
+  UUID is not the post.
+- `timestamp` is still read as epoch seconds, epoch milliseconds or a date
+  string, since three types haven't been seen yet.
 
-**Open, with the probe that answers each** — *Diagnostics → Run probes →
-"Alerts — the activity feed"*. It reports types, keys, id structures and counts,
-never an alert's text, which quotes posts:
-
-- **Q14 — which types arrive, and what does each point at?** Per-type keys, and
-  whether `post_id` opens a post or a comment.
-- **Q15 — does the feed page, and how far back?** Page 2 and its overlap with
-  page 1, and the age span of page 1.
-- **Q16 — does marking read stick, and does it batch?** The probe re-reads the
-  feed for every id the Alerts screen marked this page load. It never marks
-  anything itself, so mark something read first.
-- **Q17 — is `activity_items` the same list?** Overlap with page 1.
-- **Q18 — does the official app mark alerts read on open, or per tap?** No probe
-  can answer this. Open the official app's notifications, then check whether
-  webyak's Unread count drops.
+**Still open (Q14)** — *Diagnostics → Run probes → "Alerts — unmapped types and
+fields"*, trimmed after the first run to what it didn't answer:
+- Any type webyak has no label for.
+- What `takedown_data` holds, by key and value type.
+- Whose post each type opens (yours or someone else's), and whether it quotes
+  another. That settles what tapping a `quote` alert should show.
 
 
 ## sidechat.js 2.6.6 defects
@@ -1468,11 +1480,11 @@ other conversation. The limitation was a misreading of the envelope, not a
 missing endpoint.
 
 **Explore returned exactly 20, largest first** (2026-09-27), so "View all" on
-the old strip could never show more — the rest were not fetched. Whether the
-endpoint pages is **unverified**: sidechat.js reads one page (at a URL built
-with `&`), and offsides never calls it. `getGroupChats` now follows a top-level
-`cursor` the way `/v1/chats` does, which is one request if there is none; the
-messaging probe reports the envelope's keys and what a second page returns.
+the old strip could never show more — the rest were not fetched. sidechat.js
+reads one page (at a URL built with `&`), and offsides never calls it.
+**It pages — confirmed the same day:** the envelope is `{chats, cursor}`, and
+following the cursor returned 20 more chats, none repeated, with another cursor
+after them. `getGroupChats` follows it, up to 10 pages.
 
 **Creating a chat or a community** has no known endpoint. Explore shows both
 buttons dimmed and unwired. The one lead is on the community side:
@@ -1483,6 +1495,34 @@ offsides never got here: it has no group-chat path and its `leaveChat` is a stub
 marked *"Waiting for sidechat.js implementation."*
 
 
+### Chats don't mark read from here
+
+**Confirmed by the owner, 2026-09-27: opening a chat in webyak leaves it
+unread.** `last_read_timestamp` only moves when the official app reads the
+chat, and webyak never sends anything that moves it. Fetching the thread,
+`GET /v1/chats/messages?chat_id=`, isn't enough.
+
+No client shows the call. sidechat.js has no chat read method, offsides has no
+read handling at all, and the official web client is no help:
+web.yikyak.com is a read-only public viewer whose bundle calls only
+`/api/publicGroups`, `/api/home/posts` and `/api/groups/…`. It has no chats.
+
+**Every path under `/v1/chats/` answers `200`**, including nonsense ones, so a
+sweep can't go by status. *Diagnostics → Chat read state* (PLAN Q19) sends
+twelve candidates for one unread chat, in this API's own naming
+(`/v1/chats/seen`, `/v1/chats/read`, `/v1/chats/messages/seen`, …). After each,
+it re-reads the list; the route is the one after which that chat's
+`last_read_timestamp` moves. It stops at the first that works, and reports
+paths with the id masked.
+
+**Until then, webyak keeps its own marks**
+([src/lib/chat-reads.ts](../src/lib/chat-reads.ts)). Opening a thread, or
+*Mark all read* on Chats, records the chat's `updated_at` on this device, and a
+chat is unread only if something arrived after both marks. It's per-device: a
+chat read here is still unread in the official app. The server call joins the
+same two places once Q19 finds it.
+
+
 ## Probes: what is still asked, and what was retired
 
 `/diagnostics` is deliberately short. A probe earns its place by being able to
@@ -1491,8 +1531,16 @@ down here, re-running it produces output nobody reads and buries the one or two
 results that still matter.
 
 Still asked, as of 2026-09-27: the list at the top of
-[src/api/diagnostics.ts](../src/api/diagnostics.ts), most recently **Alerts —
-the activity feed** ([Q14–Q17](#the-activity-feed-alerts)).
+[src/api/diagnostics.ts](../src/api/diagnostics.ts). The newest are **Alerts —
+unmapped types and fields** ([Q14](#the-activity-feed-alerts)) and **Chats —
+the mark-read route** ([Q19](#chats-dont-mark-read-from-here)).
+
+Retired on 2026-09-27: `probeIncludeDeleted` after one run
+([deleted posts](#deleted-posts-are-omitted-not-tombstoned)), and
+`probeMessaging` once its last two questions were answered. `message.type` is
+`message` or `status`, and explore group chats page
+([group chats](#group-chats-joinable-and-openable)). Alerts' paging,
+marking-read and `activity_items` checks went too, after their first run.
 
 Twelve probes were retired on 2026-09-11. Their answers are all above:
 

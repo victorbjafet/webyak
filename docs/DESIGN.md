@@ -287,12 +287,13 @@ Built 2026-09-27; what the API gives it is in
 - **Unread looks like an unread chat:** accent border, accent dot, full-strength
   text. Read alerts stay in the list, dimmed. Two tabs that mean "new" should
   say it the same way.
+- **Read and unread are webyak's, not the official app's**, which shows no
+  such state for alerts (the owner, 2026-09-27). The *Unread* filter and the
+  badge are the owner's B2, an addition built on the API's `is_seen`.
 - **An alert is marked read when you act on it, never by being shown.** Tapping
   it (which also opens its post) or *Mark all read* marks it. A list that cleared
   itself on sight would leave the *Unread* filter with nothing to filter, and
-  would send writes nobody asked for. offsides works the same way. Whether the
-  official app marks on open is PLAN Q18; if it does, this is the rule to
-  revisit.
+  would send writes nobody asked for. offsides works the same way.
 - **The tab carries a count** of unread alerts, in `notification` red with
   `onNotification` numerals, ringed in the background colour so it stays
   legible over the icon. It reads the same query as the screen, so marking
@@ -303,6 +304,19 @@ Built 2026-09-27; what the API gives it is in
   new type needs a label, not a fix.
 - **The server's sentence is shown as sent.** The one edit is offsides': a
   leading 📈 on *Popular* and *Followed post*, whose icon already says it.
+
+## Chats: opening one reads it
+
+- **Opening a thread marks it read, and so does *Mark all read* on the list.**
+  Reading a chat is exactly what the official app treats as read, unlike alerts.
+- **The mark is this device's for now.** The server's read mark only moves when
+  the official app reads the chat, and the call that moves it hasn't been found
+  (PLAN Q19). So webyak records its own mark, and a chat reads as unread only
+  when something arrived after both. The official app still shows a chat read
+  here as unread until Q19 is answered
+  ([API.md](API.md#chats-dont-mark-read-from-here)).
+- *Mark all read* sits in the header's action slot, as it does on Alerts, and
+  appears only while something is unread.
 
 ## Media sizing
 

@@ -15,11 +15,22 @@ import { Button } from '@/components/ui/button';
 import { Layout, Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { bestAssetUrl } from '@/lib/asset-url';
+import { markChatsRead } from '@/lib/chat-reads';
 import { useNow } from '@/lib/clock';
 import { absoluteTime, relativeTime } from '@/lib/time';
 
 const MAX_LENGTH = 1000;
 const TICK = 30_000;
+
+/** The latest of some timestamps, or undefined if none parse. */
+function latestOf(times: (string | undefined)[]): string | undefined {
+  let best: string | undefined;
+  for (const time of times) {
+    if (!time || !Number.isFinite(Date.parse(time))) continue;
+    if (!best || Date.parse(time) > Date.parse(best)) best = time;
+  }
+  return best;
+}
 
 export default function ChatThreadScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -57,6 +68,21 @@ export default function ChatThreadScreen() {
   const sourceIsComment = source.data ? isComment(source.data) : false;
   const parent = usePost(sourceIsComment ? source.data?.parent_post_id : undefined);
   const openTarget = sourceIsComment ? parent.data : source.data;
+
+  /*
+    Opening a thread is reading it. The server isn't told — no route that moves
+    its read mark is known (PLAN Q19) — so this marks it read on this device, up
+    to the newest thing either copy of the thread has seen, and again whenever
+    a poll brings in more while it's open (src/lib/chat-reads.ts).
+  */
+  const readUpTo = latestOf([
+    chat?.updated_at,
+    cached?.updated_at,
+    ...messages.map((message) => message.created_at),
+  ]);
+  useEffect(() => {
+    if (id && readUpTo) markChatsRead([{ id, at: readUpTo }]);
+  }, [id, readUpTo]);
 
   // Newest at the bottom, so a new message should bring itself into view. Keyed
   // on the count rather than the array so a poll returning the same messages

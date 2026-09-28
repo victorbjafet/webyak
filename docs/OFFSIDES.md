@@ -572,3 +572,17 @@ One id per request, though the body is an array.
   read cover it.
 - **"Suggested community", not "Suggested post"** — the item suggests
   communities, and opens one.
+
+### Checked against a live account, the same day
+
+Their `post_id` held for every type that had one, always opening a post, and
+`getUpdates().activity_items` is the same list as `/v1/activity`. Two types
+their switch has no branch for arrived: **`quote`** and **`takedown`**, the
+second carrying `takedown_data` and no `post_id`. In offsides both render
+nothing at all. Three of theirs didn't appear: `comment_reply`, `new_follower`
+and `suggested_sidechats` ([API.md](API.md#the-activity-feed-alerts)).
+
+**They have no chat read state either.** Neither `MessagesScreen` nor
+`ThreadScreen` reads `last_read_timestamp` or sends anything when a thread
+opens, so there's no mark-read call to borrow
+([API.md](API.md#chats-dont-mark-read-from-here)).

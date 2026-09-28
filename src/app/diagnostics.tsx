@@ -4,6 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import {
   runAllProbes,
+  runChatReadProbe,
   runLengthProbes,
   runUploadProbe,
   SAMPLE_GROUP_ID,
@@ -34,6 +35,7 @@ export default function DiagnosticsScreen() {
   const [copied, setCopied] = useState(false);
   const [confirmingUpload, setConfirmingWrites] = useState(false);
   const [confirmingLengths, setConfirmingLengths] = useState(false);
+  const [confirmingChatRead, setConfirmingChatRead] = useState(false);
   const { userId, primaryGroup } = useSession();
   // Your own community when the session knows it: posting where you are not a
   // member would be refused for that, and read as a length limit.
@@ -80,6 +82,17 @@ export default function DiagnosticsScreen() {
     }
   }, [lengthGroupId, userId]);
 
+  const runChatReadProbeNow = useCallback(async () => {
+    setConfirmingChatRead(false);
+    setBusy(true);
+    setCopied(false);
+    try {
+      setResults(await runChatReadProbe());
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const copy = useCallback(async () => {
     if (!results) return;
     // Headed with the version, so a pasted report says which build produced it.
@@ -105,15 +118,14 @@ export default function DiagnosticsScreen() {
       <View
         style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <ThemedText type="small" themeColor="textSecondary">
-          Read-only. Seven probes, each on a question that is still open: share-code resolution
-          (Blocker 1), the chat message types, what your alerts carry, video thumbnails, whatever
-          failed to render this page load, and where your bio lives. Settled questions were
-          retired — their answers are in docs/API.md.
+          Read-only. Six probes, each on a question that is still open: share-code resolution
+          (Blocker 1), alert types with no label yet, video thumbnails, whatever failed to render
+          this page load, and where your bio lives. Settled questions were retired — their
+          answers are in docs/API.md.
         </ThemedText>
         <ThemedText type="caption" themeColor="textTertiary">
-          Two probes read what happened earlier in this page load. For images, browse a feed and
-          a profile first. For alerts, open Alerts and mark something read — tap an unread one,
-          or Mark all read. Then run this and paste the report back.
+          For the image probes, browse a feed and a profile first — the failure log is per page
+          load. Then run this and paste the report back.
         </ThemedText>
         <View style={styles.actions}>
           <Button label={results ? 'Run again' : 'Run probes'} onPress={run} loading={busy} />
@@ -164,6 +176,34 @@ export default function DiagnosticsScreen() {
           />
         </View>
       </View>
+
+      <View
+        style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+        <ThemedText type="bodyBold">Chat read state</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          Writes. Opening a chat here doesn&rsquo;t mark it read on the server, so it stays unread
+          in the official app. This tries twelve likely requests on one unread chat and checks
+          after each whether the server&rsquo;s read mark moved, stopping at the first that works.
+          Have an unread chat first — one the official app hasn&rsquo;t opened.
+        </ThemedText>
+        <View style={styles.actions}>
+          <Button
+            label="Run chat read probe"
+            variant="secondary"
+            onPress={() => setConfirmingChatRead(true)}
+            disabled={busy}
+          />
+        </View>
+      </View>
+
+      <ConfirmDialog
+        visible={confirmingChatRead}
+        title="Try marking a chat read?"
+        body="This sends up to twelve guesses at the mark-read request for one unread chat. If one works, that chat is read — in the official app too. Nothing is sent to anyone, and no message is posted."
+        confirmLabel="Run it"
+        onCancel={() => setConfirmingChatRead(false)}
+        onConfirm={runChatReadProbeNow}
+      />
 
       <ConfirmDialog
         visible={confirmingLengths}

@@ -11,6 +11,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { relativeTime } from '@/lib/time';
+import { markChatsRead, useChatReads } from '@/lib/chat-reads';
 import { useNow } from '@/lib/clock';
 
 /** Thread rows show minutes, so a 30s tick is plenty. */
@@ -33,6 +34,9 @@ const FILTERS: { value: Filter; label: string }[] = [
  * identical list, so every conversation rendered twice.
  *
  * So: one query, one list, and a filter for when you want only one kind.
+ *
+ * Unread counts this device's own read marks as well as the server's, because
+ * opening a thread here doesn't move the server's (src/lib/chat-reads.ts).
  */
 export default function ChatsScreen() {
   const theme = useTheme();
@@ -40,6 +44,13 @@ export default function ChatsScreen() {
   const now = useNow(TICK);
   const threads = useDMThreads();
   const [filter, setFilter] = useState<Filter>('all');
+  const reads = useChatReads();
+
+  const unread = useMemo(
+    () => (threads.data ?? []).filter((t) => isUnreadThread(t, reads.get(t.id))),
+    [threads.data, reads],
+  );
+  const unreadIds = useMemo(() => new Set(unread.map((t) => t.id)), [unread]);
 
   const ordered = useMemo(() => {
     const all = threads.data ?? [];
@@ -82,8 +93,25 @@ export default function ChatsScreen() {
     </View>
   );
 
+  const markAll =
+    unread.length > 0 ? (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Mark ${unread.length} unread chats as read`}
+        onPress={() => markChatsRead(unread.map((t) => ({ id: t.id, at: t.updated_at })))}
+        style={({ hovered, pressed }) => [
+          styles.action,
+          { backgroundColor: hovered || pressed ? theme.controlHover : theme.control },
+        ]}>
+        <Ionicons name="checkmark-done-outline" size={16} color={theme.textSecondary} />
+        <ThemedText type="caption" themeColor="textSecondary">
+          Mark all read
+        </ThemedText>
+      </Pressable>
+    ) : null;
+
   return (
-    <Screen title="Chats" headerBelow={tabs} scroll={false}>
+    <Screen title="Chats" headerBelow={tabs} action={markAll} scroll={false}>
       {threads.isLoading ? <LoadingState label="Loading conversations…" /> : null}
 
       {threads.isError ? (
@@ -97,6 +125,8 @@ export default function ChatsScreen() {
       {threads.data ? (
         <FlatList
           data={ordered}
+          // Rows read `unreadIds`, which changes without `data` changing.
+          extraData={unreadIds}
           keyExtractor={(item: DirectThread) => item.id}
           contentContainerStyle={styles.content}
           showsVerticalScrollIndicator={false}
@@ -115,7 +145,7 @@ export default function ChatsScreen() {
           renderItem={({ item }) => {
             const group = isGroupChat(item);
             const pending = item.accept_status === 'pending';
-            const unread = isUnreadThread(item);
+            const unread = unreadIds.has(item.id);
             // Messages are inlined on the list, so the preview is real text.
             const last = item.messages?.[item.messages.length - 1];
             const sender = last?.identity?.display_name;
@@ -205,6 +235,14 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingVertical: Spacing.one,
+    borderRadius: Radius.pill,
+  },
+  action: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
     borderRadius: Radius.pill,
   },
   gap: {

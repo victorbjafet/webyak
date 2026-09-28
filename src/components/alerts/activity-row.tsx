@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { TimeStamp } from '../post/time-stamp';
 import { ThemedText } from '../themed-text';
 
-import { activityDate, type ActivityItem } from '@/api/activity';
+import { activityDate, type ActivityItem, type ActivityType } from '@/api/activity';
 import { isPostId } from '@/api/queries';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -17,23 +17,27 @@ interface Kind {
 }
 
 /**
- * The alert types offsides renders, under its own labels, which follow the
- * official app. Only `votes` has been seen by our own probe (PLAN Q14); any
- * other type still renders, as its own name with a bell, because the server's
- * sentence says what happened either way.
+ * A label and icon per type. offsides' labels where it had one, which follow
+ * the official app; `quote` and `takedown` are ours, since offsides never
+ * handled them (`ACTIVITY_TYPES` says which were seen live). Any other type
+ * still renders, as its own name with a bell, because the server's sentence
+ * says what happened either way.
  */
-const KINDS: Record<string, Kind> = {
+const KINDS: Record<ActivityType, Kind> = {
   votes: { label: 'Votes', icon: 'arrow-up-circle-outline' },
   trending_post: { label: 'Popular', icon: 'trending-up-outline' },
   followed_post: { label: 'Followed post', icon: 'chatbubbles-outline' },
   comment: { label: 'Comment', icon: 'chatbubble-outline' },
   comment_reply: { label: 'Comment reply', icon: 'arrow-undo-outline' },
+  // The same icon as the quote action on a post.
+  quote: { label: 'Quote', icon: 'repeat-outline' },
+  takedown: { label: 'Removed', icon: 'alert-circle-outline' },
   new_follower: { label: 'New follower', icon: 'person-add-outline' },
   suggested_sidechats: { label: 'Suggested community', icon: 'sparkles-outline' },
 };
 
 export function activityKind(type: string): Kind {
-  const kind = KINDS[type];
+  const kind = (KINDS as Record<string, Kind | undefined>)[type];
   if (kind) return kind;
   // offsides reads any type containing "comment" as a comment.
   if (type.includes('comment')) return KINDS.comment;
@@ -50,18 +54,18 @@ export type ActivityTarget =
   | { kind: 'none' };
 
 /**
- * Where an alert leads.
+ * Where an alert leads: its `post_id`, which every type seen so far carries
+ * except `takedown`, and which always opened a post (PLAN Q14). A suggestion
+ * leads to its community.
  *
- * `post_id` first, which is what offsides opens for every type. Failing that, a
- * UUID inside the id itself — `votes~<uuid>~25`. That fallback is a lead, not a
- * rule: whether the UUID is always the post, and never a comment, is PLAN Q14.
+ * The UUIDs inside an alert's own id are **not** a fallback, though the first
+ * version used them as one. In `comment~<uuid>` that UUID is not the post, so
+ * opening it as one would be wrong.
  */
 export function activityTarget(item: ActivityItem): ActivityTarget {
   if (item.post_id && isPostId(item.post_id)) return { kind: 'post', postId: item.post_id };
   const group = item.suggested_sidechats_data?.group_ids_to_suggest?.find(Boolean);
-  if (group) return { kind: 'group', groupId: group };
-  const embedded = item.id.split('~').find((part) => isPostId(part));
-  return embedded ? { kind: 'post', postId: embedded } : { kind: 'none' };
+  return group ? { kind: 'group', groupId: group } : { kind: 'none' };
 }
 
 /**

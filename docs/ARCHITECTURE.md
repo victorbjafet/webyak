@@ -988,3 +988,39 @@ rendered inside it is usually added by someone who never reads the helper.
 Still nested: `compose.tsx`, `me/index.tsx`, `karma-panel.tsx` and
 `post-actions.tsx`. Move them on sight rather than auditing whether they are
 currently safe.
+
+## An external store hands out its data, not a version
+
+`useSyncExternalStore` needs a snapshot that changes whenever the store does.
+For a store that mutates in place, the tempting shortcut is a **version
+number**: the hook returns it, render reads the store directly, and the version
+is named as a dependency so the memo recomputes.
+
+```ts
+const version = useSeenVersion();
+const posts = useMemo(() => {
+  void version; // "so it recomputes"
+  return merged.filter((post) => !hasSeenPost(post.id));
+}, [merged, version]);
+```
+
+**Under the React Compiler that recomputes nothing.** The compiler infers its
+own dependencies from what the code actually reads, and a value that is only
+`void`ed is not read. The built bundle calls the hook, discards the result, and
+caches the filter on `merged` alone. Found on 2026-09-27: *Mark all read* on
+Chats saved its marks, and the list never changed.
+
+**The rule: the hook returns the data itself, as an immutable snapshot that is
+replaced on every change, and render reads from that snapshot** —
+`reads.get(id)`, not a module-level accessor. The compiler's own inference then
+does the right thing. [src/lib/chat-reads.ts](../src/lib/chat-reads.ts) is
+built that way.
+
+[src/lib/seen-posts.ts](../src/lib/seen-posts.ts) still uses the version, so
+the For You *Unread* filter only re-filters when the feed's data changes — on
+a refetch, a remount or a new page — not when a post is marked seen. **Left as
+it is on purpose.** Posts are marked seen as they reach the viewport, so a
+filter that re-ran on every mark would pull each post out from under the
+reader as it appeared. Fixing it properly is a design choice: freeze the seen
+set while the feed is on screen, and re-filter on return. It's tracked in
+PLAN.md, Phase 5.

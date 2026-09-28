@@ -11,6 +11,7 @@ import { AppShell } from '@/components/app-shell';
 import { ThemedText } from '@/components/themed-text';
 import { ToastHost } from '@/components/toast-host';
 import { useColorScheme, useTheme } from '@/hooks/use-theme';
+import { restoreChatReads } from '@/lib/chat-reads';
 import { restoreSeenPosts } from '@/lib/seen-posts';
 import { ThemePreferenceProvider } from '@/theme/theme-provider';
 
@@ -27,10 +28,11 @@ function RootNavigator() {
     }
   }, [status]);
 
-  // Read state for the unread filter. Restored once at boot; a failure here
-  // just means everything looks unread, which is the safe direction.
+  // Read state for the unread filter and for chats. Restored once at boot; a
+  // failure here just means things look unread, which is the safe direction.
   useEffect(() => {
     void restoreSeenPosts();
+    void restoreChatReads();
   }, []);
 
   // Map our palette onto the navigation theme so native stack transitions and

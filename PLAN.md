@@ -27,8 +27,9 @@ to `main`. The version (`yyyy.mm.dd.v`) is at the top of Settings.
 **Built:** reading (feeds, posts, comments, polls, images); writing (votes,
 posts, comments, polls, quote-reposts, deleting your own); communities and
 Explore; profiles and the You tab; messaging; and the local archive, with
-search, backfill and refresh. **Alerts** has its first version (2026-09-27), built
-partly on assumptions a probe run has to confirm.
+search, backfill and refresh. **Alerts**, built and checked against a live
+account on 2026-09-27. Chats now clear their unread state when opened, on this
+device.
 
 **What's left, by what it's waiting on:**
 
@@ -36,12 +37,12 @@ partly on assumptions a probe run has to confirm.
 |---|---|
 | **The Worker** (deferred by decision) | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. The client side of all four is built ([WORKER.md](docs/WORKER.md)) |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
-| **A probe run** | Alerts: types, targets, paging, whether marking read sticks (Q14–Q17). Length limits (Q11). Where a bio lives (Q10) |
-| **Nothing: buildable now** | Alerts follow-ups (B4 upvote counter, B1 score refresh). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **A probe run** | Chats: which request marks a chat read on the server (Q19), a write probe behind its own button. Alerts: `takedown_data` and any unlabelled type (Q14). Length limits (Q11). Where a bio lives (Q10) |
+| **Nothing: buildable now** | Alerts follow-ups: B4 upvote counter, B1 score refresh, `takedown` alerts as B3's removal notice, `comment` alerts opening at their comment. The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
 | **The owner** | Tick *Enforce HTTPS*. Run the length probes. Import the comment-recovery export |
 
-**Next:** open Alerts, mark something read, then run Diagnostics and bring back
-the Alerts probe's report. Then the Worker.
+**Next:** with a chat unread (one the official app hasn't opened), run
+*Diagnostics → Chat read state* and bring back the report. Then the Worker.
 
 **How it's built:** Expo SDK 57 and expo-router, `web.output: "single"` (one
 SPA page), React 19.2 with the React Compiler, react-native-web 0.21, TanStack
@@ -150,7 +151,7 @@ src/
 | 21 | DMs | `getDMs`, `getDMThread`, `sendDM`, `startDM` | needs a stable client/device ID |
 | 22 | Group chats | `getGroupChats`, `joinGroupChat` | ⛔ `getGroupChats` URL broken |
 | 23 | Hide user's posts | `hidePostsFromUser`, `unhidePostsFromAllUsers` | |
-| 24 | Mark activity read | `readActivity` | ✅ on tap, or *Mark all read* in one request. Whether it sticks, and batches: Q16 |
+| 24 | Mark activity read | `readActivity` | ✅ on tap, or *Mark all read* in one request — confirmed to stick, and to batch |
 | 30 | Yakarma total + per-community | `getUpdates().karma` | ✅ with post/comment split |
 | 31 | For You feed | `Home` group, `index_name: "all"` | ✅ not a community — no top, not postable |
 | 32 | Saved posts list | `/v1/posts/saved` | ✅ read-only |
@@ -158,7 +159,7 @@ src/
 | 34 | Unread filter | — | ✅ client-side; the API rejects `type=unread` |
 | 25 | Save / unsave post | — | List works: `/v1/posts/saved` → `{posts, cursor}`. ⛔ Write path: 8 candidates swept, all 404 |
 | 26 | Follow / unfollow post | — | ⛔ readable, not writable; six candidate paths all 404 |
-| 27 | Notification feed | — | ✅ **Alerts tab**, first version 2026-09-27: `/v1/activity`, paged, with an unread badge. Types and targets: Q14 |
+| 27 | Notification feed | — | ✅ **Alerts tab** (2026-09-27): `/v1/activity`, 30 a page, with an unread badge. Six types seen live |
 | 28 | Report content | — | ⛔ no method |
 | 29 | Awards | — | ⛔ no method; posts carry `awards[]`. Deliberately deprioritised |
 | 30 | Community leaderboard | — | ⛔ no endpoint; groups carry `should_show_leaderboard`. Stub button in the header |
@@ -191,8 +192,8 @@ are mostly plumbing; three need a probe before they can be estimated.
 | # | Idea | What we already know | Blocked on |
 |---|---|---|---|
 | B1 | **Live-ish score refresh** on posts and comments | No push channel has been found; this would be polling. The infrastructure is already there — TanStack Query `refetchInterval` on a visible feed, plus the existing viewability tracking so only on-screen posts refetch | Deciding a polite interval. This is a private API and the account is real, so an aggressive poll is an account-risk decision, not just a perf one (PLAN §8) |
-| B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | ✅ **Built 2026-09-27** as the *Unread* filter on Alerts. Waits on Q16: does marking read stick |
-| B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Unblocked 2026-08-28.** `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. Finding the acknowledge endpoint needs a sweep, and testing the whole flow still needs a post that actually gets removed |
+| B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | ✅ **Built 2026-09-27** as the *Unread* filter on Alerts, and marking read is confirmed to stick. The official app has no such state (Q18) — this is an addition |
+| B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Unblocked 2026-08-28.** `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. **Also arrives as an alert:** a `takedown` alert carries `takedown_data` (2026-09-27, [API.md](docs/API.md#the-activity-feed-alerts)); its shape is Q14. Finding the acknowledge endpoint needs a sweep |
 | B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing. The next Alerts iteration |
 | B7 | **Sort your own posts/comments by top of all time** | **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
 | B6 | **Style deleted comments properly** | ✅ **Done 2026-09-27.** A deleted comment stays in its thread with text **`"Comment Deleted"`**, alias `"Deleted"`, zero votes and no username, so its replies keep their parent. It now renders as a muted *Comment deleted* with no vote, reply or action controls, its replies intact; in the archive, a placeholder whose words were never captured reads *Removed before it was archived* | — ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)) |
@@ -401,6 +402,11 @@ Full checklist and pre-scan findings:
       read tracking marked on viewport entry, and the feed auto-advances pages
       while the filtered result is short
       ([docs/API.md](docs/API.md#unread-is-ours-not-theirs)). Defaults to unread
+  - [ ] It only re-filters when the feed's data changes, not when a post is
+        marked seen: the React Compiler drops the version it depends on. That
+        happens to stop posts vanishing mid-scroll, which a naive fix would
+        cause. Freeze the seen set while the feed is on screen, and re-filter on
+        return ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#an-external-store-hands-out-its-data-not-a-version))
 - [x] Explore sorted by member count by default
 - [x] ~~Explore "newest"~~ — no timestamp on any explore field. Shown disabled
       until 2026-09-27, then removed; the gap is recorded in
@@ -506,8 +512,8 @@ one list rather than two sources
 - [x] Group chat explore + join, school strip with "View all" on Explore
 - [x] **Explore is three tabs** (2026-09-27): Communities, Group chats, Archive.
       Group chats became a full list of its own — "View all" had only ever
-      shown the 20 one request returned; `getGroupChats` now follows a cursor
-      if the endpoint gives one (unverified whether it does)
+      shown the 20 one request returned; `getGroupChats` now follows the
+      cursor, and the endpoint does page, 20 at a time (confirmed 2026-09-27)
       ([docs/API.md](docs/API.md#group-chats-joinable-and-openable))
 - [ ] **Create chat / create community** — buttons shown dimmed and unwired. No
       endpoint known for either; `create_group_application_enabled` in
@@ -532,8 +538,13 @@ one list rather than two sources
 
 **Open leads, none blocking:**
 
-- [ ] Marking a thread read — `last_read_timestamp` drives the unread dot but
-      nothing updates it. Opening a thread may do it server-side; unverified
+- [~] **Marking a thread read.** Opening one here leaves it unread on the
+      server (the owner, 2026-09-27), and no client shows the call
+      ([docs/API.md](docs/API.md#chats-dont-mark-read-from-here))
+  - [x] webyak keeps its own per-device marks: opening a thread, or *Mark all
+        read* on Chats, clears it here
+  - [ ] Q19: find the server call with *Diagnostics → Chat read state*, then send
+        it from the same two places, so the official app agrees
 - [ ] `can_start_dm` on group-chat messages — presumably "you may DM this
       sender", but `/v1/chats/start` needs a `post_id`, so what such a DM would
       hang off is unclear
@@ -704,10 +715,10 @@ and comment it sees** — effectively a Yik Yak downloader
 ### Phase 8 — gap-filling
 - [x] `/v1/posts/saved` and `/v1/activity` found, and their shapes probed
 - [x] Saved posts wrapped — the You tab's Saved list (Phase 5)
-- [~] **Alerts tab — first version 2026-09-27.** It replaced a placeholder that
-      still claimed the list endpoint was unknown. offsides was read first
-      ([docs/OFFSIDES.md](docs/OFFSIDES.md#round-8--alerts-2026-09-27)); most of
-      the item shape is theirs, not observed
+- [~] **Alerts tab — 2026-09-27.** It replaced a placeholder that still claimed
+      the list endpoint was unknown. offsides was read first
+      ([docs/OFFSIDES.md](docs/OFFSIDES.md#round-8--alerts-2026-09-27)), then
+      checked against a live account
       ([docs/API.md](docs/API.md#the-activity-feed-alerts))
   - [x] `/v1/activity`, paged by cursor, and an unread badge on the tab
         (a 2-minute poll, only while the page is visible)
@@ -716,15 +727,21 @@ and comment it sees** — effectively a Yik Yak downloader
         read by being shown ([docs/DESIGN.md](docs/DESIGN.md#alerts))
   - [x] Diagnostics probe for Q14–Q17. The screen logs its mark-read requests
         for the probe to read back
-  - [ ] **Run the probe** and correct the type table, targets and timestamp
-        handling from what it reports
+  - [x] **Probe run.** Six types seen, including `quote` and `takedown`, which
+        offsides never handled. Every `post_id` opens a post. Marking read
+        sticks and batches. The feed pages. Both new types got labels, and the
+        UUID-in-the-id fallback went, being wrong for `comment` alerts
+  - [ ] `takedown`: once Q14 says what `takedown_data` holds, show it as the
+        removal notice B3 asks for
+  - [ ] `comment` and `followed_post` carry `comment_id`: open the thread at
+        that comment rather than at the top
   - [ ] B4: a new-upvotes counter from `votes` alerts
   - [ ] B1: refresh a post's score when a `votes` alert names it, instead of
         polling every score
   - [ ] `suggested_sidechats`: show the suggested community inline, as
         offsides does, rather than only opening it
-  - [ ] Q18: if the official app marks alerts read on open, decide whether to
-        follow
+  - [x] Q18: the official app shows no read state for alerts at all, so
+        webyak's is an addition, kept as B2
 - [ ] Capture official-client traffic for the rest: follow, report, awards, and
       the *write* path for save
 - [ ] Implement each via `client.sendRequest()`
@@ -830,27 +847,31 @@ Resolved ones are kept with their answer so they don't get re-asked.
   showed it. The per-post lookup stays, and loses nothing: the 404 is already a
   direct answer. The probe was retired after its run
   ([docs/API.md](docs/API.md#deleted-posts-are-omitted-not-tombstoned)).
-- **Q14 — which alert types arrive, and what does each point at?** Only
-  `votes` has been seen by us. offsides renders six more and opens `post_id` for
-  every one; whether that id is always a post, and never a comment, is unknown.
-  **Diagnostics → Run probes → "Alerts — the activity feed"** reports per-type
-  keys and what `post_id` opens
+- **Q14 — which alert types arrive, and what does each point at?** *Mostly
+  answered 2026-09-27:* six types seen — `votes`, `trending_post`,
+  `followed_post`, `comment`, and two offsides never handled, `quote` and
+  `takedown`. Every `post_id` opens a post, and `takedown` has none. Still open:
+  what `takedown_data` holds, whose post a `quote` opens, and any type not seen
+  yet. **Diagnostics → Run probes → "Alerts — unmapped types and fields"**
   ([docs/API.md](docs/API.md#the-activity-feed-alerts)).
-- **Q15 — does `/v1/activity` page, and how far back does it go?** The same
-  probe fetches page 2 and reports the age span of page 1. The client stops on
-  an empty page or a cursor that doesn't move, whatever the answer.
-- **Q16 — does marking read stick, and does it batch?** Never sent by webyak
-  before 2026-09-27. The probe re-reads every id the Alerts screen marked this
-  page load, including the batched ones, so mark something read before running
-  it.
-- **Q17 — is `getUpdates().activity_items` the same list?** offsides reads that;
-  we poll the endpoint. The probe reports the overlap. If they match, the badge
-  could ride on the updates call the app already makes.
-- **Q18 — does the official app mark alerts read on open, or per tap?** Not
-  probeable. Open the official app's notifications, then see whether webyak's
-  Unread count drops. webyak marks only on action
-  ([docs/DESIGN.md](docs/DESIGN.md#alerts)).
-
+- **Q15 — does `/v1/activity` page?** *Answered 2026-09-27: yes,* 30 a page with
+  a cursor. Page 2 repeated nothing, and page 1 spanned 32 days.
+- **Q16 — does marking read stick, and batch?** *Answered 2026-09-27: yes to
+  both.* Seven marked, five in one request, all read back as seen.
+- **Q17 — is `getUpdates().activity_items` the same list?** *Answered
+  2026-09-27: yes,* all 30 of its items were on page 1. We still poll the
+  endpoint, which is lighter.
+- **Q18 — does the official app mark alerts read on open?** *Answered by the
+  owner 2026-09-27:* it shows no read state for alerts at all. webyak's is an
+  addition (B2). All 30 alerts came back seen, 23 of them never marked by
+  webyak, so the official app most likely marks them when its list is opened,
+  without showing it.
+- **Q19 — which request marks a chat read on the server?** Opening a chat in
+  webyak doesn't (the owner, 2026-09-27), and no client has the call.
+  **Diagnostics → Chat read state** tries twelve candidates on one unread chat,
+  stopping when its `last_read_timestamp` moves
+  ([docs/API.md](docs/API.md#chats-dont-mark-read-from-here)). If none works,
+  it joins the traffic-capture list in Phase 8.
 ---
 
 ## 8. Risks
