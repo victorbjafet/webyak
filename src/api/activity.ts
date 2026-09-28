@@ -140,6 +140,16 @@ export function activityDate(item: ActivityItem): string | null {
 }
 
 /**
+ * The karma a `votes` alert reports: the `<n>` in `votes~<uuid>~<n>`, the
+ * threshold its post or comment just reached. Null for any other type.
+ */
+export function votesThreshold(item: ActivityItem): number | null {
+  if (item.type !== 'votes') return null;
+  const match = /~(\d+)$/.exec(item.id);
+  return match ? Number(match[1]) : null;
+}
+
+/**
  * Marks alerts seen, many per request: `POST /v1/activity/seen` with
  * `{ids: [...]}`, answered by a 200 and `{}`.
  *

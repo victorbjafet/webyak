@@ -381,6 +381,25 @@ Two details that are not obvious:
   delta keeps each one self-consistent instead of forcing both to a number that
   is only correct for one of them.
 
+### Scores follow `votes` alerts, not a poll (B1)
+
+The owner's B1 asked for live-ish scores. Polling every visible score was the
+obvious way and an account-risk one (PLAN §8). The alerts poll already runs
+app-wide every two minutes, and a `votes` alert (`votes~<uuid>~<n>`) says a
+post, or a comment when it carries `comment_id`, just reached `n`. So
+`useScoresFromVotesAlerts` (src/api/votes-refresh.ts, mounted once in
+`AppShell`) watches for alerts that **arrive while the app is open**:
+
+- `patchPostEverywhere` raises every cached copy to at least `n`. That costs no
+  request, and it can't be wrong about the moment the alert was made.
+- The post, and its thread when a comment is named, are invalidated. TanStack
+  refetches an invalidated query only while it is on screen, so a post nobody
+  is looking at costs nothing.
+
+The first load of each account is a baseline and changes nothing: the ~30
+alerts already there name thresholds that can be weeks old. Scores between
+thresholds still move only when their screen refetches.
+
 ### What is deliberately not optimistic
 
 **Creating a post.** Where a new post lands depends on the server's ranking, and

@@ -306,6 +306,13 @@ Built 2026-09-27; what the API gives it is in
   new type needs a label, not a fix.
 - **The server's sentence is shown as sent.** The one edit is offsides': a
   leading 📈 on *Popular* and *Followed post*, whose icon already says it.
+- **"Since you last looked" is a karma diff.** A card heads the list when your
+  karma moved since Alerts was last open: the total, then posts and comments
+  separately, then when that last visit was. It diffs the exact totals from
+  `getUpdates().karma` against a mark kept per account on this device, rather
+  than adding up `votes` alerts, which only say a threshold was crossed and
+  would overcount when the previous one isn't loaded. Nothing shows on a first
+  visit or when nothing moved. This is the owner's B4.
 - **A takedown shows its notice.** The alert's sentence is only "Your post was
   removed"; the server's `client_facing_removal_text` goes under it, set off by
   a `borderStrong` rule like a quote, so the reason is visible without opening

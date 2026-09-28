@@ -16,6 +16,7 @@ import { groupHref, groupSlug } from '@/api/groups';
 import { useMarkActivitySeen } from '@/api/mutations';
 import { activityItems, useActivity } from '@/api/queries';
 import { ActivityRow, activityTarget } from '@/components/alerts/activity-row';
+import { KarmaSince } from '@/components/alerts/karma-since';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
@@ -138,6 +139,7 @@ export default function AlertsScreen() {
           showsVerticalScrollIndicator={false}
           ItemSeparatorComponent={() => <View style={styles.gap} />}
           renderItem={({ item }) => <ActivityRow item={item} onPress={open} />}
+          ListHeaderComponent={<KarmaSince />}
           onEndReachedThreshold={0.5}
           onEndReached={
             activity.hasNextPage && !activity.isFetchingNextPage

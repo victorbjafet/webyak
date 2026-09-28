@@ -30,8 +30,10 @@ Explore; profiles and the You tab; messaging; and the local archive, with
 search, backfill and refresh. **Alerts**, built and checked against a live
 account on 2026-09-27. **Chats are marked read when opened**, on the server
 too, so the official app agrees (2026-09-28). An alert about a comment opens
-the thread at that comment, and a takedown shows the server's removal notice
-(B3) (2026-09-28). **An account switcher and
+the thread at that comment, a takedown shows the server's removal notice
+(B3), Alerts opens with how your karma moved since the last visit (B4), and a
+new `votes` alert raises that post's score everywhere it's cached (B1)
+(2026-09-28). **An account switcher and
 encrypted login files** move a login between webyaks without the texted code,
 and let a friend sign in on your computer.
 
@@ -42,7 +44,7 @@ and let a friend sign in on your computer.
 | **The Worker** (deferred by decision) | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. The client side of all four is built ([WORKER.md](docs/WORKER.md)) |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
 | **A probe run** | Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
-| **Nothing: buildable now** | Alerts follow-ups: B4 upvote counter, B1 score refresh. The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **Nothing: buildable now** | The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
 | **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
 **Next:** the buildable Alerts follow-ups above, now that Q14 says what their
@@ -203,10 +205,10 @@ are mostly plumbing; three need a probe before they can be estimated.
 
 | # | Idea | What we already know | Blocked on |
 |---|---|---|---|
-| B1 | **Live-ish score refresh** on posts and comments | No push channel has been found; this would be polling. The infrastructure is already there — TanStack Query `refetchInterval` on a visible feed, plus the existing viewability tracking so only on-screen posts refetch | Deciding a polite interval. This is a private API and the account is real, so an aggressive poll is an account-risk decision, not just a perf one (PLAN §8) |
+| B1 | **Live-ish score refresh** on posts and comments | ✅ **Built 2026-09-28 without a new poll:** a `votes` alert arriving while the app is open raises that post's or comment's cached score to its threshold and refetches it if on screen ([ARCHITECTURE.md](docs/ARCHITECTURE.md#scores-follow-votes-alerts-not-a-poll-b1)). Before: no push channel has been found; this would be polling. The infrastructure is already there — TanStack Query `refetchInterval` on a visible feed, plus the existing viewability tracking so only on-screen posts refetch | Deciding a polite interval. This is a private API and the account is real, so an aggressive poll is an account-risk decision, not just a perf one (PLAN §8) |
 | B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | ✅ **Built 2026-09-27** as the *Unread* filter on Alerts, and marking read is confirmed to stick. The official app has no such state (Q18) — this is an addition |
 | B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Built 2026-09-28 from the `takedown` alert**: its notice text shows under the sentence, and tapping opens the removed post from the archive. Unblocked 2026-08-28: `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. **Also arrives as an alert:** a `takedown` alert carries `takedown_data`, whose `client_facing_removal_text` is the notice and whose `id` is the removed post (2026-09-28, [API.md](docs/API.md#the-activity-feed-alerts)). The removed ids are `{posts, comments, reasons}`, not a list. **Still open:** acknowledging a removal, whose endpoint needs a capture, and whether a fresh takedown shows up in those ids |
-| B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing. The next Alerts iteration |
+| B4 | **Stats bubble in Alerts** — new upvotes since last open | ✅ **Built 2026-09-28** as a karma diff against the last visit, per account and device ([DESIGN.md](docs/DESIGN.md#alerts)). Before: half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing. The next Alerts iteration |
 | B7 | **Sort your own posts/comments by top of all time** | **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
 | B6 | **Style deleted comments properly** | ✅ **Done 2026-09-27.** A deleted comment stays in its thread with text **`"Comment Deleted"`**, alias `"Deleted"`, zero votes and no username, so its replies keep their parent. It now renders as a muted *Comment deleted* with no vote, reply or action controls, its replies intact; in the archive, a placeholder whose words were never captured reads *Removed before it was archived* | — ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)) |
 | B5 | **Yakarma over time** on the You tab, per-post and overall | Karma is at `getUpdates().karma` as `{post, comment, groups}` — and the same payload also carries **`quarterly_karma`, `season_karma` and `season`**, so there may be period-scoped values to read rather than sampling a single lifetime number. Worth inspecting those before building a sampler | Inspect the three season/quarter fields. If they hold real history this gets much cheaper; if not, fall back to client-side sampling, which is per-device and should say so rather than look like lost data |
@@ -763,8 +765,9 @@ and comment it sees** — effectively a Yik Yak downloader
   - [x] `comment`, `comment_reply`, `followed_post` and comment `votes` open
         the thread at their comment (`/p/<id>?comment=<id>`), the reply when
         an alert names both (2026-09-28)
-  - [ ] B4: a new-upvotes counter from `votes` alerts
-  - [ ] B1: refresh a post's score when a `votes` alert names it, instead of
+  - [x] B4: a "since you last looked" karma card heads Alerts, diffing the
+        exact totals rather than summing alerts (2026-09-28)
+  - [x] B1: raise a post's score when a `votes` alert names it, instead of
         polling every score
   - [ ] `suggested_sidechats`: show the suggested community inline, as
         offsides does, rather than only opening it

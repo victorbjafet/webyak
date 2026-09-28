@@ -5,6 +5,7 @@ import { ComposeButton } from './compose-button';
 import { Sidebar } from './sidebar';
 
 import { useSession } from '@/api/session';
+import { useScoresFromVotesAlerts } from '@/api/votes-refresh';
 import { Breakpoints } from '@/constants/theme';
 import { useHydrated } from '@/hooks/use-hydrated';
 import { useTheme } from '@/hooks/use-theme';
@@ -17,6 +18,12 @@ import { useTheme } from '@/hooks/use-theme';
  * then switch. Desktop therefore shows the bottom bar for one frame — a known
  * tradeoff, revisit in Phase 9 if it's visible in practice.
  */
+/** App-wide effects that need a signed-in account. Renders nothing. */
+function SignedInEffects() {
+  useScoresFromVotesAlerts();
+  return null;
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const theme = useTheme();
   const { width } = useWindowDimensions();
@@ -30,6 +37,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <View
       style={[styles.root, { backgroundColor: theme.background }, showNav && wide && styles.wide]}>
+      {showNav ? <SignedInEffects /> : null}
       {showNav && wide ? <Sidebar /> : null}
       <View style={styles.content}>
         {children}
