@@ -532,6 +532,21 @@ Two rules:
 Text selection is themed for the same reason.
 
 
+## Keyboard shortcuts (web)
+
+`?` lists them. `j`/`k` move between the posts on screen, `u`/`d` vote on the
+current one, `o` or Enter opens it, `c` opens it with the comment box focused,
+`n` starts a post, `/` goes to search, and `g` then `h`/`e`/`a`/`c`/`y`/`s`
+jumps to Home, Explore, Alerts, Chats, You or Settings.
+
+- **The current post is real browser focus**, shown by the same
+  `:focus-visible` ring as everything else, not a second highlight system.
+  Tab and the shortcuts agree about where you are.
+- **Actions press the card's own buttons.** A vote from the keyboard runs the
+  exact code a click does, optimistic update and rollback included.
+- **Typing is never a shortcut.** Keys are ignored in text fields and with
+  Ctrl, Alt or Cmd held, so browser and system shortcuts keep working.
+
 ## Scrollers span the viewport; content is what's centred
 
 A reading column is capped at `Layout.feedMaxWidth`. The **scrollable element is

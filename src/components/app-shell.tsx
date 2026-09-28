@@ -2,6 +2,7 @@ import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import { BottomBar } from './bottom-bar';
 import { ComposeButton } from './compose-button';
+import { KeyboardShortcuts } from './shortcuts/keyboard-shortcuts';
 import { Sidebar } from './sidebar';
 
 import { useRecordKarma } from '@/api/karma-record';
@@ -23,7 +24,7 @@ import { useTheme } from '@/hooks/use-theme';
 function SignedInEffects() {
   useScoresFromVotesAlerts();
   useRecordKarma();
-  return null;
+  return <KeyboardShortcuts />;
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {

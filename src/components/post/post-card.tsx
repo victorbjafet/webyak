@@ -70,6 +70,9 @@ export function PostCard({
 
   return (
     <View
+      // What keyboard shortcuts find a card by (components/shortcuts). A data
+      // attribute on web, nothing on native.
+      {...({ dataSet: { postCard: post.id } } as object)}
       style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
       {/*
         The header is the community, not the author. A post with no username has

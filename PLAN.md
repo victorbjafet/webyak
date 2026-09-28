@@ -740,7 +740,8 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#the-filter-panel-writes-the-query-string))
 
 ### Phase 7 — the extras from §5
-- [ ] Keyboard shortcuts + shortcut help overlay
+- [x] Keyboard shortcuts + shortcut help overlay (2026-09-28, web;
+      [DESIGN.md](docs/DESIGN.md#keyboard-shortcuts-web))
 - [ ] Multi-feed merged timeline
 - [ ] Desktop multi-column layout
 - [x] Light/system theme toggle — *Settings → Appearance*, 2026-09-28. Brand
