@@ -245,6 +245,24 @@ export interface Karma {
   groups?: KarmaGroup[];
 }
 
+/**
+ * One image in Sidechat's shared stock library, `/v1/assets/library`
+ * (docs/API.md#the-asset-library-sidechats-stock-images-not-yours). Its URL
+ * needs the bearer. Attaching one to a post by `id` is unverified.
+ */
+export interface LibraryAsset {
+  id: string;
+  url: string;
+  created_at?: string;
+  metadata: {
+    type: string;
+    content_type: 'jpeg' | 'png' | 'gif';
+    width: number;
+    height: number;
+  };
+  sorting_priority?: number;
+}
+
 /** `getUpdates().season`: the current season. Probed 2026-09-28. */
 export interface Season {
   year?: number;

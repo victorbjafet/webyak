@@ -44,8 +44,8 @@ and let a friend sign in on your computer.
 |---|---|
 | **Deploying the Worker** | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. **The Worker is built (2026-09-28)** in [worker/](worker/), every client path is wired to it, and both were tested end to end against stubs ([WORKER.md](docs/WORKER.md)). Deploying it is the owner's: [worker/SETUP.md](worker/SETUP.md), about ten minutes in the Cloudflare dashboard |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
-| **A probe run** | Hiding a user's posts, once, to see what the server does with it (a write). Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
-| **Nothing: buildable now** | The community sticker library. Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **A probe run** | Hiding a user's posts, once, to see what the server does with it (a write). One post with a *Library* image, to confirm the API takes a library id (a write). Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
+| **Nothing: buildable now** | Archive media back-fill. Phase 7 extras. Phase 9 polish |
 | **The owner** | Deploy the Worker ([worker/SETUP.md](worker/SETUP.md)) and set the `WORKER_URL` repository variable. Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
 **Next:** the buildable Alerts follow-ups above, now that Q14 says what their
@@ -156,7 +156,7 @@ src/
 | 10 | Delete own content | `deletePostOrComment` | |
 | 11 | Polls | `voteOnPoll`, `viewPollResults` | |
 | 12 | Image upload | `uploadAssetWeb` | ✅ web. ⛔ native needs `expo-image-picker` |
-| 13 | Asset library | `getAssetLibrary` | **Probed 2026-09-28: one shared stock library**, 4,526+ items, not per group, not your uploads ([API.md](docs/API.md#the-asset-library-sidechats-stock-images-not-yours)) |
+| 13 | Asset library | `getAssetLibrary` | **Probed 2026-09-28: one shared stock library**, 4,526+ items, not per group, not your uploads. ✅ **Built** as the composer's *Library* tool, attaching by id with no upload; unverified until one real post ([API.md](docs/API.md#the-asset-library-sidechats-stock-images-not-yours)) |
 | 14 | Explore groups | `getAvailableGroups`, `searchAvailableGroups` | `onePage` toggles via `App-Version: 0` |
 | 15 | Group metadata | `getGroupMetadata` | |
 | 16 | Join / leave group | `setGroupMembership` | |

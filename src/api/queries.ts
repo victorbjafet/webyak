@@ -19,6 +19,7 @@ import {
   getUpdates,
   getUpvotedPosts,
   getUserContent,
+  getAssetLibrary,
   getUserProfile,
   lookupPostIdViaWorker,
 } from './client';
@@ -405,6 +406,21 @@ export function useGroupSearch(term: string) {
     enabled: trimmed.length >= 2,
     staleTime: 1000 * 60 * 5,
     queryFn: () => searchGroups(trimmed),
+  });
+}
+
+/**
+ * The stock image library, fetched only once the composer's picker opens: it
+ * is a big download, and it hasn't changed in well over a year, so it is kept
+ * for the session.
+ */
+export function useAssetLibrary(enabled: boolean) {
+  return useQuery({
+    queryKey: ['asset-library'],
+    enabled,
+    staleTime: Infinity,
+    gcTime: 30 * 60_000,
+    queryFn: getAssetLibrary,
   });
 }
 

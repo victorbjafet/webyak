@@ -10,7 +10,7 @@ import { useSession } from '@/api/session';
 import { uploadAssetWeb } from '@/api/client';
 import { useCreatePost } from '@/api/mutations';
 import { usePost } from '@/api/queries';
-import type { NewPostAsset } from '@/api/types';
+import type { LibraryAsset, NewPostAsset } from '@/api/types';
 import { GroupAvatar } from '@/components/group-avatar';
 import { PollComposer, MAX_POLL_OPTIONS } from '@/components/compose/poll-composer';
 import { QuotedPost } from '@/components/post/quoted-post';
@@ -22,6 +22,8 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { canPickImages, pickImage, releaseImage, type PickedImage } from '@/lib/image-picker';
 import { imageUploadEnabled } from '@/lib/worker';
+import { AuthedImage } from '@/components/authed-image';
+import { LibraryPicker } from '@/components/compose/library-picker';
 
 /**
  * Yik Yak's own limit. Not enforced by the API as far as we can tell — a longer
@@ -44,6 +46,10 @@ export default function ComposeScreen() {
   const [disableComments, setDisableComments] = useState(false);
   const [pollOptions, setPollOptions] = useState<string[] | null>(null);
   const [image, setImage] = useState<PickedImage | null>(null);
+  // An image from the stock library: attached by id, no upload, so it needs no
+  // Worker. Unverified that the API takes one (docs/API.md#the-asset-library-sidechats-stock-images-not-yours).
+  const [libraryImage, setLibraryImage] = useState<LibraryAsset | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -77,7 +83,7 @@ export default function ComposeScreen() {
   const overLimit = trimmed.length > MAX_LENGTH;
   const canSubmit =
     Boolean(groupId) &&
-    (trimmed.length > 0 || Boolean(image)) &&
+    (trimmed.length > 0 || Boolean(image) || Boolean(libraryImage)) &&
     !overLimit &&
     !pollIncomplete &&
     !create.isPending &&
@@ -98,6 +104,10 @@ export default function ComposeScreen() {
     setError(null);
 
     let assets: NewPostAsset[] = [];
+    if (libraryImage) {
+      const { width, height, content_type } = libraryImage.metadata;
+      assets = [{ id: libraryImage.id, type: 'image', content_type, width, height }];
+    }
     if (image) {
       // Uploaded at submit time, not at pick time: an abandoned draft would
       // otherwise leave an orphan in the asset library with no way to remove it.
@@ -143,6 +153,7 @@ export default function ComposeScreen() {
   }, [
     groupId,
     image,
+    libraryImage,
     create,
     trimmed,
     anonymous,
@@ -245,6 +256,26 @@ export default function ComposeScreen() {
           </View>
         ) : null}
 
+        {libraryImage ? (
+          <View style={styles.attachment}>
+            <AuthedImage
+              uri={libraryImage.url}
+              style={[
+                styles.preview,
+                { aspectRatio: libraryImage.metadata.width / libraryImage.metadata.height },
+              ]}
+              contentFit="cover"
+            />
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Remove image"
+              onPress={() => setLibraryImage(null)}
+              style={[styles.removeImage, { backgroundColor: theme.overlay }]}>
+              <Ionicons name="close" size={16} color="#FFFFFF" />
+            </Pressable>
+          </View>
+        ) : null}
+
         {pollOptions ? (
           <PollComposer
             options={pollOptions}
@@ -267,10 +298,17 @@ export default function ComposeScreen() {
           draft to it.
         */}
         <View style={styles.tools}>
-          {canPickImages && imageUploadEnabled && !image && !pollOptions ? (
+          {canPickImages && imageUploadEnabled && !image && !libraryImage && !pollOptions ? (
             <ToolButton icon="image-outline" label="Photo" onPress={attach} />
           ) : null}
-          {!pollOptions && !image ? (
+          {/*
+            The stock library needs no upload, so it isn't gated on the Worker.
+            A community can turn it off (`asset_library_visibility: "hide"`).
+          */}
+          {!image && !libraryImage && !pollOptions && composeTarget?.asset_library_visibility !== 'hide' ? (
+            <ToolButton icon="images-outline" label="Library" onPress={() => setLibraryOpen(true)} />
+          ) : null}
+          {!pollOptions && !image && !libraryImage ? (
             <ToolButton
               icon="stats-chart-outline"
               label="Poll"
@@ -278,6 +316,15 @@ export default function ComposeScreen() {
             />
           ) : null}
         </View>
+
+        <LibraryPicker
+          visible={libraryOpen}
+          onClose={() => setLibraryOpen(false)}
+          onPick={(asset) => {
+            setLibraryImage(asset);
+            setLibraryOpen(false);
+          }}
+        />
 
         <View style={styles.options}>
           <Toggle

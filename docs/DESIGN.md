@@ -451,6 +451,16 @@ no-op — so a delete confirmation written the native way would fire the delete
 with no prompt at all. `ConfirmDialog` uses `Modal`, which both platforms
 implement, and it is what any destructive action must use.
 
+### Library images
+
+- **A *Library* tool sits beside *Photo*.** It opens Sidechat's stock images
+  in a windowed grid (three across, four with room) and attaches the one you
+  tap, previewed like a photo with the same remove button. Photo, Library and
+  Poll are mutually exclusive, as Photo and Poll already were.
+- **It isn't gated on the Worker**: a library image is already on Sidechat, so
+  nothing is uploaded. It hides where the community sets
+  `asset_library_visibility: "hide"`.
+
 ### Anonymous is the default, and it is stated
 
 The composer defaults to anonymous, matching Yik Yak, and the toggle spells out

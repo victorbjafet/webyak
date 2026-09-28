@@ -9,6 +9,7 @@ import type {
   CurrentUser,
   FeedCategory,
   Group,
+  LibraryAsset,
   NewPostAsset,
   PostOrComment,
   PostsAndCursor,
@@ -273,6 +274,26 @@ export async function uploadAssetWeb(file: Blob, mimeType: string) {
     throw new ApiError(`Asset upload failed with ${put.status}`, put.status);
   }
   return { assetId: asset_id, url: `${api.apiRoot}/v1/assets/library/${asset_id}` };
+}
+
+/**
+ * Sidechat's shared stock library: the images, in the order the API gives
+ * them. Videos (`video/mov`, about 5%) are left out, since a post attaches
+ * them differently and nothing here plays them inline. One page only: it
+ * already holds thousands, about 1.5 MB, which is plenty to pick from.
+ */
+export async function getAssetLibrary(): Promise<LibraryAsset[]> {
+  const json = await request<{ items?: unknown }>('/v1/assets/library');
+  const items = Array.isArray(json?.items) ? (json.items as Partial<LibraryAsset>[]) : [];
+  return items.filter(
+    (item): item is LibraryAsset =>
+      typeof item?.id === 'string' &&
+      typeof item.url === 'string' &&
+      item.metadata?.type === 'image' &&
+      ['jpeg', 'png', 'gif'].includes(item.metadata.content_type) &&
+      item.metadata.width > 0 &&
+      item.metadata.height > 0,
+  );
 }
 
 /**

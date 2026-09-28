@@ -1086,6 +1086,13 @@ is **one shared, long-unchanged stock library**, not per-community stickers
 - Groups carry `asset_library_visibility: "show" | "hide"`, presumably whether
   the composer offers the library there.
 
+**Built on it, 2026-09-28:** the composer's *Library* tool picks one of its
+images and attaches it by `id` as `{id, type: "image", content_type, width,
+height}`, the shape an uploaded asset gets, with no upload, so it works without
+the Worker. It's offered unless the target community says `"hide"`. Whether the
+API accepts a library id in `assets` is **the open question**: it takes
+creating one real post.
+
 ### Hiding a user's posts
 
 **Built 2026-09-28 on the library's word; unobserved.** sidechat.js 2.6.2 added
@@ -1679,7 +1686,10 @@ IndexedDB and never to the account.
 body ([marking a chat read](#marking-a-chat-read)). And the Yakarma probe after
 its one run: `quarterly_karma` and `season_karma` are current totals, not
 history ([what else is in getUpdates](#what-else-is-in-getupdates)). Its code
-is in commit `5630728`.
+is in commit `5630728`. And the asset library probe, after two runs: it is
+Sidechat's shared stock library ([the asset
+library](#the-asset-library-sidechats-stock-images-not-yours)); its code is in
+commit `ae2047d`.
 
 **Retired on 2026-09-27**, seven of them:
 
