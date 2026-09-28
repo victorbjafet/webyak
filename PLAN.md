@@ -747,7 +747,11 @@ and comment it sees** — effectively a Yik Yak downloader
       text on light surfaces is ~2:1 and waits on a palette decision
       ([DESIGN.md](docs/DESIGN.md#palette))
 - [~] Draft autosave, offline cache, JSON export. **Draft autosave done
-      2026-09-28** (per account and target; images aren't kept)
+      2026-09-28** (per account and target; images aren't kept). **JSON export
+      of your posts and comments done 2026-09-28** (You → Account). Offline
+      cache left: the archive already keeps every post readable offline, and
+      the query persister was removed on purpose
+      ([ARCHITECTURE.md](docs/ARCHITECTURE.md#why-indexeddb-and-why-the-persister-had-to-go))
 - [ ] PWA manifest + service worker
 - [x] Redirect real Yik Yak URLs (`/cy/<group>/comments/<code>/<slug>`) to `/p/<code>`,
       and `/cy/<group>` to `/g/<group>` (2026-09-28)

@@ -13,6 +13,7 @@ import {
 import { useSession } from '@/api/session';
 import type { PostOrComment } from '@/api/types';
 import { KarmaHistory, KarmaPeriods } from '@/components/me/karma-history';
+import { ExportMyContentButton } from '@/components/me/export-my-content';
 import { KarmaPanel } from '@/components/me/karma-panel';
 import { CommentItem } from '@/components/post/comment-item';
 import { IdentityAvatar } from '@/components/post/identity-avatar';
@@ -230,6 +231,7 @@ export default function MeScreen() {
           <Row label="user id" value={userId ?? '—'} />
           <Row label="primary group" value={primaryGroup?.name ?? 'none'} />
           <Row label="device id" value={deviceId ?? '—'} />
+          <ExportMyContentButton />
         </View>
 
         <Button label="Sign out" variant="danger" onPress={() => void signOut()} />

@@ -424,12 +424,17 @@ export function useAssetLibrary(enabled: boolean) {
   });
 }
 
-/** Your own posts or comments, via the URL-patched `getUserContent`. */
-export function useMyContent(kind: 'posts' | 'comments') {
-  return useQuery({
+/** The query behind `useMyContent`, shared with the export so both use one cache. */
+export function myContentQuery(kind: 'posts' | 'comments') {
+  return {
     queryKey: queryKeys.myContent(kind),
     queryFn: async () => sanitizePosts(await getUserContent(kind)),
-  });
+  };
+}
+
+/** Your own posts or comments, via the URL-patched `getUserContent`. */
+export function useMyContent(kind: 'posts' | 'comments') {
+  return useQuery(myContentQuery(kind));
 }
 
 export type { Group };

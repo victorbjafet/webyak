@@ -358,6 +358,9 @@ Built 2026-09-27; what the API gives it is in
   the plot gives first → last and the change, or the hovered point's value and
   time; the axis says *Sampled on this device*. One sample shows a sentence
   instead of a one-dot chart.
+- **Export my posts and comments** sits in the Account card: one JSON file of
+  what the API returns for you now, anonymous posts included. It is not the
+  archive export in Settings, which is everything this browser has seen.
 - **Replies aren't indented here.** Out of their thread there's no parent above
   them, so `CommentItem`'s `nested` is off.
 

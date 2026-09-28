@@ -52,6 +52,8 @@ example
 probe-*.json
 # Exported logins (Settings → Accounts). Encrypted, but a login all the same.
 webyak-login*.json
+# Your own posts and comments (You → Export my posts and comments).
+webyak-my-content*.json
 probe-*.txt
 *-probe.json
 *.probe
