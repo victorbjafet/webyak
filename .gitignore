@@ -58,6 +58,9 @@ probe-*.txt
 diagnostics-*.json
 **/probe-output/
 .claude/settings.local.json
+# Playwright MCP's snapshots, console logs and screenshots of the signed-in
+# browser. They hold the account's feed, chats and profile.
+.playwright-mcp/
 
 # Archive exports. These are a full dump of a real community's posts —
 # other people's content, tens of thousands of rows — and have no business in

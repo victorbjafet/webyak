@@ -15,3 +15,55 @@ same commit**, with no exceptions for docs-only or small commits:
 Month and day are always two digits. Get today from `date +%Y.%m.%d` (local
 time) instead of assuming it. Leave `version` in package.json and app.json at
 1.0.0: npm expects semver there, and iOS allows at most three numbers.
+
+# Committing
+
+**Commit; never push.** Commit locally once `npx tsc --noEmit`, `npm run lint`,
+the secret scan in [CLAUDE.md](CLAUDE.md) and the version bump are done. The
+owner pushes, and a push to `main` deploys the live site.
+
+**One commit per feature.** A long run that takes on several things commits
+each one when it is done, with its own docs and its own version bump. Don't
+save them all for one commit at the end: a commit that does one thing can be
+reviewed, reverted or held back from a push on its own.
+
+**Check UI changes against a stand-in, not the account.** Before committing a
+UI or session change, build a scratch copy of the repo (`npx expo export
+--platform web`) with `fetch` patched to answer `https://api.sidechat.lol`
+from fixtures, and drive it in a browser. Some bugs only show in a built
+bundle: the React Compiler has compiled away code there that ran fine in dev.
+
+# The Playwright browser is signed in to the owner's real account
+
+The Playwright MCP browser runs webyak from the owner's dev server,
+`http://localhost:8081`, signed in to the owner's real Yik Yak account. Agents
+use it to drive the app and run the probes on `/diagnostics` themselves. It has
+its own browser profile, separate from the owner's everyday one, but the login
+in it is real:
+
+- **Never read, print or copy the token or anything else in localStorage.**
+  That covers `browser_evaluate`, request headers (`Authorization` carries the
+  bearer) and screenshots of the account screens. Docs and commits get what a
+  probe *proved*, never what it returned (CLAUDE.md).
+- **Ask the owner before anything that writes to the account**: posting,
+  commenting, voting, messaging, joining, editing the profile, deleting, the
+  length probes. Some writes happen on the way to something else. Opening a
+  chat marks it read, and the official app shows it read too. Tapping an
+  alert marks it seen. So does *Mark all read*. The full list is in
+  [docs/API.md](docs/API.md#probes-what-is-still-asked-and-what-was-retired).
+  Everything else (feeds, posts, profiles, Explore, the read-only probes) only
+  reads.
+- **Never clear that browser's site data or storage**, and never sign out. It
+  would end the session, and the archive in that browser lives in the same
+  storage.
+- **The login-file picker doesn't open in that browser.** Playwright takes
+  every file chooser for itself, so *Use a login file instead* does nothing for
+  the person at the window. Each click leaves a pending chooser that blocks the
+  agent's snapshots and screenshots until `browser_file_upload` answers it. To
+  sign in there, use the texted code. Or put the login file in the repo root
+  (`webyak-login*.json` is gitignored) and have the agent hand it over with
+  `browser_file_upload`; the owner types the passphrase.
+- Snapshots, console logs and screenshots go to `.playwright-mcp/`, which is
+  gitignored because they hold other people's posts. The MCP only writes
+  inside the repo, so screenshots go there too. Don't quote what they contain
+  in docs or commits.

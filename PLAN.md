@@ -43,10 +43,12 @@ and let a friend sign in on your computer.
 | **Nothing: buildable now** | Alerts follow-ups: B4 upvote counter, B1 score refresh, `takedown` alerts as B3's removal notice, `comment` alerts opening at their comment. The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
 | **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
-**Next:** Playwright MCP, being set up on 2026-09-28. The owner signs in to
-webyak in its browser, on the dev server at `localhost:8081`, so an agent can
-drive the app and run probes itself, reading the reports straight off the page
-instead of the owner pasting them back. That browser holds the real account,
+**Next:** Playwright MCP. It connects and loads the dev server at
+`localhost:8081` (confirmed 2026-09-28). Once the owner signs in to webyak in
+its browser, an agent can drive the app and run probes itself, reading the
+reports straight off the page instead of the owner pasting them back. That
+browser holds the real account. The rules for driving it are in
+[AGENTS.md](AGENTS.md#the-playwright-browser-is-signed-in-to-the-owners-real-account),
 and what writes to it is listed in
 [docs/API.md](docs/API.md#probes-what-is-still-asked-and-what-was-retired).
 Then the Worker, which image attachments, video outside Safari and video
