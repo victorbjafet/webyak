@@ -7,7 +7,7 @@ import { Platform, Pressable, Share, StyleSheet, View } from 'react-native';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 import { MessageAuthorDialog } from './message-author-dialog';
 
-import { useDeleteContent } from '@/api/mutations';
+import { useDeleteContent, useHideUser } from '@/api/mutations';
 import type { PostOrComment } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -29,7 +29,7 @@ export function PostActions({
   onDeleted,
 }: {
   post: PostOrComment;
-  /** Fired after a successful delete. The post screen uses it to leave. */
+  /** Fired once the post is deleted, or its author hidden. The post screen uses it to leave. */
   onDeleted?: () => void;
 }) {
   const theme = useTheme();
@@ -37,7 +37,9 @@ export function PostActions({
   const [copied, setCopied] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [messaging, setMessaging] = useState(false);
+  const [confirmingHide, setConfirmingHide] = useState(false);
   const remove = useDeleteContent();
+  const hide = useHideUser();
 
   const url = shareUrlForPost(post);
 
@@ -102,6 +104,17 @@ export function PostActions({
         onPress={url ? share : undefined}
         active={copied}
       />
+      {/*
+        Someone else's post only, and posts only: the endpoint is keyed on a
+        post in a feed (`post_context: "feed"`).
+      */}
+      {!post.authored_by_user && post.type === 'post' ? (
+        <ActionButton
+          icon="eye-off-outline"
+          label="Hide posts from this person"
+          onPress={() => setConfirmingHide(true)}
+        />
+      ) : null}
       {post.authored_by_user ? (
         <ActionButton
           icon="trash-outline"
@@ -115,6 +128,21 @@ export function PostActions({
         post={post}
         visible={messaging}
         onClose={() => setMessaging(false)}
+      />
+
+      <ConfirmDialog
+        visible={confirmingHide}
+        title="Hide posts from this person?"
+        body="You won't see their posts any more. It stays anonymous: nobody is told, and webyak can't show you who they are. Settings can undo it, for everyone you've hidden at once."
+        confirmLabel="Hide"
+        busy={hide.isPending}
+        onCancel={() => setConfirmingHide(false)}
+        onConfirm={() => {
+          hide.mutate(post.id, {
+            onSuccess: () => onDeleted?.(),
+            onSettled: () => setConfirmingHide(false),
+          });
+        }}
       />
 
       <ConfirmDialog

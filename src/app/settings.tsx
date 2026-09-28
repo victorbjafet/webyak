@@ -8,6 +8,7 @@ import { groupDisplayName, isForYouFeed } from '@/api/groups';
 import type { Group } from '@/api/types';
 import { AccountsCard } from '@/components/accounts/accounts-card';
 import { AppearanceCard } from '@/components/settings/appearance-card';
+import { HiddenCard } from '@/components/settings/hidden-card';
 import { ExternalLink } from '@/components/external-link';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
@@ -446,6 +447,8 @@ export default function SettingsScreen() {
         <AccountsCard />
 
         <AppearanceCard />
+
+        <HiddenCard />
 
         {/* ---------------------------------------------------------------- */}
         <Card>

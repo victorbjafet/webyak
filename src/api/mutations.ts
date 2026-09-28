@@ -10,7 +10,9 @@ import {
   createComment,
   createPost,
   deletePostOrComment,
+  hidePostsFromUser,
   setGroupMembership,
+  unhideAllUsers,
   setVote,
   updateProfile,
   type ProfileUpdate,
@@ -22,7 +24,7 @@ import { joinGroupChat, sendDM, startDM } from './chats';
 import { queryKeys } from './queries';
 import { useSession } from './session';
 import type { JoinChatIdentity, PostOrComment, VoteStatus } from './types';
-import { toastError } from '@/lib/toast';
+import { showToast, toastError } from '@/lib/toast';
 
 /* ------------------------------------------------------------------------ *
  * Cache surgery
@@ -293,6 +295,42 @@ export function useDeleteContent() {
   });
 }
 
+
+/* ------------------------------------------------------------------------ *
+ * Hiding people
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Hide the person behind a post. The post leaves every cache at once, and the
+ * feeds refetch (the ones on screen now, the rest when next opened), so the
+ * server can leave out that person's other posts. Whether it does is
+ * unobserved (docs/API.md#hiding-a-users-posts).
+ */
+export function useHideUser() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (postId: string) => hidePostsFromUser(postId),
+    onError: (error) => toastError(error, "That couldn't be hidden."),
+    onSuccess: (_result, postId) => {
+      dropEverywhere(client, postId);
+      void client.invalidateQueries({ queryKey: ['feed'] });
+      showToast("Hidden. You won't see their posts. Settings can undo it.");
+    },
+  });
+}
+
+/** Undo every hide. The API has no way to undo just one. */
+export function useUnhideAll() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => unhideAllUsers(),
+    onError: (error) => toastError(error, "Hidden posts couldn't be restored."),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['feed'] });
+      showToast('Everyone you hid is back in your feeds.');
+    },
+  });
+}
 
 /* ------------------------------------------------------------------------ *
  * Membership

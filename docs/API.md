@@ -1064,6 +1064,29 @@ One thing settled that had been an open assumption: **`createPost` returns an
 `index_code`** on the new post (observed: `eVYkniqy`). New posts are therefore
 shareable immediately, with no refetch needed to get a URL.
 
+### Hiding a user's posts
+
+**Built 2026-09-28 on the library's word; unobserved.** sidechat.js 2.6.2 added
+two methods that offsides never called, so there is no prior art beyond the
+request shapes:
+
+| Action | Endpoint | Body |
+|---|---|---|
+| Hide the person behind a post | `POST /v1/posts/hide_posts_from_user` | `{post_id, post_context: "feed", report: false}` |
+| Undo every hide | `POST /v1/users/unhide_all` | `{}` |
+
+There is no per-person undo and no list of who is hidden, which is why
+Settings offers one *Unhide everyone* button. webyak drops the post from every
+cache on success and refetches the feeds, so the server can leave the person's
+other posts out, **if it does**. Unknown until it's run once on the live
+account (a write, so it needs the owner's OK):
+
+- what either call answers;
+- whether the person's other posts leave the feeds, and how soon;
+- whether their comments are hidden too;
+- what `report: true` does. It is never sent: reporting is its own unfound
+  endpoint (Phase 8), and a hide shouldn't quietly file a report.
+
 ### ⛔ Image upload is blocked by CORS
 
 **Found 2026-08-27, unresolved.** Attaching an image fails with `Failed to

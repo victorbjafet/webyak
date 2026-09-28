@@ -44,8 +44,8 @@ and let a friend sign in on your computer.
 |---|---|
 | **Deploying the Worker** | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. **The Worker is built (2026-09-28)** in [worker/](worker/), every client path is wired to it, and both were tested end to end against stubs ([WORKER.md](docs/WORKER.md)). Deploying it is the owner's: [worker/SETUP.md](worker/SETUP.md), about ten minutes in the Cloudflare dashboard |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
-| **A probe run** | Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
-| **Nothing: buildable now** | Hiding a user's posts. The community sticker library. Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **A probe run** | Hiding a user's posts, once, to see what the server does with it (a write). Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
+| **Nothing: buildable now** | The community sticker library. Archive media back-fill. Phase 7 extras. Phase 9 polish |
 | **The owner** | Deploy the Worker ([worker/SETUP.md](worker/SETUP.md)) and set the `WORKER_URL` repository variable. Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
 **Next:** the buildable Alerts follow-ups above, now that Q14 says what their
@@ -166,7 +166,7 @@ src/
 | 20 | My posts / comments | `getUserContent` | ⛔ broken URL — patch via `sendRequest` |
 | 21 | DMs | `getDMs`, `getDMThread`, `sendDM`, `startDM` | needs a stable client/device ID |
 | 22 | Group chats | `getGroupChats`, `joinGroupChat` | ⛔ `getGroupChats` URL broken |
-| 23 | Hide user's posts | `hidePostsFromUser`, `unhidePostsFromAllUsers` | |
+| 23 | Hide user's posts | `hidePostsFromUser`, `unhidePostsFromAllUsers` | ✅ built 2026-09-28 (eye-off on a post; *Unhide everyone* in Settings). **Unobserved:** offsides never called either ([API.md](docs/API.md#hiding-a-users-posts)) |
 | 24 | Mark activity read | `readActivity` | ✅ on tap, or *Mark all read* in one request — confirmed to stick, and to batch |
 | 30 | Yakarma total + per-community | `getUpdates().karma` | ✅ with post/comment split |
 | 31 | For You feed | `Home` group, `index_name: "all"` | ✅ not a community — no top, not postable |

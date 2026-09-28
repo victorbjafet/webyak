@@ -361,6 +361,15 @@ Built 2026-09-27; what the API gives it is in
 - **Replies aren't indented here.** Out of their thread there's no parent above
   them, so `CommentItem`'s `nested` is off.
 
+## Hiding someone
+
+- **The eye-off action on someone else's post** hides the person behind it,
+  after a confirm that says it stays anonymous (nobody is told, and webyak
+  can't say who they are). The post leaves at once, and on the post screen the
+  screen leaves with it, as after a delete.
+- **The undo is all or nothing**, because that is all the API offers: *Settings
+  → Hidden people → Unhide everyone*, also behind a confirm.
+
 ## Chats: opening one reads it
 
 - **Opening a thread marks it read, and so does *Mark all read* on the list.**

@@ -198,6 +198,13 @@ assume they hit a case we haven't yet.
 
 ## What offsides does *not* solve
 
+**Hiding a user's posts.** sidechat.js 2.6.2 has `hidePostsFromUser` and
+`unhidePostsFromAllUsers`, but no offsides screen calls either (checked
+2026-09-28: `Post.jsx`, `ThreadScreen.jsx`, `SettingsScreen.jsx`). webyak
+built them from the library's request shapes alone, so what they answer is
+unobserved ([API.md](API.md#hiding-a-users-posts)).
+
+
 **Share links.** The AndroidManifest registers only a custom scheme — `exp+offsides`
 since 1.0, which dropped `com.micahlindley.offsides` — and there is still **no
 `https` intent filter for yikyak.com**. offsides never opens a shared web link, and

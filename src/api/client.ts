@@ -643,6 +643,29 @@ export async function deletePostOrComment(id: string) {
   return request<unknown>('/v1/posts/delete', 'POST', { post_id: id });
 }
 
+/**
+ * Stop seeing posts from the person behind this post. `POST
+ * /v1/posts/hide_posts_from_user` with `{post_id, post_context: "feed",
+ * report: false}`, the body sidechat.js 2.6.2 sends.
+ *
+ * **Unobserved.** offsides never called it, and nothing here has run it
+ * against a live account yet: what the answer looks like, and whether the
+ * person's other posts drop out of feeds, comments included, is unknown
+ * (docs/API.md#hiding-a-users-posts).
+ */
+export async function hidePostsFromUser(postId: string) {
+  return request<unknown>('/v1/posts/hide_posts_from_user', 'POST', {
+    post_id: postId,
+    post_context: 'feed',
+    report: false,
+  });
+}
+
+/** Undoes every hide at once: `POST /v1/users/unhide_all`. There is no per-person undo. Unobserved too. */
+export async function unhideAllUsers() {
+  return request<unknown>('/v1/users/unhide_all', 'POST', {});
+}
+
 export async function voteOnPoll(pollId: string, choiceIndex: number) {
   return request<unknown>('/v1/polls/vote', 'POST', { poll_id: pollId, choice: choiceIndex });
 }
