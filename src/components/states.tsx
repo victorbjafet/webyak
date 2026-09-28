@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { friendlyError } from '@/lib/errors';
 
 export function LoadingState({ label = 'Loading…' }: { label?: string }) {
   const theme = useTheme();
@@ -55,7 +56,7 @@ export function ErrorState({
   title?: string;
 }) {
   const theme = useTheme();
-  const message = error instanceof Error ? error.message : error ? String(error) : undefined;
+  const message = friendlyError(error);
 
   return (
     <View style={[styles.card, { borderColor: theme.danger }]}>

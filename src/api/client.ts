@@ -90,6 +90,31 @@ export function isUnauthorized(error: unknown) {
 }
 
 /**
+ * A 429 pauses every request made through `request()` until this time, rather
+ * than letting the polls (alerts every two minutes, chats every minute, an
+ * open thread every five seconds) keep hitting an API that just asked them to
+ * stop. PLAN §8 counts an over-eager client as a risk to the account. The pause
+ * is the response's `Retry-After` when it gives one, else a minute.
+ */
+let rateLimitedUntil = 0;
+const DEFAULT_COOLDOWN_MS = 60_000;
+
+function startCooldown(res: Response) {
+  const header = Number(res.headers.get('Retry-After'));
+  const ms = Number.isFinite(header) && header > 0 ? Math.min(header, 600) * 1000 : DEFAULT_COOLDOWN_MS;
+  const starting = Date.now() >= rateLimitedUntil;
+  rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + ms);
+  if (starting) onRateLimited?.(ms);
+}
+
+let onRateLimited: ((ms: number) => void) | null = null;
+
+/** Told once when a cooldown starts. The app shows a notice. */
+export function setRateLimitHandler(handler: ((ms: number) => void) | null) {
+  onRateLimited = handler;
+}
+
+/**
  * Raw request helper for endpoints sidechat.js gets wrong or doesn't cover.
  * Unlike the library's methods this checks the HTTP status, which is how we
  * detect an expired token.
@@ -99,6 +124,9 @@ export async function request<T>(
   method: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' = 'GET',
   body?: unknown,
 ): Promise<T> {
+  if (Date.now() < rateLimitedUntil) {
+    throw new ApiError(`${method} ${endpoint} held back: rate limited`, 429);
+  }
   const res = await api.sendRequest(
     endpoint,
     method,
@@ -135,6 +163,7 @@ export async function publicRequest<T>(
  * body carries `error_code`/`message`. Both have to be checked.
  */
 export async function unwrap<T>(res: Response, label: string): Promise<T> {
+  if (res.status === 429) startCooldown(res);
   let json: unknown;
   try {
     json = await res.json();

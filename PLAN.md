@@ -815,7 +815,9 @@ and comment it sees** — effectively a Yik Yak downloader
 - [ ] Accessibility pass (focus order, labels, contrast, reduced motion).
       ⛔ Contrast first needs a palette call: brand text on light surfaces is
       ~2:1 ([DESIGN.md](docs/DESIGN.md#palette))
-- [ ] Rate-limit handling + friendly error surfaces
+- [x] Rate-limit handling + friendly error surfaces (2026-09-28): a 429
+      pauses every request for its `Retry-After` or a minute, and bare
+      failures get plain words ([ARCHITECTURE.md](docs/ARCHITECTURE.md#a-429-pauses-everything))
 - [ ] Responsive QA: 360px → 2560px
 - [ ] iOS/Android smoke test (universal comes nearly free)
 - [x] Logo: a simple outline laptop (Lucide's `laptop`, ISC) in near-black on

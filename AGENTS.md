@@ -79,6 +79,11 @@ in it is real:
   sign in there, use the texted code. Or put the login file in the repo root
   (`webyak-login*.json` is gitignored) and have the agent hand it over with
   `browser_file_upload`; the owner types the passphrase.
+- **Editing `src/api/client.ts` hot-reloads a client with no token** into the
+  signed-in tab: its next polls go out as `Bearer undefined` and get 401s. The
+  app doesn't sign out on those (a 401 without a token proves nothing), and a
+  reload of that tab re-reads the stored token. Reload it after such edits,
+  before using it.
 - Snapshots, console logs and screenshots go to `.playwright-mcp/`, which is
   gitignored because they hold other people's posts. The MCP only writes
   inside the repo, so screenshots go there too. Don't quote what they contain

@@ -1,5 +1,7 @@
 import { useSyncExternalStore } from 'react';
 
+import { friendlyError } from './errors';
+
 /**
  * Transient messages, mostly "that write didn't land".
  *
@@ -58,8 +60,7 @@ export function dismissToast(id: number) {
  * prefer those over the generic fallback.
  */
 export function toastError(error: unknown, fallback: string) {
-  const message = error instanceof Error && error.message ? error.message : fallback;
-  showToast(message, 'error');
+  showToast(friendlyError(error) ?? fallback, 'error');
 }
 
 function subscribe(listener: () => void) {

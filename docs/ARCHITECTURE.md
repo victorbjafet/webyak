@@ -180,6 +180,21 @@ already in place and inert, so enabling it is config plus one call.
 Full spec, verified request/response shapes, and the wiring steps:
 **[docs/WORKER.md](WORKER.md)**.
 
+## A 429 pauses everything
+
+**Added 2026-09-28.** Queries already didn't retry a 429, but the polls kept
+running: alerts every two minutes, chats every minute, an open thread every
+five seconds, and each one another request to an API that had just asked
+them to stop. PLAN §8 counts an over-eager client as a risk to the account.
+
+Now the first 429 through `unwrap` starts a **cooldown**: `request()` throws a
+synthetic 429 for every call until it ends, without touching the network. It
+lasts the response's `Retry-After` (capped at ten minutes), or a minute
+without one. One toast announces it; errors during it read as the rate limit
+(`friendlyError`). The archive crawler already hard-stops on a 429, and still
+does, since held-back calls fail the same way. Calls made through sidechat.js
+methods directly (a handful of reads) aren't covered.
+
 ## Installable, and an offline shell
 
 **Added 2026-09-28** (Phase 7). webyak installs as an app (Add to Home Screen,

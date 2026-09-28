@@ -1,6 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-import { ApiError } from './client';
+import { ApiError, setRateLimitHandler } from './client';
+
+import { showToast } from '@/lib/toast';
+
+// One notice when a 429 starts a cooldown (client.ts), however many requests
+// it then holds back.
+setRateLimitHandler((ms) =>
+  showToast(`Yik Yak is rate limiting webyak, so it's pausing for ${Math.round(ms / 1000)} seconds.`, 'info'),
+);
 
 const ONE_MINUTE = 1000 * 60;
 const ONE_HOUR = ONE_MINUTE * 60;

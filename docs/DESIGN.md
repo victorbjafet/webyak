@@ -512,6 +512,12 @@ action the user was trying to take.
 Repeated messages collapse: voting on three posts while offline says one thing,
 not three identical bars.
 
+**Bare failures get words** (`friendlyError`, src/lib/errors.ts, 2026-09-28).
+The API's own message wins when it sends one. A 429 says Yik Yak asked webyak
+to slow down and that it will wait; a 5xx says their servers had a problem; a
+browser `Failed to fetch` says Yik Yak couldn't be reached. Toasts and error
+states both use it, so no screen shows "GET /v1/posts failed with 502".
+
 ## Focus rings
 
 The browser's default focus ring is blue — the one color in the app that belongs
