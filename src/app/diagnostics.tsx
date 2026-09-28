@@ -17,6 +17,7 @@ import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
 import { Radius, Spacing } from '@/constants/theme';
+import { APP_VERSION } from '@/constants/version';
 import { useTheme } from '@/hooks/use-theme';
 
 const STATUS_LABEL: Record<ProbeStatus, string> = {
@@ -81,8 +82,10 @@ export default function DiagnosticsScreen() {
 
   const copy = useCallback(async () => {
     if (!results) return;
-    const report = results
-      .map((r) =>
+    // Headed with the version, so a pasted report says which build produced it.
+    const report = [
+      `webyak ${APP_VERSION}`,
+      ...results.map((r) =>
         [
           `## ${r.label} — ${STATUS_LABEL[r.status]}`,
           r.question,
@@ -91,8 +94,8 @@ export default function DiagnosticsScreen() {
         ]
           .filter(Boolean)
           .join('\n'),
-      )
-      .join('\n\n');
+      ),
+    ].join('\n\n');
     await Clipboard.setStringAsync(report);
     setCopied(true);
   }, [results]);

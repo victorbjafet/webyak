@@ -720,20 +720,25 @@ and comment it sees** — effectively a Yik Yak downloader
 - [ ] Rate-limit handling + friendly error surfaces
 - [ ] Responsive QA: 360px → 2560px
 - [ ] iOS/Android smoke test (universal comes nearly free)
-- [x] Logo: the Fluent Emoji laptop (MIT) on the accent green, as favicon,
-      sidebar mark, iPhone home-screen icon, and native app icon and splash.
-      Generated, not drawn: [docs/DESIGN.md](docs/DESIGN.md#logo)
-- [~] Deploy to GitHub Pages. **The workflow is in** (2026-09-27):
+- [x] Logo: a simple outline laptop (Lucide's `laptop`, ISC) in near-black on
+      the accent green, as favicon, sidebar mark, iPhone home-screen icon, and
+      native app icon and splash. Generated, not drawn:
+      [docs/DESIGN.md](docs/DESIGN.md#logo). It replaced a filled Fluent emoji
+      laptop the same day, since the brief was an outline
+- [x] Deploy to GitHub Pages: **live at `webyak.vbjfr.xyz` since 2026-09-27.**
       [.github/workflows/deploy.yml](.github/workflows/deploy.yml) builds and
-      publishes on every push to `main`, verified as a clean `npm ci` + build.
-      **Not live yet.** It waits on the one-time setup in
-      [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deploying-to-github-pages):
-      Pages source, custom domain, domain verification, HTTPS
-  - [ ] First deploy, then verify at `webyak.vbjfr.xyz`: a cold deep link
-        (e.g. `/explore`) loads, `_expo/` assets load, favicon shows, HTTPS
-        is enforced ([gotchas](docs/ARCHITECTURE.md#github-pages-gotchas))
-  - [ ] Verify `vbjfr.xyz` on the GitHub account. The `webyak` CNAME points at
-        GitHub already, so until then anyone can claim the subdomain
+      publishes on every push to `main`
+      ([setup](docs/ARCHITECTURE.md#deploying-to-github-pages))
+  - [x] First deploy (`c06d162`) checked from outside: HTTPS with a valid
+        certificate, a cold deep link loads, favicon and home-screen icon are
+        served ([gotchas](docs/ARCHITECTURE.md#github-pages-gotchas))
+  - [x] `vbjfr.xyz` domain verification: the TXT record is in place
+  - [ ] **Tick Enforce HTTPS** (repo → Settings → Pages). On 2026-09-27
+        `http://webyak.vbjfr.xyz` still answered `200` instead of redirecting
+- [x] Version number, `yyyy.mm.dd.v`, bumped on every commit, and shown next to
+      a *View source* link at the top of Settings. The rule is in
+      [AGENTS.md](AGENTS.md), the reasoning in
+      [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#versioning)
 
 ---
 

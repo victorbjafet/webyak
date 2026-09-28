@@ -107,8 +107,7 @@ check.
 [@micahlt](https://github.com/micahlt), did the hard reverse-engineering work
 this is built on.
 
-The logo's laptop is from Microsoft's
-[Fluent Emoji](https://github.com/microsoft/fluentui-emoji), MIT —
+The logo's laptop is [Lucide](https://lucide.dev)'s `laptop` icon, ISC —
 [assets/brand/LICENSE](assets/brand/LICENSE).
 
 ## License

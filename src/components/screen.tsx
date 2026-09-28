@@ -16,6 +16,12 @@ interface ScreenProps {
    * the flexible space and shrinks before the action does.
    */
   titleContent?: React.ReactNode;
+  /**
+   * Small print on the title's line, right after it — Settings' version and
+   * source link. Wraps under the title when the line runs out. Ignored when
+   * `titleContent` replaces the title.
+   */
+  titleAccessory?: React.ReactNode;
   subtitle?: string;
   /** Rendered left of the title — a group icon, typically. */
   leading?: React.ReactNode;
@@ -46,6 +52,7 @@ interface ScreenProps {
 export function Screen({
   title,
   titleContent,
+  titleAccessory,
   subtitle,
   leading,
   headerBelow,
@@ -58,6 +65,15 @@ export function Screen({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  const titleText = title ? (
+    <ThemedText
+      type="subtitle"
+      numberOfLines={1}
+      style={[titleAccessory ? styles.titleBeside : null, { color: theme.brand }]}>
+      {title}
+    </ThemedText>
+  ) : null;
 
   const header =
     title || titleContent || headerBelow ? (
@@ -78,11 +94,14 @@ export function Screen({
       {leading}
       <View style={styles.headerText}>
         {titleContent ??
-          (title ? (
-            <ThemedText type="subtitle" numberOfLines={1} style={{ color: theme.brand }}>
-              {title}
-            </ThemedText>
-          ) : null)}
+          (titleText && titleAccessory ? (
+            <View style={styles.titleLine}>
+              {titleText}
+              {titleAccessory}
+            </View>
+          ) : (
+            titleText
+          ))}
         {subtitle ? (
           <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>
             {subtitle}
@@ -146,6 +165,17 @@ const styles = StyleSheet.create({
   headerText: {
     flex: 1,
     gap: Spacing.half,
+  },
+  // Baseline, so the small print sits on the title's line rather than
+  // centred against its taller box.
+  titleLine: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    columnGap: Spacing.two,
+  },
+  titleBeside: {
+    flexShrink: 1,
   },
   back: {
     width: 36,

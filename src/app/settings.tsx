@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
@@ -5,11 +6,13 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useCurrentGroup } from '@/api/current-group';
 import { groupDisplayName, isForYouFeed } from '@/api/groups';
 import type { Group } from '@/api/types';
+import { ExternalLink } from '@/components/external-link';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Layout, Radius, Spacing } from '@/constants/theme';
+import { APP_VERSION } from '@/constants/version';
 import { useTheme } from '@/hooks/use-theme';
 import { CommentMonitor } from '@/components/settings/comment-monitor';
 import { CrawlMonitor } from '@/components/settings/crawl-monitor';
@@ -43,6 +46,8 @@ import type { ArchiveStats, CrawlState, RepairOutcome, UpdateState } from '@/lib
 import { saveFile } from '@/lib/save-file';
 import { formatCount } from '@/lib/time';
 import { showToast, toastError } from '@/lib/toast';
+
+const SOURCE_URL = 'https://github.com/victorbjafet/webyak';
 
 /** The integrity report's structural problems, as short phrases — empty when there are none. */
 function structuralIssues(report: IntegrityReport): string[] {
@@ -434,7 +439,7 @@ export default function SettingsScreen() {
   }, []);
 
   return (
-    <Screen title="Settings" back scroll={false}>
+    <Screen title="Settings" titleAccessory={<VersionAndSource />} back scroll={false}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* ---------------------------------------------------------------- */}
         <Card>
@@ -913,7 +918,35 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * Beside the title: which build this is, and where its code lives. The link is
+ * `ExternalLink` itself, not `asChild` around a Pressable, because on web
+ * `asChild` passes `target` to the child as a bare prop, which react-native-web
+ * drops, so the page would open in this tab.
+ */
+function VersionAndSource() {
+  const theme = useTheme();
+  return (
+    <View style={styles.meta}>
+      <ThemedText type="caption" themeColor="textTertiary" selectable>
+        v{APP_VERSION}
+      </ThemedText>
+      <ExternalLink href={SOURCE_URL} accessibilityLabel="View source on GitHub">
+        <Ionicons name="logo-github" size={13} color={theme.textSecondary} />
+        <ThemedText type="caption" themeColor="textSecondary">
+          {' '}View source
+        </ThemedText>
+      </ExternalLink>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  meta: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: Spacing.two,
+  },
   content: {
     width: '100%',
     maxWidth: Layout.feedMaxWidth,

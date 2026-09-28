@@ -47,11 +47,20 @@ sixth color; revisit if the two ever need to be distinguished at a glance.
 
 ## Logo
 
-A laptop seen from slightly above, on the accent green. The laptop is Microsoft's
-[Fluent Emoji](https://github.com/microsoft/fluentui-emoji) "Laptop", chosen
-because it is **MIT**, the same license as webyak, and vector, so it renders at
-any size. The license and the provenance of every file derived from it are in
+A simple outline of a laptop, in `onBrand` near-black on the accent green. The
+laptop is [Lucide](https://lucide.dev)'s `laptop`, picked because its base flares
+the way a keyboard does when seen from slightly above, where most outline laptops
+are a flat front view. Lucide is **ISC**, which asks only that the notice travel
+with the icon. The notice and the provenance of every derived file are in
 [assets/brand/LICENSE](../assets/brand/LICENSE).
+
+The first version, earlier on 2026-09-27, used Microsoft's Fluent emoji laptop,
+a filled colour illustration. It was replaced the same day: the brief was always
+a simple outline.
+
+**Why near-black, not white:** it's the palette's rule for anything on the accent
+(`onBrand`, above). White on `#10CEAC` is too faint, and at favicon size a faint
+1px outline disappears. The Post button pairs the same two colours.
 
 **Every icon is generated. Don't edit the PNGs by hand:**
 
@@ -59,20 +68,20 @@ any size. The license and the provenance of every file derived from it are in
 python3 assets/brand/render-icons.py   # needs Pillow and Google Chrome
 ```
 
-It renders [laptop.svg](../assets/brand/laptop.svg) (the colour art, unmodified)
-and [laptop-mono.svg](../assets/brand/laptop-mono.svg) (the flat art recoloured
-white-and-cut-out for Android's themed icons) with headless Chrome, then
-composes each output:
+It renders [laptop.svg](../assets/brand/laptop.svg), unmodified, with headless
+Chrome. Only its coverage is used: the SVG strokes with `currentColor`, so the
+script takes the alpha and fills it with each output's colour. Then it composes
+each output:
 
 | Output | Used as | Composition |
 |---|---|---|
-| `assets/images/icon.png` 1024 | `expo.icon`: the app icon on iOS and Android | opaque green square, laptop at 62%. The OS rounds the corners, and the App Store rejects transparency |
+| `assets/images/icon.png` 1024 | `expo.icon`: the app icon on iOS and Android | opaque green square, laptop 66% of its width. The OS rounds the corners, and the App Store rejects transparency |
 | `public/apple-touch-icon.png` 180 | the icon when a page is added to an iPhone home screen | the same picture. Safari fetches it from the site root without a `<link>` |
-| `assets/images/favicon.png` 48 | `web.favicon`; Expo builds `favicon.ico` (16/32/48) from it | green tile with 22% rounded corners, laptop at 78% |
+| `assets/images/favicon.png` 48 | `web.favicon`; Expo builds `favicon.ico` (16/32/48) from it | green tile with 22% rounded corners, laptop 80% of its width |
 | `assets/images/logo.png` 128 | the mark beside "webyak" in the sidebar, shown at 28px | the favicon's picture, larger |
-| `assets/images/android-icon-foreground.png` 512 | adaptive icon foreground | laptop alone, sized so its farthest pixel stays inside the 66dp safe circle. `adaptiveIcon.backgroundColor` supplies the green |
-| `assets/images/android-icon-monochrome.png` 432 | Android 13+ themed icon | the mono art, same safe circle |
-| `assets/images/splash-icon.png` | native splash, 100dp wide on green | laptop alone |
+| `assets/images/android-icon-foreground.png` 512 | adaptive icon foreground | the outline alone, sized so its farthest pixel stays inside the 66dp safe circle. `adaptiveIcon.backgroundColor` supplies the green |
+| `assets/images/android-icon-monochrome.png` 432 | Android 13+ themed icon | the same outline in white, since the system only reads its alpha and tints it |
+| `assets/images/splash-icon.png` | native splash, 100dp wide on green | the outline alone |
 
 Two size rules: an app icon leaves the laptop room, because the OS crops the
 corners. A favicon doesn't, because at 16px every pixel of laptop counts.
@@ -82,10 +91,10 @@ The favicon is handed to Expo at exactly 48px, the size Expo reduces any
 by Pillow (Lanczos), not by the Jimp fallback Expo uses when `sharp` isn't
 installed, which it isn't here or in CI.
 
-The green is repeated in three places that can't import
-[theme.ts](../src/constants/theme.ts): twice in `app.json` (the adaptive icon
-background and the splash) and once as the script's `GREEN`. If the accent ever
-changes, change all three and re-render.
+The colours are repeated where [theme.ts](../src/constants/theme.ts) can't be
+imported: the accent twice in `app.json` (the adaptive icon background and the
+splash), and the accent and `onBrand` as the script's `GREEN` and `INK`. If
+either changes, change them all and re-render.
 
 There is no Icon Composer (`.icon`) file for iOS 26's layered icons: iOS uses
 `icon.png`. Expo's template art, including the blue chevron, is gone.
@@ -251,8 +260,9 @@ Chats, You) still use their own name, because there is nothing else to put there
 
 Sort tabs live in the header rather than scrolling with the posts, so switching
 sort never requires scrolling back up. `Screen` takes `leading`, `headerBelow`
-and `action` slots for exactly this, and `titleContent` for a title that is
-itself a control — the home feed's community switcher.
+and `action` slots for exactly this, `titleContent` for a title that is itself a
+control (the home feed's community switcher), and `titleAccessory` for small print
+on the title's own line: Settings' version and its *View source* link to GitHub.
 
 ## Explore is three tabs
 

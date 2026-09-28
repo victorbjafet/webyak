@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Source | [github.com/victorbjafet/webyak](https://github.com/victorbjafet/webyak) — public since 2026-08-27 |
-| Site | [webyak.vbjfr.xyz](https://webyak.vbjfr.xyz) — GitHub Pages, published by [a workflow](#deploying-to-github-pages) on every push to `main` |
+| Site | [webyak.vbjfr.xyz](https://webyak.vbjfr.xyz) — live since 2026-09-27. GitHub Pages, published by [a workflow](#deploying-to-github-pages) on every push to `main` |
 | Backend | none today; one small Cloudflare Worker is required for image upload ([WORKER.md](WORKER.md)) |
 
 ## The public URL
@@ -94,6 +94,15 @@ the custom domain is a setting rather than a file each deploy has to remember.
    occasionally up to a day. The CAA records allow Let's Encrypt, which is what
    GitHub uses.
 
+**Checked from outside, 2026-09-27, after the first deploy (`c06d162`, green):**
+HTTPS serves with a valid certificate. A cold deep link (`/explore`) comes back
+as the app with a `404` status, as gotcha 1 below says it should. `favicon.ico`
+and `apple-touch-icon.png` are served, `victorbjafet.github.io/webyak/`
+redirects to the domain, and the verification TXT record exists. Steps 1–4 are
+done. **Step 5 wasn't yet:** `http://` still answered `200` rather than
+redirecting to `https://`. GitHub's Pages settings API needs a token even for a
+public repo, so these checks are the only view available from here.
+
 ### GitHub Pages gotchas
 
 1. **Deep links 404.** GitHub Pages serves files, and `/g/wordle` is not a file.
@@ -158,6 +167,22 @@ already in place and inert, so enabling it is config plus one call.
 
 Full spec, verified request/response shapes, and the wiring steps:
 **[docs/WORKER.md](WORKER.md)**.
+
+## Versioning
+
+The version is a date: `yyyy.mm.dd.v`, where `v` counts that day's commits from
+0. It lives in [src/constants/version.ts](../src/constants/version.ts), shows at
+the top of Settings, and heads every Diagnostics report. **Every commit bumps
+it**, a rule kept in [AGENTS.md](../AGENTS.md) so every agent reads it before
+committing.
+
+Why a date and not semver: there are no releases. Every push to `main` deploys,
+so the only question a version has to answer is *which build is this?* A date
+answers that, and says how old the build is. `v` separates the builds of a
+single day. Semver's promises about compatibility have nothing to describe here.
+
+The `version` fields in `package.json` and `app.json` are not this, and stay at
+`1.0.0`: npm expects semver there, and iOS allows at most three numbers.
 
 ## URL shape
 

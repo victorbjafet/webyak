@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Render every webyak icon from the laptop SVGs in this folder.
+"""Render every webyak icon from laptop.svg in this folder.
 
     python3 assets/brand/render-icons.py
 
-Needs Python 3 with Pillow, and Google Chrome to rasterise the SVGs: Pillow
-can't read SVG, and the colour art leans on SVG filters. Set CHROME to the
-binary if it isn't at the macOS default. Paths resolve from this file, so it
-runs from anywhere.
+Needs Python 3 with Pillow, and Google Chrome to rasterise the SVG, which
+Pillow can't read. Set CHROME to the binary if it isn't at the macOS default.
+Paths resolve from this file, so it runs from anywhere.
 
 What each output is for, and why its margins are what they are:
 docs/DESIGN.md#logo.
@@ -18,19 +17,22 @@ import sys
 import tempfile
 import time
 
-from PIL import Image, ImageChops, ImageDraw
+from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 CHROME = os.environ.get('CHROME', '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome')
 LANCZOS = Image.Resampling.LANCZOS
 
-# theme.brand in src/constants/theme.ts.
+# theme.brand and theme.onBrand in src/constants/theme.ts: the accent, and the
+# near-black that goes on it, because white on this green is too faint.
 GREEN = (0x10, 0xCE, 0xAC, 255)
+INK = (0x00, 0x20, 0x1A, 255)
+WHITE = (255, 255, 255, 255)
 
-# How much of the canvas the laptop's longer side takes.
-APP_ICON = 0.62  # the OS rounds an app icon's corners off, so leave it room
-MARK = 0.78  # favicon and sidebar are tiny, so the laptop is as big as it fits
+# How much of the canvas the laptop's width takes. It is wider than it is tall.
+APP_ICON = 0.66  # the OS rounds an app icon's corners off, so leave it room
+MARK = 0.8  # favicon and sidebar are tiny, so the laptop is as big as it fits
 MARK_RADIUS = 0.22  # the mark's corner radius, as a fraction of its side
 
 # A launcher draws an Android adaptive icon through a mask of its own choosing,
@@ -39,7 +41,7 @@ ANDROID_SAFE_RADIUS = 33 / 108
 
 
 def rasterise(svg, size=2048):
-    """The SVG drawn size x size on a transparent background, cropped to its ink."""
+    """The SVG's coverage at size x size, as an alpha mask cropped to its ink."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         page = os.path.join(tmp, 'page.html')
         shot = os.path.join(tmp, 'shot.png')
@@ -83,13 +85,15 @@ def rasterise(svg, size=2048):
         finally:
             chrome.kill()
             chrome.wait()
-    return art.crop(art.getchannel('A').point(lambda a: 255 if a > 8 else 0).getbbox())
+    alpha = art.getchannel('A')
+    return alpha.crop(alpha.point(lambda a: 255 if a > 8 else 0).getbbox())
 
 
-def one_colour(art):
-    """White, with the art's white parts kept and its black parts cut out."""
-    out = Image.new('RGBA', art.size, (255, 255, 255, 0))
-    out.putalpha(ImageChops.multiply(art.getchannel('A'), art.convert('L')))
+def glyph(mask, colour):
+    """The outline in one colour. The SVG strokes with currentColor, so only
+    its coverage matters."""
+    out = Image.new('RGBA', mask.size, colour)
+    out.putalpha(mask)
     return out
 
 
@@ -135,13 +139,13 @@ def save(image, path):
 
 
 def main():
-    colour = rasterise(os.path.join(HERE, 'laptop.svg'))
-    mono = one_colour(rasterise(os.path.join(HERE, 'laptop-mono.svg')))
+    mask = rasterise(os.path.join(HERE, 'laptop.svg'))
+    ink = glyph(mask, INK)
 
     # The app icon is opaque and square: iOS and Android launchers round it
     # themselves, and the App Store rejects an icon with transparency.
     # Safari reads apple-touch-icon.png from the site root on its own.
-    app = centred(scaled(colour, round(1024 * APP_ICON)), 1024, GREEN)
+    app = centred(scaled(ink, round(1024 * APP_ICON)), 1024, GREEN)
     save(app.convert('RGB'), 'assets/images/icon.png')
     save(app.resize((180, 180), LANCZOS).convert('RGB'), 'public/apple-touch-icon.png')
 
@@ -150,24 +154,26 @@ def main():
     # 48px before building favicon.ico, so it gets exactly 48px and the big
     # reduction is done here, by Pillow.
     mark = rounded(
-        centred(scaled(colour, round(1024 * MARK)), 1024, GREEN), round(1024 * MARK_RADIUS)
+        centred(scaled(ink, round(1024 * MARK)), 1024, GREEN), round(1024 * MARK_RADIUS)
     )
     save(mark.resize((48, 48), LANCZOS), 'assets/images/favicon.png')
     save(mark.resize((128, 128), LANCZOS), 'assets/images/logo.png')
 
     # Android: the laptop alone, inside the safe circle. app.json supplies the
-    # green behind it, and the system tints the monochrome one.
+    # green behind it. The themed icon is white because the system only reads
+    # its alpha and tints it.
     save(
-        centred(scaled(colour, round(512 * ANDROID_SAFE_RADIUS / reach(colour))), 512),
+        centred(scaled(ink, round(512 * ANDROID_SAFE_RADIUS / reach(ink))), 512),
         'assets/images/android-icon-foreground.png',
     )
+    white = glyph(mask, WHITE)
     save(
-        centred(scaled(mono, round(432 * ANDROID_SAFE_RADIUS / reach(mono))), 432),
+        centred(scaled(white, round(432 * ANDROID_SAFE_RADIUS / reach(white))), 432),
         'assets/images/android-icon-monochrome.png',
     )
 
     # Splash: the laptop alone, drawn at app.json's imageWidth on its green.
-    save(scaled(colour, 512), 'assets/images/splash-icon.png')
+    save(scaled(ink, 512), 'assets/images/splash-icon.png')
 
 
 if __name__ == '__main__':
