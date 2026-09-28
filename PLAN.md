@@ -821,7 +821,9 @@ and comment it sees** — effectively a Yik Yak downloader
 - [~] Responsive QA: 360px → 2560px. **First pass 2026-09-28** at 360 and
       1280 wide in the stand-in tab (Home, a thread, Alerts, You, Settings):
       no horizontal overflow; one clipped action row, fixed by letting the
-      footer wrap. Not yet: 2560, tablet widths, the composer and Explore
+      footer wrap. Then the composer, Explore and Settings at 360 and Home at
+      2560: no overflow. At 2560 the single column sits in a lot of empty
+      space, which is the Phase 7 desktop layout's job. Not yet: tablet widths
 - [ ] iOS/Android smoke test (universal comes nearly free)
 - [x] Logo: a simple outline laptop (Lucide's `laptop`, ISC) in near-black on
       the accent green, as favicon, sidebar mark, iPhone home-screen icon, and

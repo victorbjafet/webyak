@@ -554,7 +554,8 @@ export async function setVote(postId: string, action: VoteStatus) {
 }
 
 export async function getAvailableGroups(onePage = true) {
-  return (await api.getAvailableGroups(onePage)) as unknown as Group[];
+  const groups = (await api.getAvailableGroups(onePage)) as unknown;
+  return Array.isArray(groups) ? (groups as Group[]) : [];
 }
 
 /*

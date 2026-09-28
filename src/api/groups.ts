@@ -157,7 +157,11 @@ export async function fetchUserGroups(
 
 /** Layer 3 — the curated explore directory. */
 export async function fetchExploreGroups(): Promise<Group[]> {
-  return (await api.getAvailableGroups(true)) as unknown as Group[];
+  // The library hands back whatever key it expected, `undefined` if the body
+  // lacked it, and TanStack rejects undefined data with an error that names
+  // neither the endpoint nor the cause. An empty catalogue says more.
+  const groups = (await api.getAvailableGroups(true)) as unknown;
+  return Array.isArray(groups) ? (groups as Group[]) : [];
 }
 
 /**

@@ -11,7 +11,7 @@ import { dismissToast, useToasts } from '@/lib/toast';
 /**
  * Renders whatever is in the toast store.
  *
- * Mounted once at the root, above everything, and `pointerEvents="box-none"` so
+ * Mounted once at the root, above everything, and `pointerEvents: 'box-none'` so
  * the container never eats clicks meant for the feed underneath — only the bars
  * themselves are interactive.
  *
@@ -27,9 +27,7 @@ export function ToastHost() {
   if (toasts.length === 0) return null;
 
   return (
-    <View
-      pointerEvents="box-none"
-      style={[styles.host, { paddingTop: insets.top + Spacing.three }]}>
+    <View style={[styles.host, { paddingTop: insets.top + Spacing.three }]}>
       {toasts.map((toast) => {
         const accent = toast.tone === 'error' ? theme.danger : theme.brand;
         return (
@@ -63,6 +61,8 @@ export function ToastHost() {
 
 const styles = StyleSheet.create({
   host: {
+    // Style, not the deprecated prop: presses pass through the gaps between toasts.
+    pointerEvents: 'box-none',
     position: 'absolute',
     top: 0,
     left: 0,

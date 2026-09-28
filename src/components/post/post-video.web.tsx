@@ -312,7 +312,7 @@ export function PostVideo({
           {/* Not when blocked: its glyph would show through the label, and a
               blocked video has no poster either — thumbnails need the worker too. */}
           {!attached && !blocked ? (
-            <View style={styles.posterLayer} pointerEvents="none">
+            <View style={[styles.posterLayer, styles.passThrough]}>
               <AuthedImage
                 uri={poster}
                 style={styles.poster}
@@ -345,8 +345,7 @@ export function PostVideo({
 
       {blocked ? (
         <View
-          style={[styles.overlay, styles.blocked, { backgroundColor: theme.overlay }]}
-          pointerEvents="none">
+          style={[styles.overlay, styles.blocked, styles.passThrough, { backgroundColor: theme.overlay }]}>
           <Ionicons name="lock-closed" size={20} color="#FFFFFF" />
           <ThemedText type="smallBold" style={styles.onOverlay}>
             Blocked until the worker is set up
@@ -357,7 +356,7 @@ export function PostVideo({
           </ThemedText>
         </View>
       ) : error ? (
-        <View style={[styles.overlay, { backgroundColor: theme.overlay }]} pointerEvents="none">
+        <View style={[styles.overlay, styles.passThrough, { backgroundColor: theme.overlay }]}>
           <ThemedText type="small" style={styles.onOverlay}>
             {error}
           </ThemedText>
@@ -370,6 +369,10 @@ export function PostVideo({
 }
 
 const styles = StyleSheet.create({
+  // `pointerEvents` as a style: the prop is deprecated in react-native-web.
+  passThrough: {
+    pointerEvents: 'none',
+  },
   frame: {
     width: '100%',
     borderRadius: Radius.md,
