@@ -14,6 +14,7 @@ import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
 import { Layout, Radius, Spacing } from '@/constants/theme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { formatCount } from '@/lib/time';
 import { showToast } from '@/lib/toast';
@@ -82,15 +83,16 @@ export default function PostDetailScreen() {
     reader may have moved on by then.
   */
   const scrollRef = useRef<ScrollView>(null);
+  const reduceMotion = useReducedMotion();
   const scrolledTo = useRef<string | null>(null);
   const focusComment = useCallback(
     (event: LayoutChangeEvent) => {
       if (!focusId || scrolledTo.current === focusId) return;
       scrolledTo.current = focusId;
       const y = Math.max(0, event.nativeEvent.layout.y - Spacing.five);
-      scrollRef.current?.scrollTo({ y, animated: true });
+      scrollRef.current?.scrollTo({ y, animated: !reduceMotion });
     },
-    [focusId],
+    [focusId, reduceMotion],
   );
   const focusMissing =
     Boolean(focusId) && comments.isSuccess && !comments.data.some((c) => c.id === focusId);

@@ -812,7 +812,10 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/API.md](docs/API.md#a-user-profile-is-a-group))
 
 ### Phase 9 — polish & ship
-- [ ] Accessibility pass (focus order, labels, contrast, reduced motion).
+- [~] Accessibility pass (focus order, labels, contrast, reduced motion).
+      **Reduced motion done 2026-09-28**
+      ([DESIGN.md](docs/DESIGN.md#reduced-motion)); keyboard focus between
+      posts came with the shortcuts.
       ⛔ Contrast first needs a palette call: brand text on light surfaces is
       ~2:1 ([DESIGN.md](docs/DESIGN.md#palette))
 - [x] Rate-limit handling + friendly error surfaces (2026-09-28): a 429

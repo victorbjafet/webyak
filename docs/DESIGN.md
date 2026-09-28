@@ -561,6 +561,17 @@ jumps to Home, Explore, Alerts, Chats, You or Settings.
 - **Typing is never a shortcut.** Keys are ignored in text fields and with
   Ctrl, Alt or Cmd held, so browser and system shortcuts keep working.
 
+## Reduced motion
+
+When the system asks for less motion (*Reduce motion* on a phone,
+`prefers-reduced-motion` in a browser), scrolls that would glide jump instead:
+a thread opening at a comment, a chat bringing a new message into view, and
+`j`/`k` between posts. `useReducedMotion` (src/hooks/use-reduced-motion.ts)
+reads it; the web-only shortcuts read the media query directly. Short fades,
+on dialogs and on images loading, stay: they don't move anything across the
+screen, which is what the setting is for. Checked 2026-09-28 by emulating the
+media feature: the thread was at its target on the first frame.
+
 ## Scrollers span the viewport; content is what's centred
 
 A reading column is capped at `Layout.feedMaxWidth`. The **scrollable element is

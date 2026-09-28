@@ -14,6 +14,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
 import { Layout, Radius, Spacing, Typography } from '@/constants/theme';
+import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
 import { bestAssetUrl } from '@/lib/asset-url';
 import { markChatsRead } from '@/lib/chat-reads';
@@ -92,9 +93,10 @@ export default function ChatThreadScreen() {
   // Newest at the bottom, so a new message should bring itself into view. Keyed
   // on the count rather than the array so a poll returning the same messages
   // doesn't yank the view while someone is reading back.
+  const reduceMotion = useReducedMotion();
   useEffect(() => {
-    if (count > 0) scrollRef.current?.scrollToEnd({ animated: true });
-  }, [count]);
+    if (count > 0) scrollRef.current?.scrollToEnd({ animated: !reduceMotion });
+  }, [count, reduceMotion]);
 
   const trimmed = text.trim();
   const canSend = Boolean(id) && trimmed.length > 0 && !send.isPending;

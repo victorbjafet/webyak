@@ -64,7 +64,8 @@ function focusCard(card: HTMLElement | undefined) {
   if (!card) return;
   card.tabIndex = -1;
   card.focus({ preventScroll: true });
-  card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  card.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
 }
 
 function press(card: HTMLElement | null, label: string) {
