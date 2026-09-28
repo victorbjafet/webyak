@@ -838,16 +838,37 @@ screen, five of them in one request, and all seven read back as seen. That
 matters because sidechat.js's `readActivity` only ever sends one.
 
 **Types, and what each carries** (keys only; `text` is a finished sentence that
-quotes posts, so it was never recorded):
+quotes posts, so it was never recorded). Counts are from the second run
+(2026-09-28), which also looked one alert of each type up to see **whose post
+and whose comment** its ids name:
 
-| Type | Seen | id | Extra keys | `post_id` opens |
-|---|---|---|---|---|
-| `votes` | 19 | `votes~<post>~<n>`, `n` the karma threshold | — | a post |
-| `trending_post` | 4 | `trending_post~<uuid>~<uuid>` | — | a post |
-| `followed_post` | 2 | `followed_post~<uuid>~<uuid>` | `comment_id`, `comment_reply_id` | a post |
-| `comment` | 2 | `comment~<uuid>` — **not the post's**; most likely the comment's | `comment_id` | a post |
-| `quote` | 2 | `quote~<uuid>~<uuid>` | — | a post |
-| `takedown` | 1 | `takedown~<uuid>` | **`takedown_data`, and no `post_id`** | — |
+| Type | Seen | id | Extra keys | `post_id` opens | Its comment ids name |
+|---|---|---|---|---|---|
+| `votes` | 43 | `votes~<post>~<n>`, `n` the karma threshold | `comment_id` | your post | `comment_id`: **your comment** in that thread. So a `votes` alert can be about a comment's karma, not only a post's |
+| `trending_post` | 4 | `trending_post~<uuid>~<uuid>` | — | someone else's post | — |
+| `followed_post` | 7 | `followed_post~<uuid>~<uuid>` | `comment_id`, `comment_reply_id` | someone else's post | `comment_id`: someone else's comment. `comment_reply_id`: a reply in the same thread |
+| `comment` | 2 | `comment~<uuid>`, **not the post's** | `comment_id` | your post | `comment_id`: the new comment, someone else's |
+| `comment_reply` | 1 | `comment_reply~<uuid>` | `comment_id`, `comment_reply_id` | someone else's post | `comment_id`: **your comment**. `comment_reply_id`: the reply to it, someone else's |
+| `quote` | 2 | `quote~<uuid>~<uuid>` | — | **the quoting post**, someone else's, with yours inline at `quote_post.post` | — |
+| `takedown` | 1 | `takedown~<uuid>`, the UUID being the removed post | **`takedown_data`, and no `post_id`** | — | — |
+
+Every comment id checked was a comment in `post_id`'s thread, found by
+fetching that thread. One alert per type was looked up, so "your" and
+"someone else's" describe that one, not a rule the server states.
+
+**`takedown_data`** is `{id, type, client_facing_removal_text, reason,
+moderator_type, is_acknowledged}`: `is_acknowledged` a boolean and the rest
+strings. `id` is the removed post: it 404s, and the same UUID is the one in the
+alert's own id. `type` was `"post"`. `client_facing_removal_text` is the notice
+written for the user, so it is what a removal notice shows. This one was
+already acknowledged and seen, most likely by the official app.
+
+**`quote` opens the right post as built.** The alert names the post that
+quotes yours, and that post carries yours inline, so opening `post_id` shows
+both. The first run reported that the quoting post quoted nothing, because it
+checked only `quote_post_id`. The original arrives at `quote_post.post`
+([quote reposts](#quote-reposts)) and the id wasn't there. The probe checks both
+now.
 
 Every item also has `id`, `type`, `timestamp` (an **ISO string** on every type),
 `is_seen` and `text`. `post_id` is on every type but `takedown`, and it always
@@ -855,9 +876,10 @@ resolved to a post, never a comment.
 
 **Two types offsides never handled:** `quote`, someone quoting your post, and
 `takedown`, a moderation notice. `takedown` is the removal signal
-[B3](../PLAN.md) wants, arriving as an alert. Three types offsides renders were
-**not** seen here: `comment_reply`, `new_follower` and `suggested_sidechats`.
-They stay in the table on offsides' word.
+[B3](../PLAN.md) wants, arriving as an alert. `comment_reply` first turned up
+on the second run. Two types offsides renders have still **not** been seen
+here: `new_follower` and `suggested_sidechats`. They stay in the table on
+offsides' word.
 
 **Read state is ours, not the official app's.** The owner reports the official
 app shows no read/unread state for alerts at all (Q18). webyak's *Unread*
@@ -874,14 +896,19 @@ activity list is opened, without ever showing the state.
   UUID inside the id, which the table shows was wrong: in `comment~<uuid>` that
   UUID is not the post.
 - `timestamp` is still read as epoch seconds, epoch milliseconds or a date
-  string, since three types haven't been seen yet.
+  string, since two types haven't been seen yet.
 
-**Still open (Q14)** — *Diagnostics → Run probes → "Alerts — unmapped types and
-fields"*, trimmed after the first run to what it didn't answer:
-- Any type webyak has no label for.
-- What `takedown_data` holds, by key and value type.
-- Whose post each type opens (yours or someone else's), and whether it quotes
-  another. That settles what tapping a `quote` alert should show.
+**Q14 answered, 2026-09-28**, by the first probe run an agent made itself
+through Playwright. What is still unknown:
+- `new_follower` and `suggested_sidechats`, never seen. The probe still lists
+  any type webyak has no label for, and looks its ids up.
+- Whether a *fresh* takedown's id shows up in `getUpdates()`'s
+  `unacknowledged_removed_post_ids.posts`. That wrapper was empty, since the one
+  takedown was already acknowledged ([what else is in
+  getUpdates](#what-else-is-in-getupdates)). The probe checks it whenever a
+  takedown is on the first two pages.
+- The call that acknowledges a removal. The name implies one, but nothing seen
+  sends it. It needs a capture of the official app (Phase 8).
 
 
 ## sidechat.js 2.6.6 defects
@@ -1260,7 +1287,12 @@ Three things stand out:
   [B3](../PLAN.md) was blocked on. "Show a warning when your post is taken down"
   was filed as *needs a probe, and realistically needs a post to actually get
   removed*. It does not: the ids arrive here, and "unacknowledged" implies a
-  matching acknowledge call to find. **B3 is unblocked.**
+  matching acknowledge call to find. **B3 is unblocked.** Despite the name it
+  is not a list. It is `{posts: [], comments: [], reasons: {}}`, two arrays and
+  an object, all empty when read on 2026-09-28 (the Alerts probe). `reasons`
+  is presumably keyed by id. The removal also arrives as a `takedown` alert,
+  which carries the notice text itself
+  ([alerts](#the-activity-feed-alerts)).
 - **`quarterly_karma`, `season_karma`, `season`** — karma has more dimensions
   than the lifetime total the You tab shows. Relevant to [B5](../PLAN.md)
   (karma over time), which assumed only a current value existed; there may be

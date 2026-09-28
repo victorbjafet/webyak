@@ -28,7 +28,7 @@
  * | Probe | Open question |
  * |---|---|
  * | `probeAuth` | control — is the token live at all? |
- * | `probeActivity` | alert types with no label yet, what `takedown_data` holds, whose post each type opens (PLAN Q14) |
+ * | `probeActivity` | alert types with no label yet, and whether a fresh takedown's id lands in `unacknowledged_removed_post_ids` (PLAN Q14) |
  * | `probePostLength`, `probeBioLength` | what length does the server enforce? (PLAN Q11) |
  *
  * The length probes **write** — they post and edit your bio, undoing both — so
@@ -41,6 +41,7 @@ import {
   api,
   createPost,
   deletePostOrComment,
+  getPostComments,
   getUpdates,
   getUserProfile,
   lookupPost,
@@ -48,6 +49,7 @@ import {
   request,
   updateProfile,
 } from './client';
+import type { PostOrComment } from './types';
 
 /** A large public community, used wherever a probe needs a busy feed. */
 export const SAMPLE_GROUP_ID = '602fb305-4ec2-4d01-83be-4d80c6636a56';
@@ -134,13 +136,13 @@ function fieldShapes(value: unknown) {
 /**
  * Alerts — the types webyak has no label for, and the fields it doesn't read.
  *
- * The first run (2026-09-27) answered the rest, and those checks were retired
- * (docs/API.md#the-activity-feed-alerts). The feed pages, 30 at a time. Marking
- * read sticks, and batches. `getUpdates().activity_items` is the same list.
- * Timestamps are ISO, and every `post_id` opens a post. What's left: any type
- * outside `ACTIVITY_TYPES`, what `takedown_data` holds, and whose post each
- * type opens — yours or someone else's, and whether it quotes another — which
- * decides what tapping a `quote` alert should show.
+ * The first run (2026-09-27) answered paging, marking read and the shared list,
+ * and those checks were retired (docs/API.md#the-activity-feed-alerts). The
+ * second (2026-09-28) answered whose post and comment each type names and what
+ * `takedown_data` holds. What's left: any type outside `ACTIVITY_TYPES`
+ * (`new_follower` and `suggested_sidechats` have never been seen), and whether
+ * a takedown not yet acknowledged shows up in `unacknowledged_removed_post_ids`.
+ * The lookups stay, so a new type arrives already described.
  *
  * Read-only. Types, keys and counts only: an alert's text quotes posts.
  */
@@ -149,7 +151,7 @@ async function probeActivity(): Promise<ProbeResult> {
     id: 'activity',
     label: 'Alerts — unmapped types and fields',
     question:
-      'Which alert types have no label yet, what does takedown_data hold, and whose post does each type open? (PLAN Q14)',
+      'Which alert types have no label yet, what do their ids name, and does a takedown show up in the removed ids? (PLAN Q14)',
   };
   const steps: string[] = [];
   try {
@@ -167,7 +169,8 @@ async function probeActivity(): Promise<ProbeResult> {
       keys: Set<string>;
       ids: Set<string>;
       takedown: Set<string>;
-      samplePostId?: string;
+      /** The first alert of this type with a `post_id`, for the lookups below. */
+      sample?: Raw;
     }
     const byType = new Map<string, Stats>();
     for (const item of items) {
@@ -182,7 +185,7 @@ async function probeActivity(): Promise<ProbeResult> {
       for (const key of Object.keys(item)) stats.keys.add(key);
       if (typeof item.id === 'string') stats.ids.add(idShape(item.id));
       if (item.takedown_data !== undefined) stats.takedown.add(fieldShapes(item.takedown_data));
-      if (typeof item.post_id === 'string' && item.post_id) stats.samplePostId ??= item.post_id;
+      if (typeof item.post_id === 'string' && item.post_id) stats.sample ??= item;
       byType.set(type, stats);
     }
 
@@ -197,18 +200,112 @@ async function probeActivity(): Promise<ProbeResult> {
       if (stats.takedown.size) steps.push(`    takedown_data → ${[...stats.takedown].join(' | ')}`);
     }
 
-    // Whose post each type opens. One lookup per type.
+    const whose = (post: PostOrComment) =>
+      post.authored_by_user ? 'your own post' : "someone else's post";
+    const lookupError = (e: unknown) =>
+      e instanceof PostGone ? 'gone (404)' : `error: ${e instanceof Error ? e.message : String(e)}`;
+
+    // Whose post each type opens, and where its comment ids point. One lookup
+    // per type. The first run read only `quote_post_id` and reported that a
+    // `quote` alert's post quotes nothing, but the original usually arrives
+    // inline at `quote_post.post` instead, so both are checked now.
     for (const [type, stats] of types) {
-      if (!stats.samplePostId) continue;
+      const postId = stats.sample?.post_id as string | undefined;
+      if (!postId) continue;
+      let post: PostOrComment;
       try {
-        const post = await lookupPost(stats.samplePostId);
-        steps.push(
-          `  ${type} post_id → ${post.authored_by_user ? 'your own post' : "someone else's post"}${post.quote_post_id ? ', which quotes another post' : ''}`,
-        );
+        post = await lookupPost(postId);
       } catch (e) {
+        steps.push(`  ${type} post_id → ${lookupError(e)}`);
+        continue;
+      }
+      const quoted = post.quote_post?.post;
+      const quotes = quoted
+        ? `, which quotes ${whose(quoted)} (inline)`
+        : post.quote_post_id
+          ? ', which quotes another post (by id only)'
+          : '';
+      steps.push(`  ${type} post_id → ${whose(post)}${quotes}`);
+
+      const commentIds = (['comment_id', 'comment_reply_id'] as const).filter(
+        (key) => stats.sample?.[key] !== undefined,
+      );
+      if (!commentIds.length) continue;
+      let thread: PostOrComment[] | undefined;
+      try {
+        thread = await getPostComments(postId);
+      } catch (e) {
+        steps.push(`    comments → ${lookupError(e)}`);
+      }
+      for (const key of commentIds) {
+        const value = stats.sample?.[key];
+        const comment =
+          typeof value === 'string' && value ? thread?.find((c) => c.id === value) : undefined;
         steps.push(
-          `  ${type} post_id → ${e instanceof PostGone ? 'gone (404)' : `error: ${e instanceof Error ? e.message : String(e)}`}`,
+          `    ${key} → ${shape(value)}${
+            typeof value === 'string' && value && thread
+              ? comment
+                ? `, a comment in this thread, ${comment.authored_by_user ? 'yours' : "someone else's"}${comment.reply_post_id && comment.reply_post_id !== postId ? ', a reply' : ''}`
+                : `, not among the thread's ${thread.length} comment(s)`
+              : ''
+          }`,
         );
+      }
+    }
+
+    // What a takedown names. `takedown_data.id` is checked against the post
+    // lookup and against `getUpdates().unacknowledged_removed_post_ids`, the
+    // other place a removal shows up. That response also carries the session
+    // token, so only that one key is read from it. `type` is printed only when
+    // it looks like an enum value.
+    const takedowns = items.filter((item) => item.type === 'takedown').slice(0, 3);
+    if (takedowns.length) {
+      let removed: unknown;
+      try {
+        removed = (await getUpdates())?.unacknowledged_removed_post_ids;
+      } catch (e) {
+        steps.push(`  getUpdates → ${lookupError(e)}`);
+      }
+      // Named like a list, but the first run found an object: either a map
+      // keyed by id or a wrapper. Its keys and value types say which.
+      let removedIds: unknown[] | undefined;
+      if (Array.isArray(removed)) {
+        removedIds = removed;
+        steps.push(`  unacknowledged_removed_post_ids → an array of ${removed.length}`);
+      } else if (removed && typeof removed === 'object') {
+        const entries = Object.entries(removed as Raw);
+        removedIds = entries.flatMap(([key, v]) => (Array.isArray(v) ? [key, ...v] : [key]));
+        const keys = new Set(entries.map(([key]) => idShape(key)));
+        const values = new Set(
+          entries.map(([, v]) => (Array.isArray(v) ? `an array of ${v.length}` : fieldShapes(v))),
+        );
+        steps.push(
+          `  unacknowledged_removed_post_ids → an object of ${entries.length} key(s)${entries.length ? `: keys ${[...keys].join(' | ')} · values ${[...values].join(' | ')}` : ''}`,
+        );
+      } else {
+        steps.push(`  unacknowledged_removed_post_ids → ${shape(removed)}`);
+      }
+      for (const item of takedowns) {
+        const data = (item.takedown_data ?? {}) as Raw;
+        const id = typeof data.id === 'string' ? data.id : undefined;
+        const enumLike = (v: unknown) =>
+          typeof v === 'string' && /^[a-z_]{1,24}$/.test(v) ? `"${v}"` : shape(v);
+        const facts = [
+          `type ${enumLike(data.type)}`,
+          `is_acknowledged ${String(data.is_acknowledged)}`,
+          `is_seen ${String(item.is_seen)}`,
+          `id ${id ? idShape(id) : shape(data.id)}`,
+          `alert id ${typeof item.id === 'string' && id && item.id.includes(id) ? 'contains it' : 'does not contain it'}`,
+          `in the removed ids: ${removedIds ? (id && removedIds.includes(id) ? 'yes' : 'no') : 'unknown'}`,
+        ];
+        if (id) {
+          try {
+            facts.push(`as a post: ${whose(await lookupPost(id))}`);
+          } catch (e) {
+            facts.push(`as a post: ${lookupError(e)}`);
+          }
+        }
+        steps.push(`  takedown → ${facts.join(' · ')}`);
       }
     }
 

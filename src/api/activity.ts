@@ -14,16 +14,18 @@ import type { ConversationIcon } from './types';
  * re-download.
  *
  * The shape below was first borrowed from offsides' `ActivityItem`, then
- * checked against a live account on 2026-09-27: 60 alerts over two pages.
+ * checked against a live account on 2026-09-27: 60 alerts over two pages. A
+ * second run on 2026-09-28 looked up whose post and comment each type names.
  */
 
 /**
  * Types webyak has a label for (components/alerts/activity-row.tsx).
  *
- * Seen live: `votes`, `trending_post`, `followed_post`, `comment`, and two that
- * offsides never handled, `quote` and `takedown`. From offsides only, not yet
- * seen here: `comment_reply`, `new_follower`, `suggested_sidechats`. Any other
- * type still renders, and the Alerts probe lists it.
+ * Seen live: `votes`, `trending_post`, `followed_post`, `comment`,
+ * `comment_reply`, and two that offsides never handled, `quote` and
+ * `takedown`. From offsides only, not yet seen here: `new_follower`,
+ * `suggested_sidechats`. Any other type still renders, and the Alerts probe
+ * lists it.
  */
 export const ACTIVITY_TYPES = [
   'votes',
@@ -49,18 +51,42 @@ export interface ActivityItem {
   is_seen?: boolean;
   /** A finished sentence, rendered by the server — "Your post reached 25 karma: …". */
   text?: string;
-  /** The post the alert is about. On every type seen except `takedown`, and always a post. */
+  /**
+   * The post the alert is about. On every type seen except `takedown`, and
+   * always a post. For `quote` it is the post that quotes yours, which carries
+   * yours inline.
+   */
   post_id?: string;
-  /** `comment` and `followed_post`: the comment in question. Not yet used. */
+  /**
+   * A comment in `post_id`'s thread. `comment`: the new comment. `comment_reply`:
+   * your comment that was replied to. `votes`: your comment, when the karma is a
+   * comment's. `followed_post`: someone's comment. Not yet used.
+   */
   comment_id?: string;
-  /** `followed_post`: the reply in question. Not yet used. */
+  /** `comment_reply` and `followed_post`: the reply, in the same thread. Not yet used. */
   comment_reply_id?: string;
-  /** `takedown` only, in place of `post_id`. Its shape is unrecorded (PLAN Q14). */
-  takedown_data?: unknown;
+  /** `takedown` only, in place of `post_id`. */
+  takedown_data?: TakedownData;
   /** `suggested_sidechats` only, per offsides: the communities it suggests. */
   suggested_sidechats_data?: { group_ids_to_suggest?: string[] };
   /** `new_follower` only, per offsides: the follower's icon. */
   conversation_icon?: ConversationIcon;
+}
+
+/**
+ * A moderation notice, as a `takedown` alert carries it (docs/API.md#the-activity-feed-alerts).
+ * Seen once, on 2026-09-28, already acknowledged.
+ */
+export interface TakedownData {
+  /** The removed post, which 404s. The same UUID is in the alert's id, `takedown~<id>`. */
+  id?: string;
+  /** `"post"` on the one seen. A removed comment presumably says `"comment"`. */
+  type?: string;
+  /** The notice as the server words it for the user. What a removal notice shows. */
+  client_facing_removal_text?: string;
+  reason?: string;
+  moderator_type?: string;
+  is_acknowledged?: boolean;
 }
 
 export interface ActivityPage {
@@ -91,7 +117,7 @@ export async function getActivity(cursor?: string | null): Promise<ActivityPage>
  * When an alert happened, as an ISO string, or null when it can't be read.
  *
  * Every type seen so far sends an ISO string. Epoch seconds and milliseconds
- * are still accepted, because three types have not been seen yet, and offsides
+ * are still accepted, because two types have not been seen yet, and offsides
  * handed the field to a library that takes all three.
  */
 export function activityDate(item: ActivityItem): string | null {

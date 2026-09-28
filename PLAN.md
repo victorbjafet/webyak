@@ -39,14 +39,14 @@ and let a friend sign in on your computer.
 |---|---|
 | **The Worker** (deferred by decision) | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. The client side of all four is built ([WORKER.md](docs/WORKER.md)) |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
-| **A probe run** | Alerts: `takedown_data` and any unlabelled type (Q14). Length limits (Q11), which write. An agent can run these itself once Playwright MCP works (see Next) |
-| **Nothing: buildable now** | Alerts follow-ups: B4 upvote counter, B1 score refresh, `takedown` alerts as B3's removal notice, `comment` alerts opening at their comment. The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **A probe run** | Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
+| **Nothing: buildable now** | Alerts follow-ups: B4 upvote counter, B1 score refresh, `takedown` alerts as B3's removal notice (its text is `takedown_data.client_facing_removal_text`), comment alerts opening at their comment (`comment_id`/`comment_reply_id` are in the post's thread). The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
 | **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
-**Next:** Playwright MCP. It connects and loads the dev server at
-`localhost:8081` (confirmed 2026-09-28). Once the owner signs in to webyak in
-its browser, an agent can drive the app and run probes itself, reading the
-reports straight off the page instead of the owner pasting them back. That
+**Next:** the buildable Alerts follow-ups above, now that Q14 says what their
+ids name. **Playwright MCP works** (2026-09-28): the owner is signed in to
+webyak in its browser, on the dev server at `localhost:8081`, and an agent
+drives the app and runs probes itself, reading the reports off the page. That
 browser holds the real account. The rules for driving it are in
 [AGENTS.md](AGENTS.md#the-playwright-browser-is-signed-in-to-the-owners-real-account),
 and what writes to it is listed in
@@ -203,7 +203,7 @@ are mostly plumbing; three need a probe before they can be estimated.
 |---|---|---|---|
 | B1 | **Live-ish score refresh** on posts and comments | No push channel has been found; this would be polling. The infrastructure is already there — TanStack Query `refetchInterval` on a visible feed, plus the existing viewability tracking so only on-screen posts refetch | Deciding a polite interval. This is a private API and the account is real, so an aggressive poll is an account-risk decision, not just a perf one (PLAN §8) |
 | B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | ✅ **Built 2026-09-27** as the *Unread* filter on Alerts, and marking read is confirmed to stick. The official app has no such state (Q18) — this is an addition |
-| B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Unblocked 2026-08-28.** `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. **Also arrives as an alert:** a `takedown` alert carries `takedown_data` (2026-09-27, [API.md](docs/API.md#the-activity-feed-alerts)); its shape is Q14. Finding the acknowledge endpoint needs a sweep |
+| B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Unblocked 2026-08-28.** `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. **Also arrives as an alert:** a `takedown` alert carries `takedown_data`, whose `client_facing_removal_text` is the notice and whose `id` is the removed post (2026-09-28, [API.md](docs/API.md#the-activity-feed-alerts)). The removed ids are `{posts, comments, reasons}`, not a list. Finding the acknowledge endpoint needs a capture |
 | B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing. The next Alerts iteration |
 | B7 | **Sort your own posts/comments by top of all time** | **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
 | B6 | **Style deleted comments properly** | ✅ **Done 2026-09-27.** A deleted comment stays in its thread with text **`"Comment Deleted"`**, alias `"Deleted"`, zero votes and no username, so its replies keep their parent. It now renders as a muted *Comment deleted* with no vote, reply or action controls, its replies intact; in the archive, a placeholder whose words were never captured reads *Removed before it was archived* | — ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)) |
@@ -750,9 +750,15 @@ and comment it sees** — effectively a Yik Yak downloader
         offsides never handled. Every `post_id` opens a post. Marking read
         sticks and batches. The feed pages. Both new types got labels, and the
         UUID-in-the-id fallback went, being wrong for `comment` alerts
-  - [ ] `takedown`: once Q14 says what `takedown_data` holds, show it as the
+  - [x] **Second probe run, 2026-09-28**, the first an agent ran itself
+        through Playwright. `comment_reply` seen at last. Each type's
+        comment ids are comments in its post's thread, and `quote` opens the
+        quoting post with yours inline, as built. `takedown_data` holds the
+        notice text and the removed post's id (Q14)
+  - [ ] `takedown`: show `takedown_data.client_facing_removal_text` as the
         removal notice B3 asks for
-  - [ ] `comment` and `followed_post` carry `comment_id`: open the thread at
+  - [ ] `comment`, `comment_reply`, `followed_post` and comment `votes` carry
+        `comment_id` (and the replies `comment_reply_id`): open the thread at
         that comment rather than at the top
   - [ ] B4: a new-upvotes counter from `votes` alerts
   - [ ] B1: refresh a post's score when a `votes` alert names it, instead of
@@ -877,12 +883,14 @@ Resolved ones are kept with their answer so they don't get re-asked.
   showed it. The per-post lookup stays, and loses nothing: the 404 is already a
   direct answer. The probe was retired after its run
   ([docs/API.md](docs/API.md#deleted-posts-are-omitted-not-tombstoned)).
-- **Q14 — which alert types arrive, and what does each point at?** *Mostly
-  answered 2026-09-27:* six types seen — `votes`, `trending_post`,
-  `followed_post`, `comment`, and two offsides never handled, `quote` and
-  `takedown`. Every `post_id` opens a post, and `takedown` has none. Still open:
-  what `takedown_data` holds, whose post a `quote` opens, and any type not seen
-  yet. **Diagnostics → Run probes → "Alerts — unmapped types and fields"**
+- **Q14 — which alert types arrive, and what does each point at?** *Answered
+  2026-09-27 and 2026-09-28:* seven types seen — `votes`, `trending_post`,
+  `followed_post`, `comment`, `comment_reply`, and two offsides never handled,
+  `quote` and `takedown`. Every `post_id` opens a post, `takedown` has none,
+  and every comment id is a comment in that post's thread. A `quote` opens the
+  post quoting yours. `takedown_data` holds the notice text and the removed
+  post's id. Still unseen: `new_follower`, `suggested_sidechats`, and a takedown
+  not yet acknowledged. The probe keeps watching for all three
   ([docs/API.md](docs/API.md#the-activity-feed-alerts)).
 - **Q15 — does `/v1/activity` page?** *Answered 2026-09-27: yes,* 30 a page with
   a cursor. Page 2 repeated nothing, and page 1 spanned 32 days.
