@@ -49,7 +49,7 @@ export function activityKind(type: string): Kind {
 }
 
 export type ActivityTarget =
-  | { kind: 'post'; postId: string }
+  | { kind: 'post'; postId: string; commentId?: string }
   | { kind: 'group'; groupId: string }
   | { kind: 'none' };
 
@@ -58,12 +58,21 @@ export type ActivityTarget =
  * except `takedown`, and which always opened a post (PLAN Q14). A suggestion
  * leads to its community.
  *
+ * An alert about a comment opens the thread **at that comment**. Every
+ * `comment_id` and `comment_reply_id` checked was a comment in `post_id`'s
+ * thread. The reply wins when there is one: on `comment_reply` the comment is
+ * yours and the reply is the news, and on `followed_post` the reply is the
+ * newer of the two.
+ *
  * The UUIDs inside an alert's own id are **not** a fallback, though the first
  * version used them as one. In `comment~<uuid>` that UUID is not the post, so
  * opening it as one would be wrong.
  */
 export function activityTarget(item: ActivityItem): ActivityTarget {
-  if (item.post_id && isPostId(item.post_id)) return { kind: 'post', postId: item.post_id };
+  if (item.post_id && isPostId(item.post_id)) {
+    const commentId = [item.comment_reply_id, item.comment_id].find(isPostId);
+    return { kind: 'post', postId: item.post_id, ...(commentId ? { commentId } : {}) };
+  }
   const group = item.suggested_sidechats_data?.group_ids_to_suggest?.find(Boolean);
   return group ? { kind: 'group', groupId: group } : { kind: 'none' };
 }

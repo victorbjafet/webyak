@@ -306,6 +306,12 @@ Built 2026-09-27; what the API gives it is in
   new type needs a label, not a fix.
 - **The server's sentence is shown as sent.** The one edit is offsides': a
   leading 📈 on *Popular* and *Followed post*, whose icon already says it.
+- **An alert about a comment opens at that comment**, not at the top of the
+  thread: scrolled to once, with some of the comment above left showing, and
+  tinted `brandMuted` so it can be found again after scrolling away. The reply
+  is the target when an alert names both, since on `comment_reply` the comment
+  is yours and the reply is the news. A comment no longer in the thread leaves
+  the thread at the top, with a toast saying so.
 
 ## Chats: opening one reads it
 

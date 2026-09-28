@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 
 import { PostGone } from '@/api/client';
 import { isPostId, useArchivedPost, useComments, usePost, usePostIdByCode } from '@/api/queries';
@@ -13,12 +13,15 @@ import { PostCard } from '@/components/post/post-card';
 import { Screen } from '@/components/screen';
 import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
-import { Layout, Spacing } from '@/constants/theme';
+import { Layout, Radius, Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 import { formatCount } from '@/lib/time';
+import { showToast } from '@/lib/toast';
 
 export default function PostDetailScreen() {
-  const { code } = useLocalSearchParams<{ code: string }>();
+  const { code, comment: focusId } = useLocalSearchParams<{ code: string; comment?: string }>();
   const router = useRouter();
+  const theme = useTheme();
 
   /*
     `/p/<id>` takes either a post **id** or a share **code**.
@@ -69,6 +72,30 @@ export default function PostDetailScreen() {
 
   const startReply = useCallback((comment: PostOrComment) => setReplyTo(comment), []);
   const cancelReply = useCallback(() => setReplyTo(null), []);
+
+  /*
+    `?comment=<id>` opens the thread at that comment: an alert about a comment
+    lands on it, not at the top of a long thread. The comment is scrolled to
+    once, when it is first laid out, and stays tinted so it can be found again
+    after scrolling away. A later refetch doesn't scroll again, since the
+    reader may have moved on by then.
+  */
+  const scrollRef = useRef<ScrollView>(null);
+  const scrolledTo = useRef<string | null>(null);
+  const focusComment = useCallback(
+    (event: LayoutChangeEvent) => {
+      if (!focusId || scrolledTo.current === focusId) return;
+      scrolledTo.current = focusId;
+      const y = Math.max(0, event.nativeEvent.layout.y - Spacing.five);
+      scrollRef.current?.scrollTo({ y, animated: true });
+    },
+    [focusId],
+  );
+  const focusMissing =
+    Boolean(focusId) && comments.isSuccess && !comments.data.some((c) => c.id === focusId);
+  useEffect(() => {
+    if (focusMissing) showToast('That comment is no longer in the thread.');
+  }, [focusMissing]);
 
   if ((post.isLoading || resolved.isLoading) && !cached) {
     return (
@@ -155,7 +182,10 @@ export default function PostDetailScreen() {
       }
       back
       scroll={false}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}>
         <PostCard
           post={current}
           // Same rule as a feed: the community is the header, and an anonymous
@@ -195,13 +225,25 @@ export default function PostDetailScreen() {
           <EmptyState icon="chatbubble-outline" title="No comments yet" body="Be the first." />
         ) : null}
 
-        {comments.data?.map((comment) => (
-          <CommentItem
-            key={comment.id}
-            comment={comment}
-            onReply={current.comments_disabled ? undefined : startReply}
-          />
-        ))}
+        {comments.data?.map((comment) =>
+          comment.id === focusId ? (
+            <View
+              key={comment.id}
+              onLayout={focusComment}
+              style={[styles.focused, { backgroundColor: theme.brandMuted }]}>
+              <CommentItem
+                comment={comment}
+                onReply={current.comments_disabled ? undefined : startReply}
+              />
+            </View>
+          ) : (
+            <CommentItem
+              key={comment.id}
+              comment={comment}
+              onReply={current.comments_disabled ? undefined : startReply}
+            />
+          ),
+        )}
       </ScrollView>
     </Screen>
   );
@@ -219,5 +261,12 @@ const styles = StyleSheet.create({
   },
   commentsHeader: {
     paddingTop: Spacing.three,
+  },
+  // The comment a link or an alert pointed at. The negative margin keeps its
+  // text in line with the rest of the thread while the tint reaches past it.
+  focused: {
+    borderRadius: Radius.md,
+    marginHorizontal: -Spacing.two,
+    paddingHorizontal: Spacing.two,
   },
 });

@@ -29,7 +29,8 @@ posts, comments, polls, quote-reposts, deleting your own); communities and
 Explore; profiles and the You tab; messaging; and the local archive, with
 search, backfill and refresh. **Alerts**, built and checked against a live
 account on 2026-09-27. **Chats are marked read when opened**, on the server
-too, so the official app agrees (2026-09-28). **An account switcher and
+too, so the official app agrees (2026-09-28). An alert about a comment opens
+the thread at that comment (2026-09-28). **An account switcher and
 encrypted login files** move a login between webyaks without the texted code,
 and let a friend sign in on your computer.
 
@@ -40,7 +41,7 @@ and let a friend sign in on your computer.
 | **The Worker** (deferred by decision) | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. The client side of all four is built ([WORKER.md](docs/WORKER.md)) |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
 | **A probe run** | Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
-| **Nothing: buildable now** | Alerts follow-ups: B4 upvote counter, B1 score refresh, `takedown` alerts as B3's removal notice (its text is `takedown_data.client_facing_removal_text`), comment alerts opening at their comment (`comment_id`/`comment_reply_id` are in the post's thread). The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **Nothing: buildable now** | Alerts follow-ups: B4 upvote counter, B1 score refresh, `takedown` alerts as B3's removal notice (its text is `takedown_data.client_facing_removal_text`). The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
 | **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
 **Next:** the buildable Alerts follow-ups above, now that Q14 says what their
@@ -757,9 +758,9 @@ and comment it sees** — effectively a Yik Yak downloader
         notice text and the removed post's id (Q14)
   - [ ] `takedown`: show `takedown_data.client_facing_removal_text` as the
         removal notice B3 asks for
-  - [ ] `comment`, `comment_reply`, `followed_post` and comment `votes` carry
-        `comment_id` (and the replies `comment_reply_id`): open the thread at
-        that comment rather than at the top
+  - [x] `comment`, `comment_reply`, `followed_post` and comment `votes` open
+        the thread at their comment (`/p/<id>?comment=<id>`), the reply when
+        an alert names both (2026-09-28)
   - [ ] B4: a new-upvotes counter from `votes` alerts
   - [ ] B1: refresh a post's score when a `votes` alert names it, instead of
         polling every score

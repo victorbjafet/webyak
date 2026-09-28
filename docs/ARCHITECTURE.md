@@ -293,6 +293,7 @@ already.
 | `/g/<slug>?sort=hot\|new\|top` | Group feed, sorted | ” |
 | `/p/<id>` | Post + comments — **the id form our share links use; opens cold** | `src/app/p/[code].tsx` |
 | `/p/<code>` | Same screen, yikyak.com share code — resolvable only from cache | ” |
+| `/p/<id>?comment=<id>` | Same screen, scrolled to that comment and tinted. Alerts about a comment open this way | ” |
 | `/u/<username>` | Public profile | `src/app/u/[username].tsx` |
 | `/me` | Your profile and content | `src/app/me/index.tsx` |
 | `/chats` | DM list | `src/app/chats/index.tsx` |

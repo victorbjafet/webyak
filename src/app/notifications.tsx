@@ -53,7 +53,12 @@ export default function AlertsScreen() {
     if (!item.is_seen) markSeen.mutate([item.id]);
     const target = activityTarget(item);
     if (target.kind === 'post') {
-      router.push({ pathname: '/p/[code]', params: { code: target.postId } });
+      router.push({
+        pathname: '/p/[code]',
+        params: target.commentId
+          ? { code: target.postId, comment: target.commentId }
+          : { code: target.postId },
+      });
     } else if (target.kind === 'group') {
       // The alert names the community by id; its page is addressed by slug.
       try {

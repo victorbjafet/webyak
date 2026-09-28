@@ -27,11 +27,21 @@ each one when it is done, with its own docs and its own version bump. Don't
 save them all for one commit at the end: a commit that does one thing can be
 reviewed, reverted or held back from a push on its own.
 
-**Check UI changes against a stand-in, not the account.** Before committing a
-UI or session change, build a scratch copy of the repo (`npx expo export
---platform web`) with `fetch` patched to answer `https://api.sidechat.lol`
-from fixtures, and drive it in a browser. Some bugs only show in a built
-bundle: the React Compiler has compiled away code there that ran fine in dev.
+**Check UI changes against a stand-in, not the account.** The quick way is a
+stand-in tab in the Playwright browser: run
+[scripts/playwright/stand-in-tab.js](scripts/playwright/stand-in-tab.js) with
+`browser_run_code_unsafe`. It opens webyak from the same dev server at
+`http://127.0.0.1:8081`. That origin's storage is separate from the signed-in
+`localhost:8081`, so the tab gets a made-up session, and a route set on that
+tab alone answers every `api.sidechat.lol` request from fixtures. Its state is
+on the browser context as `__harness`: `data` holds the fixtures (and an
+`override` hook), and `log` records each request, so a write can be checked
+without it happening. Switch tabs with `browser_tabs` and check which one is
+current before every click: the other tab is the real account.
+
+Some bugs only show in a built bundle, where the React Compiler has compiled
+away code that ran fine in dev. For those, build a scratch copy of the repo
+(`npx expo export --platform web`) with `fetch` patched the same way.
 
 # The Playwright browser is signed in to the owner's real account
 
