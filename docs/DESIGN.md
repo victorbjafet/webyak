@@ -326,6 +326,20 @@ Built 2026-09-27; what the API gives it is in
   is yours and the reply is the news. A comment no longer in the thread leaves
   the thread at the top, with a toast saying so.
 
+## The You tab: your posts and comments
+
+- **Newest or Top.** Posts and comments can be sorted by score (the owner's
+  B7; the official app can't). A quiet *Newest · Top* pair sits right-aligned
+  under the tabs, shown once there are two things to order. It sorts what came
+  back locally: the endpoint takes no sort and returns the whole list at once,
+  so that is exact. Ties go to the newer one.
+- **A comment here opens in its thread.** Its text is the link, as a post
+  card's text is, and it lands on `/p/<post>?comment=<id>`, scrolled to and
+  tinted. Only the text: the votes and actions are buttons, and buttons can't
+  nest (see *Never nest interactive elements*).
+- **Replies aren't indented here.** Out of their thread there's no parent above
+  them, so `CommentItem`'s `nested` is off.
+
 ## Chats: opening one reads it
 
 - **Opening a thread marks it read, and so does *Mark all read* on the list.**

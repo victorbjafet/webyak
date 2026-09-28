@@ -31,15 +31,29 @@ export function isReply(comment: PostOrComment) {
 export function CommentItem({
   comment,
   onReply,
+  nested = true,
+  onOpen,
 }: {
   comment: PostOrComment;
   /** Omitted when the parent post has comments disabled. */
   onReply?: (comment: PostOrComment) => void;
+  /**
+   * Whether a reply is indented under its parent. Off in lists of comments
+   * shown outside their thread (the You tab), where there is no parent above
+   * it to be indented under.
+   */
+  nested?: boolean;
+  /**
+   * Makes the comment's text a link, the way a post card's text opens the post.
+   * For comments listed outside their thread. The text alone, never the whole
+   * comment: its votes and actions are buttons, and buttons can't nest.
+   */
+  onOpen?: () => void;
 }) {
   const theme = useTheme();
   const router = useRouter();
   const vote = useVote();
-  const reply = isReply(comment);
+  const reply = nested && isReply(comment);
   const displayName = comment.identity?.name || comment.alias || 'Anonymous';
   const username = comment.identity?.posted_with_username ? comment.identity?.name : undefined;
   const mine = comment.authored_by_user;
@@ -109,7 +123,19 @@ export function CommentItem({
         <TimeStamp iso={comment.created_at} />
       </View>
 
-      {comment.text ? <ThemedText type="small">{comment.text}</ThemedText> : null}
+      {comment.text ? (
+        onOpen ? (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel="Open this comment in its thread"
+            onPress={onOpen}
+            style={({ hovered }) => hovered && styles.textHovered}>
+            <ThemedText type="small">{comment.text}</ThemedText>
+          </Pressable>
+        ) : (
+          <ThemedText type="small">{comment.text}</ThemedText>
+        )
+      ) : null}
 
       <PostAssets assets={comment.assets} />
       <PostAttachments attachments={comment.attachments} />
@@ -167,6 +193,9 @@ const styles = StyleSheet.create({
   },
   authorHovered: {
     opacity: 0.75,
+  },
+  textHovered: {
+    opacity: 0.8,
   },
   you: {
     paddingHorizontal: Spacing.two,

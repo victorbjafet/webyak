@@ -11,6 +11,7 @@ import {
   useUpvotedPosts,
 } from '@/api/queries';
 import { useSession } from '@/api/session';
+import type { PostOrComment } from '@/api/types';
 import { KarmaPanel } from '@/components/me/karma-panel';
 import { CommentItem } from '@/components/post/comment-item';
 import { IdentityAvatar } from '@/components/post/identity-avatar';
@@ -24,6 +25,23 @@ import { useTheme } from '@/hooks/use-theme';
 
 type Tab = 'posts' | 'comments' | 'saved' | 'upvotes';
 
+/**
+ * Your posts and comments, newest first as the API sends them, or by score:
+ * the owner's B7, which the official app doesn't have. Sorted here rather than
+ * asked of the server: `/v1/posts?type=my_posts` takes no sort, would ignore an
+ * unknown one silently, and returns the whole list in one page, so sorting it
+ * locally is exact.
+ */
+type Order = 'new' | 'top';
+
+function byScore(items: PostOrComment[]) {
+  return [...items].sort(
+    (a, b) =>
+      (b.vote_total ?? 0) - (a.vote_total ?? 0) ||
+      Date.parse(b.created_at) - Date.parse(a.created_at),
+  );
+}
+
 const TABS: { value: Tab; label: string }[] = [
   { value: 'posts', label: 'Posts' },
   { value: 'comments', label: 'Comments' },
@@ -36,6 +54,7 @@ export default function MeScreen() {
   const router = useRouter();
   const { userId, primaryGroup, deviceId, signOut } = useSession();
   const [tab, setTab] = useState<Tab>('posts');
+  const [order, setOrder] = useState<Order>('new');
   const identity = useMyIdentity();
   const karma = useKarma();
 
@@ -47,8 +66,9 @@ export default function MeScreen() {
   const upvoted = useUpvotedPosts();
 
   const active = tab === 'saved' ? saved : tab === 'upvotes' ? upvoted : content;
-  const items =
+  const loaded =
     tab === 'saved' ? saved.data : tab === 'upvotes' ? upvoted.data : isContentTab ? content.data : undefined;
+  const items = loaded && isContentTab && order === 'top' ? byScore(loaded) : loaded;
 
   return (
     <Screen
@@ -112,6 +132,9 @@ export default function MeScreen() {
 
         <View style={styles.tabs}>
           <Tabs value={tab} onChange={setTab} />
+          {isContentTab && (content.data?.length ?? 0) > 1 ? (
+            <OrderToggle value={order} onChange={setOrder} />
+          ) : null}
         </View>
 
         <>
@@ -165,7 +188,22 @@ export default function MeScreen() {
             */}
             {items?.map((item) =>
               tab === 'comments' ? (
-                <CommentItem key={item.id} comment={item} />
+                // Its text opens it in its thread, scrolled to and tinted: the
+                // same link an alert about a comment uses.
+                <CommentItem
+                  key={item.id}
+                  comment={item}
+                  nested={false}
+                  onOpen={
+                    item.parent_post_id
+                      ? () =>
+                          router.push({
+                            pathname: '/p/[code]',
+                            params: { code: item.parent_post_id!, comment: item.id },
+                          })
+                      : undefined
+                  }
+                />
               ) : (
                 <PostCard
                   key={item.id}
@@ -197,6 +235,33 @@ export default function MeScreen() {
       </ScrollView>
     </Screen>
   );
+
+  function OrderToggle({ value, onChange }: { value: Order; onChange: (next: Order) => void }) {
+    return (
+      <View style={styles.orderRow} accessibilityRole="radiogroup" accessibilityLabel="Sort">
+        {(['new', 'top'] as const).map((key) => {
+          const selected = key === value;
+          return (
+            <Pressable
+              key={key}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: selected }}
+              onPress={() => onChange(key)}
+              style={({ hovered }) => [
+                styles.order,
+                { backgroundColor: selected ? theme.backgroundSelected : hovered ? theme.controlHover : 'transparent' },
+              ]}>
+              <ThemedText
+                type="caption"
+                style={{ color: selected ? theme.brand : theme.textSecondary }}>
+                {key === 'new' ? 'Newest' : 'Top'}
+              </ThemedText>
+            </Pressable>
+          );
+        })}
+      </View>
+    );
+  }
 
   function Tabs({ value, onChange }: { value: Tab; onChange: (next: Tab) => void }) {
     return (
@@ -250,6 +315,17 @@ const styles = StyleSheet.create({
   },
   tabs: {
     paddingTop: Spacing.one,
+    gap: Spacing.two,
+  },
+  orderRow: {
+    flexDirection: 'row',
+    alignSelf: 'flex-end',
+    gap: Spacing.one,
+  },
+  order: {
+    paddingVertical: Spacing.one,
+    paddingHorizontal: Spacing.two,
+    borderRadius: Radius.pill,
   },
   debug: {
     flexDirection: 'row',

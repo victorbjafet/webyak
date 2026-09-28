@@ -55,10 +55,12 @@ async (page) => {
     awards: [],
     ...extra,
   });
+  // Scores vary, so a sort by score has something to reorder.
   const post = (n, extra = {}) =>
-    base({ id: id('bbbbbbbb', n), text: `Stand-in post ${n}`, created_at: iso(n * 7), comment_count: 0, ...extra });
+    base({ id: id('bbbbbbbb', n), text: `Stand-in post ${n}`, created_at: iso(n * 7), comment_count: 0, vote_total: (n * 17) % 40, ...extra });
 
   const P1 = post(1, { text: 'A post with a long thread', comment_count: 30, authored_by_user: true });
+  const mine = [post(4, { authored_by_user: true }), post(5, { authored_by_user: true })];
   const comments = [];
   for (let i = 1; i <= 30; i++) {
     const parent = i % 5 === 0 ? comments[comments.length - 1] : null;
@@ -70,7 +72,8 @@ async (page) => {
         created_at: iso(200 - i),
         parent_post_id: P1.id,
         reply_post_id: parent ? parent.id : P1.id,
-        authored_by_user: i === 19,
+        authored_by_user: i % 6 === 1 || i === 19,
+        vote_total: (i * 13) % 30,
       }),
     );
   }
@@ -80,7 +83,7 @@ async (page) => {
     group,
     posts: { [P1.id]: P1 },
     comments: { [P1.id]: comments },
-    feed: [P1, post(2), post(3)],
+    feed: [P1, post(2), post(3), ...mine],
     activity: [
       {
         id: `comment_reply~${id('cccccccc', 20)}`,
@@ -163,7 +166,12 @@ async (page) => {
     }
     if (path === '/v1/posts/comments')
       return reply({ posts: d.comments[params.post_id] ?? [] });
-    if (path === '/v1/posts' && method === 'GET') return reply({ posts: d.feed, cursor: null });
+    if (path === '/v1/posts' && method === 'GET') {
+      if (params.type === 'my_posts') return reply({ posts: d.feed.filter((p) => p.authored_by_user) });
+      if (params.type === 'my_comments')
+        return reply({ posts: Object.values(d.comments).flat().filter((c) => c.authored_by_user) });
+      return reply({ posts: d.feed, cursor: null });
+    }
     if (path.startsWith('/v1/chats') && method === 'GET') return reply({ chats: [], messages: [], groups: [] });
     return reply({});
   });
