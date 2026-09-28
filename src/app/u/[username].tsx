@@ -9,6 +9,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/states';
 import { ThemedText } from '@/components/themed-text';
 import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { postHref } from '@/lib/post-link';
 
 export default function ProfileScreen() {
   const theme = useTheme();
@@ -111,11 +112,7 @@ export default function ProfileScreen() {
             key={post.id}
             post={post}
             showGroup
-            onPress={
-              post.index_code
-                ? () => router.push({ pathname: '/p/[code]', params: { code: post.index_code! } })
-                : undefined
-            }
+            onPress={postHref(post) ? () => router.push(postHref(post)!) : undefined}
           />
         ))}
       </ScrollView>

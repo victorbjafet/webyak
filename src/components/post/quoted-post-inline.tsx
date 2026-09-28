@@ -4,6 +4,7 @@ import { QuotedPost } from './quoted-post';
 
 import { usePost } from '@/api/queries';
 import type { PostOrComment } from '@/api/types';
+import { postHref } from '@/lib/post-link';
 
 /**
  * The original post inside a quote-repost — the retweet block.
@@ -35,11 +36,7 @@ export function QuotedPostInline({ post }: { post: PostOrComment }) {
   return (
     <QuotedPost
       post={quoted}
-      onPress={
-        quoted.index_code
-          ? () => router.push({ pathname: '/p/[code]', params: { code: quoted.index_code! } })
-          : undefined
-      }
+      onPress={postHref(quoted) ? () => router.push(postHref(quoted)!) : undefined}
     />
   );
 }

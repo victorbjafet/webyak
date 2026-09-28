@@ -312,6 +312,10 @@ Rules behind it:
 
 - **Single-letter namespaces** (`/g/`, `/p/`, `/u/`) keep every dynamic route to a
   fixed depth and make collisions with static routes structurally impossible.
+- **In-app links use the share code, falling back to the id.** `postHref`
+  (src/lib/post-link.ts) is the one place that decides. Every post the API
+  has sent carries `index_code`, but five screens used to leave a post
+  unlinked if it didn't, when `/p/<id>` would have opened it.
 - **A post is addressable by its share code alone.** `/p/0ESz5N3t` needs no group
   and no slug, so a shared link stays valid even when we don't know the group yet.
 - **Sort is a query param, not a path segment**, because it is view state, not a
@@ -1134,11 +1138,12 @@ replaced on every change, and render reads from that snapshot** —
 does the right thing. [src/lib/chat-reads.ts](../src/lib/chat-reads.ts) is
 built that way.
 
-[src/lib/seen-posts.ts](../src/lib/seen-posts.ts) still uses the version, so
-the For You *Unread* filter only re-filters when the feed's data changes — on
-a refetch, a remount or a new page — not when a post is marked seen. **Left as
-it is on purpose.** Posts are marked seen as they reach the viewport, so a
-filter that re-ran on every mark would pull each post out from under the
-reader as it appeared. Fixing it properly is a design choice: freeze the seen
-set while the feed is on screen, and re-filter on return. It's tracked in
-PLAN.md, Phase 5.
+[src/lib/seen-posts.ts](../src/lib/seen-posts.ts) used the version too, so
+the For You *Unread* filter re-filtered only when the feed's data changed.
+That was half right by accident: posts are marked seen as they reach the
+viewport, so a filter that re-ran on every mark would pull each post out from
+under the reader. **Fixed 2026-09-28 by design rather than by the bug:** the
+feed filters against a *copy* of the seen set (`snapshotSeenPosts`), taken
+when the screen comes into focus, when Unread is switched to, and when the set
+is replaced (restored at boot, another account). Marks made while reading
+don't touch it; coming back does. The version hook is gone.

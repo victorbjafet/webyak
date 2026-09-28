@@ -23,6 +23,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
 import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { postHref } from '@/lib/post-link';
 
 type Tab = 'posts' | 'comments' | 'saved' | 'upvotes';
 
@@ -214,12 +215,7 @@ export default function MeScreen() {
                   key={item.id}
                   post={item}
                   showGroup
-                  onPress={
-                    item.index_code
-                      ? () =>
-                          router.push({ pathname: '/p/[code]', params: { code: item.index_code! } })
-                      : undefined
-                  }
+                  onPress={postHref(item) ? () => router.push(postHref(item)!) : undefined}
                 />
               ),
             )}

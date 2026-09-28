@@ -5,7 +5,8 @@ import {
   type InfiniteData,
   type QueryClient,
 } from '@tanstack/react-query';
-import { useEffect, useMemo } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { getActivity, type ActivityItem, type ActivityPage } from './activity';
 import {
@@ -32,7 +33,7 @@ import {
   listArchivedThread,
   markPostsDeleted,
 } from '@/lib/archive/store';
-import { hasSeenPost, useSeenVersion } from '@/lib/seen-posts';
+import { onSeenPostsReplaced, snapshotSeenPosts } from '@/lib/seen-posts';
 import { WORKER_URL } from '@/lib/worker';
 import type {
   Cursor,
@@ -121,22 +122,37 @@ export function useGroupFeed(
     },
   });
 
-  // Re-render when the seen set changes, so a post read on the post screen
-  // disappears from the unread list on the way back.
-  const seenVersion = useSeenVersion();
+  /*
+    The seen set the Unread filter uses, **frozen while this feed is on
+    screen.** Posts are marked seen as they scroll into view; filtering against
+    the live set would pull each one out from under the reader. So it is
+    re-read when the screen comes back into focus (a post opened and read is
+    gone on the way back), and when the set is replaced (restored at boot, or
+    another account's). Only a copy is held, never the store's own set.
+  */
+  const [seenAtFocus, setSeenAtFocus] = useState(snapshotSeenPosts);
+  useFocusEffect(
+    useCallback(() => {
+      setSeenAtFocus(snapshotSeenPosts());
+    }, []),
+  );
+  useEffect(() => onSeenPostsReplaced(() => setSeenAtFocus(snapshotSeenPosts())), []);
+  // Switching to Unread is a return of its own: it should drop what was read.
+  const [unreadBefore, setUnreadBefore] = useState(unread);
+  if (unread !== unreadBefore) {
+    setUnreadBefore(unread);
+    if (unread) setSeenAtFocus(snapshotSeenPosts());
+  }
 
   const merged = useMemo(
     () => (query.data ? mergeFeedPages(query.data.pages) : []),
     [query.data],
   );
 
-  const posts = useMemo(() => {
-    if (!unread) return merged;
-    // `seenVersion` is the dependency that matters; `merged` alone would go
-    // stale the moment something is marked read.
-    void seenVersion;
-    return merged.filter((post) => !hasSeenPost(post.id));
-  }, [merged, unread, seenVersion]);
+  const posts = useMemo(
+    () => (unread ? merged.filter((post) => !seenAtFocus.has(post.id)) : merged),
+    [merged, unread, seenAtFocus],
+  );
 
   /**
    * Filtering client-side means a page of 24 can collapse to nothing once

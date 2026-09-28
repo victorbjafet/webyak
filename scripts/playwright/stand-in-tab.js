@@ -36,6 +36,9 @@ async (page) => {
     asset_library_visibility: 'show',
     member_count: 1234,
   };
+  // The combined feed. The API calls it "Home", index_name "all"; the app
+  // shows it as For You, with the Unread filter.
+  const home = { ...group, id: id('99999999', 2), name: 'Home', index_name: 'all', analytics_name: 'home' };
   const base = (extra) => ({
     type: 'post',
     authored_by_user: false,
@@ -81,7 +84,9 @@ async (page) => {
   const data = {
     me: ME,
     group,
-    posts: { [P1.id]: P1 },
+    home,
+    // Every feed post can also be fetched by id.
+    posts: Object.fromEntries([P1, post(2), post(3), ...mine].map((p) => [p.id, p])),
     comments: { [P1.id]: comments },
     feed: [P1, post(2), post(3), ...mine],
     activity: [
@@ -153,7 +158,7 @@ async (page) => {
       return reply({ id: d.me, memberships: [{ groupId: d.group.id, type: 'member' }], roles: [] });
     if (path === '/v1/updates')
       return reply({
-        groups: [d.group],
+        groups: [d.home, d.group],
         user: { id: d.me, username: 'tester' },
         unacknowledged_removed_post_ids: d.removed,
         activity_items: { items: d.activity, cursor: null },

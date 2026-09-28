@@ -19,6 +19,7 @@ import { bestAssetUrl } from '@/lib/asset-url';
 import { markChatsRead } from '@/lib/chat-reads';
 import { useNow } from '@/lib/clock';
 import { absoluteTime, relativeTime } from '@/lib/time';
+import { postHref } from '@/lib/post-link';
 
 const MAX_LENGTH = 1000;
 const TICK = 30_000;
@@ -144,15 +145,7 @@ export default function ChatThreadScreen() {
               </ThemedText>
               <QuotedPost
                 post={source.data}
-                onPress={
-                  openTarget?.index_code
-                    ? () =>
-                        router.push({
-                          pathname: '/p/[code]',
-                          params: { code: openTarget.index_code! },
-                        })
-                    : undefined
-                }
+                onPress={postHref(openTarget) ? () => router.push(postHref(openTarget)!) : undefined}
               />
             </View>
           ) : null}

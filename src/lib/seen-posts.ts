@@ -1,5 +1,3 @@
-import { useSyncExternalStore } from 'react';
-
 import { accountKey } from './account-scope';
 import { cacheStorage } from './storage';
 
@@ -36,12 +34,15 @@ let index = new Set<string>();
 let restoredFor: string | null | undefined;
 /** Where they persist. Nothing is written until an account has been restored. */
 let storageKey: string | null = null;
-let version = 0;
-const listeners = new Set<() => void>();
+/**
+ * Told when the set is **replaced** (restored for an account, or cleared), not
+ * on every mark. Marks happen as posts scroll into view, and the feed
+ * deliberately doesn't react to those (`snapshotSeenPosts`).
+ */
+const replacedListeners = new Set<() => void>();
 
-function emit() {
-  version += 1;
-  for (const listener of listeners) listener();
+function replaced() {
+  for (const listener of replacedListeners) listener();
 }
 
 let persistHandle: ReturnType<typeof setTimeout> | null = null;
@@ -90,7 +91,7 @@ export async function restoreSeenPosts(userId: string | null) {
     /* corrupt entry — start clean rather than failing the app */
   }
   if (pending) persistSoon();
-  emit();
+  replaced();
 }
 
 /** No-ops for ids already known, so scrolling over the same rows costs nothing. */
@@ -109,7 +110,6 @@ export function markPostsSeen(ids: string[]) {
     for (const id of dropped) index.delete(id);
   }
   persistSoon();
-  emit();
 }
 
 export function hasSeenPost(id: string) {
@@ -120,23 +120,25 @@ export function clearSeenPosts() {
   seen = [];
   index = new Set();
   persistSoon();
-  emit();
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => listeners.delete(listener);
+  replaced();
 }
 
 /**
- * A version counter rather than the set itself: the store mutates in place, so
- * returning `index` would give `useSyncExternalStore` an unchanged reference
- * and it would never re-render.
+ * A copy of the seen set as it is now, for the Unread filter to hold still.
+ *
+ * The feed takes one when it comes into view and filters against it until it
+ * leaves and returns. Filtering against the live set would pull each post out
+ * from under the reader the moment it scrolled into view and was marked
+ * (docs/ARCHITECTURE.md#an-external-store-hands-out-its-data-not-a-version).
  */
-function getSnapshot() {
-  return version;
+export function snapshotSeenPosts(): ReadonlySet<string> {
+  return new Set(index);
 }
 
-export function useSeenVersion() {
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+/** Calls `listener` whenever the set is restored or cleared. Returns the unsubscribe. */
+export function onSeenPostsReplaced(listener: () => void) {
+  replacedListeners.add(listener);
+  return () => {
+    replacedListeners.delete(listener);
+  };
 }

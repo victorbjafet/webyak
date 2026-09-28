@@ -17,6 +17,7 @@ import type { PostOrComment } from '@/api/types';
 import { Layout, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { markPostsSeen } from '@/lib/seen-posts';
+import { postHref } from '@/lib/post-link';
 
 /** How many rows either side of the viewport count as "about to be seen". */
 const PRELOAD_MARGIN = 2;
@@ -96,11 +97,7 @@ export function FeedList({
         showGroup={showGroup}
         preload={index >= preloadRange.start && index <= preloadRange.end}
         visible={index >= visibleRange.start && index <= visibleRange.end}
-        onPress={
-          item.index_code
-            ? () => router.push({ pathname: '/p/[code]', params: { code: item.index_code! } })
-            : undefined
-        }
+        onPress={postHref(item) ? () => router.push(postHref(item)!) : undefined}
       />
     ),
     [router, showGroup, preloadRange, visibleRange],

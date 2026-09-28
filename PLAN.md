@@ -45,7 +45,7 @@ and let a friend sign in on your computer.
 | **Deploying the Worker** | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. **The Worker is built (2026-09-28)** in [worker/](worker/), every client path is wired to it, and both were tested end to end against stubs ([WORKER.md](docs/WORKER.md)). Deploying it is the owner's: [worker/SETUP.md](worker/SETUP.md), about ten minutes in the Cloudflare dashboard |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
 | **A probe run** | Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
-| **Nothing: buildable now** | The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **Nothing: buildable now** | Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Archive media back-fill. Phase 7 extras. Phase 9 polish |
 | **The owner** | Deploy the Worker ([worker/SETUP.md](worker/SETUP.md)) and set the `WORKER_URL` repository variable. Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
 **Next:** the buildable Alerts follow-ups above, now that Q14 says what their
@@ -424,11 +424,11 @@ Full checklist and pre-scan findings:
       read tracking marked on viewport entry, and the feed auto-advances pages
       while the filtered result is short
       ([docs/API.md](docs/API.md#unread-is-ours-not-theirs)). Defaults to unread
-  - [ ] It only re-filters when the feed's data changes, not when a post is
-        marked seen: the React Compiler drops the version it depends on. That
-        happens to stop posts vanishing mid-scroll, which a naive fix would
-        cause. Freeze the seen set while the feed is on screen, and re-filter on
-        return ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#an-external-store-hands-out-its-data-not-a-version))
+  - [x] Re-filters on return (2026-09-28). The seen set is frozen while the
+        feed is on screen and re-read on focus, on switching to Unread, and on
+        restore, so nothing vanishes mid-scroll and a read post is gone on the
+        way back. It used to re-filter only when the feed's data changed,
+        because the React Compiler dropped the version it depended on ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#an-external-store-hands-out-its-data-not-a-version))
 - [x] Explore sorted by member count by default
 - [x] ~~Explore "newest"~~ — no timestamp on any explore field. Shown disabled
       until 2026-09-27, then removed; the gap is recorded in
