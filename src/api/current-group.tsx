@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchUserGroups, indexGroups } from './groups';
+import { karmaFromUpdates, queryKeys } from './queries';
 import { useSession } from './session';
 import type { Group } from './types';
 
@@ -46,13 +47,19 @@ export function CurrentGroupProvider({ children }: { children: React.ReactNode }
   const [restored, setRestored] = useState(false);
   // Where this account's selection lives, once the session says whose it is.
   const storageKey = useRef<string | null>(null);
+  const client = useQueryClient();
 
   const query = useQuery({
     queryKey: ['my-groups'],
     enabled: status === 'authenticated',
     staleTime: 1000 * 60 * 10,
     queryFn: async () => {
-      const groups = await fetchUserGroups(primaryGroup?.id);
+      // The same response carries karma. Seeding it here means the You tab and
+      // Alerts rarely need a second `getUpdates()`, and karma history gets a
+      // sample at every boot and every refresh of this list, for free.
+      const groups = await fetchUserGroups(primaryGroup?.id, (updates) =>
+        client.setQueryData(queryKeys.karma(), karmaFromUpdates(updates)),
+      );
       // Seed the slug resolver while we have these — saves a lookup later.
       indexGroups(groups);
       return groups;

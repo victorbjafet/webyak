@@ -400,6 +400,18 @@ The first load of each account is a baseline and changes nothing: the ~30
 alerts already there name thresholds that can be weeks old. Scores between
 thresholds still move only when their screen refetches.
 
+### Karma rides the boot-time `getUpdates()`
+
+`getUpdates()` is the heaviest call the app makes, and `CurrentGroupProvider`
+already makes it at boot (and every ten minutes, when stale) for the
+communities list. Everything else in that response used to be thrown away. Now
+`fetchUserGroups` hands the whole response to a callback, and the provider
+seeds the karma query from it (`karmaFromUpdates`). The You tab and Alerts
+usually open with karma already there, and karma history
+(src/lib/karma-history.ts) gets a sample each time without a request of its
+own: `useRecordKarma` watches that cache with a disabled observer and never
+fetches.
+
 ### What is deliberately not optimistic
 
 **Creating a post.** Where a new post lands depends on the server's ranking, and

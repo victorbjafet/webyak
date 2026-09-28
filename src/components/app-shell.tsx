@@ -4,6 +4,7 @@ import { BottomBar } from './bottom-bar';
 import { ComposeButton } from './compose-button';
 import { Sidebar } from './sidebar';
 
+import { useRecordKarma } from '@/api/karma-record';
 import { useSession } from '@/api/session';
 import { useScoresFromVotesAlerts } from '@/api/votes-refresh';
 import { Breakpoints } from '@/constants/theme';
@@ -21,6 +22,7 @@ import { useTheme } from '@/hooks/use-theme';
 /** App-wide effects that need a signed-in account. Renders nothing. */
 function SignedInEffects() {
   useScoresFromVotesAlerts();
+  useRecordKarma();
   return null;
 }
 

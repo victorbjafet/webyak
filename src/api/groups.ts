@@ -142,9 +142,16 @@ async function persist() {
 
 /* --- the layers, each usable on its own so diagnostics can test them --- */
 
-/** Layer 2 — the user's joined groups. */
-export async function fetchUserGroups(primaryGroupId?: string): Promise<Group[]> {
+/**
+ * Layer 2 — the user's joined groups. `onUpdates` sees the whole `getUpdates()`
+ * response, so a caller can take more from the one request (karma, at boot).
+ */
+export async function fetchUserGroups(
+  primaryGroupId?: string,
+  onUpdates?: (updates: unknown) => void,
+): Promise<Group[]> {
   const updates = (await getUpdates(primaryGroupId)) as { groups?: Group[] };
+  onUpdates?.(updates);
   return updates.groups ?? [];
 }
 

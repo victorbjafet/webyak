@@ -337,6 +337,17 @@ Built 2026-09-27; what the API gives it is in
   card's text is, and it lands on `/p/<post>?comment=<id>`, scrolled to and
   tinted. Only the text: the votes and actions are buttons, and buttons can't
   nest (see *Never nest interactive elements*).
+- **Yakarma has three layers.** The total and its per-community rows, then
+  *This season* and *This quarter* side by side (the server's current values,
+  with the season's name and days left), then the history chart.
+- **The history chart is points, not a line** (B5). The server keeps no
+  history, so webyak samples your karma on this device whenever it reads it:
+  at boot, when the communities list refreshes, and on the You tab and Alerts.
+  Samples are irregular and nothing is known between them, so drawing a line
+  through them would invent a path. One series, so no legend. A readout above
+  the plot gives first → last and the change, or the hovered point's value and
+  time; the axis says *Sampled on this device*. One sample shows a sentence
+  instead of a one-dot chart.
 - **Replies aren't indented here.** Out of their thread there's no parent above
   them, so `CommentItem`'s `nested` is off.
 

@@ -1631,7 +1631,10 @@ IndexedDB and never to the account.
 - The length probes (PLAN Q11).
 
 **Retired on 2026-09-28:** the chat read probe, once its second run found the
-body ([marking a chat read](#marking-a-chat-read)).
+body ([marking a chat read](#marking-a-chat-read)). And the Yakarma probe after
+its one run: `quarterly_karma` and `season_karma` are current totals, not
+history ([what else is in getUpdates](#what-else-is-in-getupdates)). Its code
+is in commit `5630728`.
 
 **Retired on 2026-09-27**, seven of them:
 

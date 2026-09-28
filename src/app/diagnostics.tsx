@@ -92,9 +92,9 @@ export default function DiagnosticsScreen() {
       <View
         style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <ThemedText type="small" themeColor="textSecondary">
-          Read-only. A control that your login still works, then the read-only questions still
-          open: alert types with no label yet, and whether your karma history is in the updates
-          payload. Everything settled was retired — its answer is in docs/API.md.
+          Read-only. A control that your login still works, then the one read-only question
+          still open: alert types with no label yet, and what the new ones carry. Everything
+          settled was retired — its answer is in docs/API.md.
         </ThemedText>
         <ThemedText type="caption" themeColor="textTertiary">
           Run it and paste the report back.

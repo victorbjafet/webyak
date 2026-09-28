@@ -38,8 +38,10 @@ import type {
   FeedFilter,
   Group,
   Karma,
+  KarmaSnapshot,
   MyIdentity,
   PostOrComment,
+  Season,
   TopPeriod,
 } from './types';
 
@@ -432,20 +434,35 @@ export function useMyIdentity() {
 }
 
 
+/** The karma parts of a `getUpdates()` response. */
+export function karmaFromUpdates(updates: unknown): KarmaSnapshot {
+  const u = (updates ?? {}) as {
+    karma?: Karma;
+    quarterly_karma?: Karma;
+    season_karma?: Karma;
+    season?: Season;
+  };
+  return {
+    ...(u.karma ?? {}),
+    quarterly: u.quarterly_karma,
+    seasonal: u.season_karma,
+    season: u.season,
+  };
+}
+
 /**
- * Yakarma — the total, and the per-community breakdown.
+ * Yakarma — the total, the per-community breakdown, and this quarter's and
+ * season's.
  *
- * One request: `getUpdates()` carries `karma` with `{post, comment, groups}`, so
- * the breakdown does not need a call per community.
+ * One request: `getUpdates()` carries all of it. The groups query reads the
+ * same response at boot and seeds this cache (src/api/current-group.tsx), so
+ * the You tab usually opens with it already there.
  */
 export function useKarma() {
   return useQuery({
     queryKey: queryKeys.karma(),
     staleTime: 1000 * 60 * 2,
-    queryFn: async (): Promise<Karma> => {
-      const updates = await getUpdates();
-      return ((updates as { karma?: Karma })?.karma ?? {}) as Karma;
-    },
+    queryFn: async (): Promise<KarmaSnapshot> => karmaFromUpdates(await getUpdates()),
   });
 }
 

@@ -245,6 +245,25 @@ export interface Karma {
   groups?: KarmaGroup[];
 }
 
+/** `getUpdates().season`: the current season. Probed 2026-09-28. */
+export interface Season {
+  year?: number;
+  /** A short word, e.g. the time of year. */
+  season?: string;
+  remaining_days?: number;
+}
+
+/**
+ * Everything karma in one `getUpdates()`: the lifetime totals, then the same
+ * shape for the current quarter and season. None of it is history
+ * (docs/API.md#what-else-is-in-getupdates).
+ */
+export interface KarmaSnapshot extends Karma {
+  quarterly?: Karma;
+  seasonal?: Karma;
+  season?: Season;
+}
+
 export interface Profile {
   id: string;
   name: string;

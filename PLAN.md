@@ -33,7 +33,8 @@ too, so the official app agrees (2026-09-28). An alert about a comment opens
 the thread at that comment, a takedown shows the server's removal notice
 (B3), Alerts opens with how your karma moved since the last visit (B4), and a
 new `votes` alert raises that post's score everywhere it's cached (B1).
-Your posts and comments sort by top on the You tab (B7) (2026-09-28). **An account switcher and
+Your posts and comments sort by top on the You tab (B7), and it charts your
+karma over time, sampled on this device (B5) (2026-09-28). **An account switcher and
 encrypted login files** move a login between webyaks without the texted code,
 and let a friend sign in on your computer.
 
@@ -211,7 +212,7 @@ are mostly plumbing; three need a probe before they can be estimated.
 | B4 | **Stats bubble in Alerts** — new upvotes since last open | ✅ **Built 2026-09-28** as a karma diff against the last visit, per account and device ([DESIGN.md](docs/DESIGN.md#alerts)). Before: half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing. The next Alerts iteration |
 | B7 | **Sort your own posts/comments by top of all time** | ✅ **Built 2026-09-28**: a *Newest · Top* toggle on the You tab, sorted locally ([DESIGN.md](docs/DESIGN.md#the-you-tab-your-posts-and-comments)). Your comments there now open in their thread too. **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
 | B6 | **Style deleted comments properly** | ✅ **Done 2026-09-27.** A deleted comment stays in its thread with text **`"Comment Deleted"`**, alias `"Deleted"`, zero votes and no username, so its replies keep their parent. It now renders as a muted *Comment deleted* with no vote, reply or action controls, its replies intact; in the archive, a placeholder whose words were never captured reads *Removed before it was archived* | — ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)) |
-| B5 | **Yakarma over time** on the You tab, per-post and overall | **Probed 2026-09-28:** the three fields are current-period totals, not history ([API.md](docs/API.md#what-else-is-in-getupdates)), so history means sampling on the device. Originally: Karma is at `getUpdates().karma` as `{post, comment, groups}` — and the same payload also carries **`quarterly_karma`, `season_karma` and `season`**, so there may be period-scoped values to read rather than sampling a single lifetime number. Worth inspecting those before building a sampler | Inspect the three season/quarter fields. If they hold real history this gets much cheaper; if not, fall back to client-side sampling, which is per-device and should say so rather than look like lost data |
+| B5 | **Yakarma over time** on the You tab, per-post and overall | ✅ **Built 2026-09-28, overall:** this season's and quarter's karma, and a points chart of total karma sampled on this device ([DESIGN.md](docs/DESIGN.md#the-you-tab-your-posts-and-comments)). Per-post history isn't built. **Probed 2026-09-28:** the three fields are current-period totals, not history ([API.md](docs/API.md#what-else-is-in-getupdates)), so history means sampling on the device. Originally: Karma is at `getUpdates().karma` as `{post, comment, groups}` — and the same payload also carries **`quarterly_karma`, `season_karma` and `season`**, so there may be period-scoped values to read rather than sampling a single lifetime number. Worth inspecting those before building a sampler | Inspect the three season/quarter fields. If they hold real history this gets much cheaper; if not, fall back to client-side sampling, which is per-device and should say so rather than look like lost data |
 
 Two things worth deciding before any of these start:
 
@@ -230,7 +231,8 @@ Two things worth deciding before any of these start:
 `/diagnostics` holds **two** read-only probes, the token control and Alerts
 (Q14), plus the length probes (Q11) behind their own button. That's down from
 eighteen: seven were retired on 2026-09-27, and the chat read probe on
-2026-09-28 once it found its answer. A probe earns its place by being able to change a decision; once its
+2026-09-28 once it found its answer. The Yakarma probe (B5) was added and
+retired the same day, after one run answered it. A probe earns its place by being able to change a decision; once its
 question is answered and written into `docs/API.md`, re-running it buries the
 results that still matter. Twelve were retired on 2026-09-11 — the table of what
 they answered is in

@@ -12,6 +12,7 @@ import {
 } from '@/api/queries';
 import { useSession } from '@/api/session';
 import type { PostOrComment } from '@/api/types';
+import { KarmaHistory, KarmaPeriods } from '@/components/me/karma-history';
 import { KarmaPanel } from '@/components/me/karma-panel';
 import { CommentItem } from '@/components/post/comment-item';
 import { IdentityAvatar } from '@/components/post/identity-avatar';
@@ -126,7 +127,11 @@ export default function MeScreen() {
               Loading…
             </ThemedText>
           ) : (
-            <KarmaPanel karma={karma.data} />
+            <>
+              <KarmaPanel karma={karma.data} />
+              <KarmaPeriods karma={karma.data} />
+              <KarmaHistory />
+            </>
           )}
         </View>
 
