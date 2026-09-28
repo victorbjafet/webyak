@@ -16,40 +16,44 @@ The rule for keeping them current is in [CLAUDE.md](CLAUDE.md).
 
 ## 1. Current state
 
-Scaffolded and smoke-tested on 2026-08-26:
+*The at-a-glance answer to "where are we?" Kept current with every change that
+moves an item between these groups; §6 holds the detail. Updated 2026-09-27.
+This section used to be a snapshot of the day-one scaffold, still describing a
+one-commit repo and `web.output: "static"` a month later.*
 
-| Thing | Version / result |
+**Live at [webyak.vbjfr.xyz](https://webyak.vbjfr.xyz)**, deployed on every push
+to `main`. The version (`yyyy.mm.dd.v`) is at the top of Settings.
+
+**Built:** reading (feeds, posts, comments, polls, images); writing (votes,
+posts, comments, polls, quote-reposts, deleting your own); communities and
+Explore; profiles and the You tab; messaging; and the local archive, with
+search, backfill and refresh. **Alerts** has its first version (2026-09-27), built
+partly on assumptions a probe run has to confirm.
+
+**What's left, by what it's waiting on:**
+
+| Waiting on | Items |
 |---|---|
-| Expo SDK | 57.0.16 |
-| expo-router | 57.0.16 (typed routes on, `web.output: "static"`) |
-| React / React Native | 19.2.3 / 0.86.2 (react-compiler on) |
-| react-native-web | 0.21 |
-| sidechat.js | 2.6.6 (installed) |
-| Web dev server | `npx expo start --web` → HTTP 200 ✅ |
-| Git | initialized, 1 commit (template) |
+| **The Worker** (deferred by decision) | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. The client side of all four is built ([WORKER.md](docs/WORKER.md)) |
+| **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
+| **A probe run** | Alerts: types, targets, paging, whether marking read sticks (Q14–Q17). Length limits (Q11). Where a bio lives (Q10) |
+| **Nothing: buildable now** | Alerts follow-ups (B4 upvote counter, B1 score refresh). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **The owner** | Tick *Enforce HTTPS*. Run the length probes. Import the comment-recovery export |
 
-Source lives in `src/`:
+**Next:** open Alerts, mark something read, then run Diagnostics and bring back
+the Alerts probe's report. Then the Worker.
 
-| Path | What |
-|---|---|
-| `src/app/` | expo-router routes; URLs mirror web.yikyak.com |
-| `src/api/` | client singleton, typed wrappers, session context, query provider |
-| `src/lib/storage.ts(.web.ts)` | platform-split key/value stores |
-| `src/theme/` | theme preference provider (light/dark/system, persisted) |
-| `src/components/` | shell, nav, themed primitives |
-| `src/constants/theme.ts` | design tokens |
+**How it's built:** Expo SDK 57 and expo-router, `web.output: "single"` (one
+SPA page), React 19.2 with the React Compiler, react-native-web 0.21, TanStack
+Query, sidechat.js 2.6.6. Structure and data flow are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Build with **`npm run build:web`**,
+which also writes the `404.html` that deep links on GitHub Pages need
+([why](docs/ARCHITECTURE.md#deployment-model--static-serverless-github-pages),
+[deploying](docs/ARCHITECTURE.md#deploying-to-github-pages)).
 
-Added in Phase 1: `@tanstack/react-query` + persist client, `expo-secure-store`,
-`@react-native-async-storage/async-storage`, `@expo/vector-icons`, eslint (via `expo lint`).
-
-Web output is `single` (SPA), not `static` — build with **`npm run build:web`**,
-which also writes the `404.html` fallback that deep links on GitHub Pages need.
-Reasoning in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#deployment-model--static-serverless-github-pages).
-Pushing to `main` deploys it
-([how, and the one-time setup](docs/ARCHITECTURE.md#deploying-to-github-pages)).
-
-> ⚠️ `AGENTS.md` (from the template): **read <https://docs.expo.dev/versions/v57.0.0/> before
-> writing code.** SDK 57 changed a lot; don't code from memory of older Expo.
+> ⚠️ [AGENTS.md](AGENTS.md): **read <https://docs.expo.dev/versions/v57.0.0/>
+> before writing code** — SDK 57 changed a lot — and **bump the version with
+> every commit**.
 
 ---
 
@@ -146,7 +150,7 @@ src/
 | 21 | DMs | `getDMs`, `getDMThread`, `sendDM`, `startDM` | needs a stable client/device ID |
 | 22 | Group chats | `getGroupChats`, `joinGroupChat` | ⛔ `getGroupChats` URL broken |
 | 23 | Hide user's posts | `hidePostsFromUser`, `unhidePostsFromAllUsers` | |
-| 24 | Mark activity read | `readActivity` | |
+| 24 | Mark activity read | `readActivity` | ✅ on tap, or *Mark all read* in one request. Whether it sticks, and batches: Q16 |
 | 30 | Yakarma total + per-community | `getUpdates().karma` | ✅ with post/comment split |
 | 31 | For You feed | `Home` group, `index_name: "all"` | ✅ not a community — no top, not postable |
 | 32 | Saved posts list | `/v1/posts/saved` | ✅ read-only |
@@ -154,7 +158,7 @@ src/
 | 34 | Unread filter | — | ✅ client-side; the API rejects `type=unread` |
 | 25 | Save / unsave post | — | List works: `/v1/posts/saved` → `{posts, cursor}`. ⛔ Write path: 8 candidates swept, all 404 |
 | 26 | Follow / unfollow post | — | ⛔ readable, not writable; six candidate paths all 404 |
-| 27 | Notification feed | — | ✅ `/v1/activity` → `{items, cursor}` with server-rendered `text`. Ready to build |
+| 27 | Notification feed | — | ✅ **Alerts tab**, first version 2026-09-27: `/v1/activity`, paged, with an unread badge. Types and targets: Q14 |
 | 28 | Report content | — | ⛔ no method |
 | 29 | Awards | — | ⛔ no method; posts carry `awards[]`. Deliberately deprioritised |
 | 30 | Community leaderboard | — | ⛔ no endpoint; groups carry `should_show_leaderboard`. Stub button in the header |
@@ -187,9 +191,9 @@ are mostly plumbing; three need a probe before they can be estimated.
 | # | Idea | What we already know | Blocked on |
 |---|---|---|---|
 | B1 | **Live-ish score refresh** on posts and comments | No push channel has been found; this would be polling. The infrastructure is already there — TanStack Query `refetchInterval` on a visible feed, plus the existing viewability tracking so only on-screen posts refetch | Deciding a polite interval. This is a private API and the account is real, so an aggressive poll is an account-risk decision, not just a perf one (PLAN §8) |
-| B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | Nothing. Ready to build |
+| B2 | **Unread tab** in Alerts | ✅ **The API already supports this.** `/v1/activity` items carry `is_seen`, and `POST /v1/activity/seen` takes `{ids: [...]}` — an array, so it batches, even though sidechat.js's `readActivity` only passes one. So this is a UI job, not a capability gap | ✅ **Built 2026-09-27** as the *Unread* filter on Alerts. Waits on Q16: does marking read stick |
 | B3 | **Show removal / warning state** when a post is taken down or reported | ✅ **Unblocked 2026-08-28.** `getUpdates()` returns `unacknowledged_removed_post_ids`. The name implies a matching acknowledge call, which is what the official app's dismissable warning would use ([docs/API.md](docs/API.md#what-else-is-in-getupdates)) | Nothing to probe for the ids themselves. Finding the acknowledge endpoint needs a sweep, and testing the whole flow still needs a post that actually gets removed |
-| B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing beyond B2 |
+| B4 | **Stats bubble in Alerts** — new upvotes since last open | Half-supported. Activity items already carry a ready-made string (*"Your post reached 25 karma: …"*) and an id shaped `votes~<uuid>~25`, where the trailing number is the karma threshold. Counting *new* ones needs `is_seen`, same mechanism as B2 | Nothing. The next Alerts iteration |
 | B7 | **Sort your own posts/comments by top of all time** | **Does not exist in the official app** — requested as an addition. `/v1/posts?type=my_posts` returns a flat list with no sort parameter, and the same silent-ignore behaviour as the feed endpoint means an unrecognised `sort` would look like it worked. The lists are small enough to sort client-side by `vote_total`, which sidesteps the question entirely | Nothing — client-side sorting works today. Wants a probe only if server-side paging is ever added, since sorting one page of many would be wrong |
 | B6 | **Style deleted comments properly** | ✅ **Done 2026-09-27.** A deleted comment stays in its thread with text **`"Comment Deleted"`**, alias `"Deleted"`, zero votes and no username, so its replies keep their parent. It now renders as a muted *Comment deleted* with no vote, reply or action controls, its replies intact; in the archive, a placeholder whose words were never captured reads *Removed before it was archived* | — ([docs/API.md](docs/API.md#deleted-comments-stay-in-the-thread-as-comment-deleted)) |
 | B5 | **Yakarma over time** on the You tab, per-post and overall | Karma is at `getUpdates().karma` as `{post, comment, groups}` — and the same payload also carries **`quarterly_karma`, `season_karma` and `season`**, so there may be period-scoped values to read rather than sampling a single lifetime number. Worth inspecting those before building a sampler | Inspect the three season/quarter fields. If they hold real history this gets much cheaper; if not, fall back to client-side sampling, which is per-device and should say so rather than look like lost data |
@@ -208,8 +212,8 @@ Two things worth deciding before any of these start:
 
 ### Probe hygiene
 
-`/diagnostics` holds **five** read-only probes plus the upload one, down from
-eighteen. A probe earns its place by being able to change a decision; once its
+`/diagnostics` holds **seven** read-only probes, plus the upload and length
+probes behind their own buttons, down from eighteen. A probe earns its place by being able to change a decision; once its
 question is answered and written into `docs/API.md`, re-running it buries the
 results that still matter. Twelve were retired on 2026-09-11 — the table of what
 they answered is in
@@ -699,7 +703,28 @@ and comment it sees** — effectively a Yik Yak downloader
 
 ### Phase 8 — gap-filling
 - [x] `/v1/posts/saved` and `/v1/activity` found, and their shapes probed
-- [ ] Wrap both — saved reuses the feed query wholesale, activity needs a screen
+- [x] Saved posts wrapped — the You tab's Saved list (Phase 5)
+- [~] **Alerts tab — first version 2026-09-27.** It replaced a placeholder that
+      still claimed the list endpoint was unknown. offsides was read first
+      ([docs/OFFSIDES.md](docs/OFFSIDES.md#round-8--alerts-2026-09-27)); most of
+      the item shape is theirs, not observed
+      ([docs/API.md](docs/API.md#the-activity-feed-alerts))
+  - [x] `/v1/activity`, paged by cursor, and an unread badge on the tab
+        (a 2-minute poll, only while the page is visible)
+  - [x] All / Unread (B2). Tapping marks read and opens the post or community;
+        *Mark all read* sends every unread id in one request. Nothing is marked
+        read by being shown ([docs/DESIGN.md](docs/DESIGN.md#alerts))
+  - [x] Diagnostics probe for Q14–Q17. The screen logs its mark-read requests
+        for the probe to read back
+  - [ ] **Run the probe** and correct the type table, targets and timestamp
+        handling from what it reports
+  - [ ] B4: a new-upvotes counter from `votes` alerts
+  - [ ] B1: refresh a post's score when a `votes` alert names it, instead of
+        polling every score
+  - [ ] `suggested_sidechats`: show the suggested community inline, as
+        offsides does, rather than only opening it
+  - [ ] Q18: if the official app marks alerts read on open, decide whether to
+        follow
 - [ ] Capture official-client traffic for the rest: follow, report, awards, and
       the *write* path for save
 - [ ] Implement each via `client.sendRequest()`
@@ -805,6 +830,26 @@ Resolved ones are kept with their answer so they don't get re-asked.
   showed it. The per-post lookup stays, and loses nothing: the 404 is already a
   direct answer. The probe was retired after its run
   ([docs/API.md](docs/API.md#deleted-posts-are-omitted-not-tombstoned)).
+- **Q14 — which alert types arrive, and what does each point at?** Only
+  `votes` has been seen by us. offsides renders six more and opens `post_id` for
+  every one; whether that id is always a post, and never a comment, is unknown.
+  **Diagnostics → Run probes → "Alerts — the activity feed"** reports per-type
+  keys and what `post_id` opens
+  ([docs/API.md](docs/API.md#the-activity-feed-alerts)).
+- **Q15 — does `/v1/activity` page, and how far back does it go?** The same
+  probe fetches page 2 and reports the age span of page 1. The client stops on
+  an empty page or a cursor that doesn't move, whatever the answer.
+- **Q16 — does marking read stick, and does it batch?** Never sent by webyak
+  before 2026-09-27. The probe re-reads every id the Alerts screen marked this
+  page load, including the batched ones, so mark something read before running
+  it.
+- **Q17 — is `getUpdates().activity_items` the same list?** offsides reads that;
+  we poll the endpoint. The probe reports the overlap. If they match, the badge
+  could ride on the updates call the app already makes.
+- **Q18 — does the official app mark alerts read on open, or per tap?** Not
+  probeable. Open the official app's notifications, then see whether webyak's
+  Unread count drops. webyak marks only on action
+  ([docs/DESIGN.md](docs/DESIGN.md#alerts)).
 
 ---
 

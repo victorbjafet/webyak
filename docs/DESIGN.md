@@ -40,6 +40,7 @@ and every surface reads as the same plane:
 | `onBrand` | `#00201A` | text *on* the accent — near-black, since `#10CEAC` is bright enough that white on it fails contrast |
 | `brandMuted` | `#0B2F29` | accent-tinted fill |
 | `notification` / `danger` | `#EF514F` | badges, errors, destructive |
+| `onNotification` | `#FFFFFF` | the count on an unread badge |
 
 Semantic aliases: `upvote` → accent green, `downvote` → the red, `link` → accent,
 `success` → accent. Downvote reuses the notification red rather than introducing a
@@ -277,6 +278,31 @@ Each list's header carries its count and a **create** button, dimmed with a
 tooltip because neither is wired to anything yet. Communities have one order,
 most members first; a sort row whose only other option was disabled ("Newest",
 which no explore field can support) was removed.
+
+## Alerts
+
+Built 2026-09-27; what the API gives it is in
+[API.md](API.md#the-activity-feed-alerts).
+
+- **Unread looks like an unread chat:** accent border, accent dot, full-strength
+  text. Read alerts stay in the list, dimmed. Two tabs that mean "new" should
+  say it the same way.
+- **An alert is marked read when you act on it, never by being shown.** Tapping
+  it (which also opens its post) or *Mark all read* marks it. A list that cleared
+  itself on sight would leave the *Unread* filter with nothing to filter, and
+  would send writes nobody asked for. offsides works the same way. Whether the
+  official app marks on open is PLAN Q18; if it does, this is the rule to
+  revisit.
+- **The tab carries a count** of unread alerts, in `notification` red with
+  `onNotification` numerals, ringed in the background colour so it stays
+  legible over the icon. It reads the same query as the screen, so marking
+  something read clears the badge in the same render. Only loaded pages are
+  counted, which in practice is the first.
+- **Each type gets an icon and a label, and unknown types still render**, as
+  their own name with a bell. The server's sentence says what happened, so a
+  new type needs a label, not a fix.
+- **The server's sentence is shown as sent.** The one edit is offsides': a
+  leading 📈 on *Popular* and *Followed post*, whose icon already says it.
 
 ## Media sizing
 

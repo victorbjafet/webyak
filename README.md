@@ -32,7 +32,8 @@ author, timestamp and score — in IndexedDB, exportable as NDJSON. Yik Yak drop
 content; this doesn't. There's a backfill crawler in Settings that walks a
 community's history, paced deliberately slowly against a private API.
 
-See [PLAN.md](PLAN.md) for the roadmap and the rest of the gaps.
+Where things stand, and what is next: the first section of [PLAN.md](PLAN.md).
+The rest of that file is the roadmap and every remaining gap.
 
 ## Read this before you trust it
 
@@ -83,7 +84,7 @@ Everything non-obvious is written down as it is discovered — that rule is in
 
 | File | Holds |
 |---|---|
-| [PLAN.md](PLAN.md) | Roadmap, phase checklists, parity matrix, live blockers |
+| [PLAN.md](PLAN.md) | Current status at a glance, then the roadmap, phase checklists, parity matrix and live blockers |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | URL shape, hosting model, app structure, data flow |
 | [docs/API.md](docs/API.md) | What the Sidechat API actually does: auth flow, ID resolution, probe results, library defects |
 | [docs/DESIGN.md](docs/DESIGN.md) | Color tokens, type scale, layout rules |

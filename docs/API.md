@@ -784,7 +784,7 @@ exists", which was wrong — the library simply has no method for them:
 | Endpoint | Status | Note |
 |---|---|---|
 | `/v1/posts/saved` | ✅ 200 | `{posts, cursor}` — **the same shape as a feed**, so it can reuse the feed query and card directly |
-| `/v1/activity` | ✅ 200 | `{items, cursor}`, items are `{id, timestamp, type, is_seen, text}` where `id` is `"votes~<uuid>~25"` and `text` is a ready-made human string like *"Your post reached 25 karma: …"*. Pairs with the existing `readActivity` |
+| `/v1/activity` | ✅ 200 | `{items, cursor}`, items are `{id, timestamp, type, is_seen, text}` where `id` is `"votes~<uuid>~25"` and `text` is a ready-made human string like *"Your post reached 25 karma: …"*. Pairs with the existing `readActivity`. Now the Alerts tab — [below](#the-activity-feed-alerts) |
 
 The activity `type` seen so far is `votes`; treat it as an open set. Because
 `text` is pre-rendered server-side, the notifications screen can ship without
@@ -811,6 +811,64 @@ Still not found:
 All three are readable-but-not-writable. The UI shows these controls dimmed with
 a tooltip explaining why, rather than hiding them — a bookmark that appears only
 on already-saved posts reads as a bug.
+
+## The activity feed (Alerts)
+
+Built into the Alerts tab on 2026-09-27, replacing a placeholder that still
+said the list endpoint had not been found. **Most of what the tab assumes is
+borrowed from offsides rather than observed**, and each borrowed assumption is
+an open question with a probe
+([OFFSIDES.md](OFFSIDES.md#round-8--alerts-2026-09-27)).
+
+**Listing: `GET /v1/activity?cursor=`** → `{items, cursor}`. Our own sweep saw
+items of type `votes` shaped `{id, timestamp, type, is_seen, text}`, where
+`text` is a finished sentence. sidechat.js has no method for it.
+
+**The same list rides on `getUpdates()`** as `activity_items`, which is where
+offsides reads it from. We poll the endpoint instead, because re-downloading
+the whole updates payload every two minutes to refresh one badge would be
+wasteful.
+
+**Marking read: `POST /v1/activity/seen` with `{ids: [...]}`**, from
+sidechat.js's `readActivity`, which sends one id and parses a JSON reply.
+webyak had never sent it before this. The body is an array, and Mark all read
+depends on it accepting many.
+
+**What an item carries, according to offsides:**
+
+| Field | Meaning | Observed by us? |
+|---|---|---|
+| `post_id` | the post the alert is about; opened on tap, for every type | no |
+| `type` | `votes`, `trending_post`, `followed_post`, `comment`, `comment_reply`, `new_follower`, `suggested_sidechats` — an open set | `votes` only |
+| `suggested_sidechats_data.group_ids_to_suggest` | the communities a suggestion is for | no |
+| `conversation_icon` | a new follower's avatar | no |
+| `timestamp` | when; format never pinned down | present, format unrecorded |
+
+**What the client does about each unknown:**
+
+- A type it doesn't know still renders, as its own name with a bell, because
+  `text` says what happened.
+- A missing `post_id` falls back to a UUID inside the id (`votes~<uuid>~25`).
+- `timestamp` is read as epoch seconds, epoch milliseconds or a date string,
+  whichever it turns out to be.
+- A mark-read request counts as done on any 2xx, whatever its body.
+
+**Open, with the probe that answers each** — *Diagnostics → Run probes →
+"Alerts — the activity feed"*. It reports types, keys, id structures and counts,
+never an alert's text, which quotes posts:
+
+- **Q14 — which types arrive, and what does each point at?** Per-type keys, and
+  whether `post_id` opens a post or a comment.
+- **Q15 — does the feed page, and how far back?** Page 2 and its overlap with
+  page 1, and the age span of page 1.
+- **Q16 — does marking read stick, and does it batch?** The probe re-reads the
+  feed for every id the Alerts screen marked this page load. It never marks
+  anything itself, so mark something read first.
+- **Q17 — is `activity_items` the same list?** Overlap with page 1.
+- **Q18 — does the official app mark alerts read on open, or per tap?** No probe
+  can answer this. Open the official app's notifications, then check whether
+  webyak's Unread count drops.
+
 
 ## sidechat.js 2.6.6 defects
 
@@ -1431,6 +1489,10 @@ marked *"Waiting for sidechat.js implementation."*
 **change a decision**; once its question is answered and the answer is written
 down here, re-running it produces output nobody reads and buries the one or two
 results that still matter.
+
+Still asked, as of 2026-09-27: the list at the top of
+[src/api/diagnostics.ts](../src/api/diagnostics.ts), most recently **Alerts —
+the activity feed** ([Q14–Q17](#the-activity-feed-alerts)).
 
 Twelve probes were retired on 2026-09-11. Their answers are all above:
 

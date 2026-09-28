@@ -32,6 +32,7 @@
  * | `probeImageFailures` | what actually failed to render this page load |
  * | `probeImageUpload` | is there an upload route on the CORS-open host? |
  * | `probeBioSource` | is your bio on `getUpdates().user`, or only on your public profile? (PLAN Q10) |
+| `probeActivity` | the alert types, what each points at, whether the feed pages, and whether marking read sticks (PLAN Q14–Q17) |
  * | `probePostLength`, `probeBioLength` | what length does the server enforce? (PLAN Q11) |
  *
  * `probeImageUpload` is not read-only — it requests an upload URL — and the two
@@ -40,6 +41,7 @@
  * retired once writes were verified against the live app.
  */
 
+import { activityDate, getSeenLog, type ActivityItem } from './activity';
 import { fetchUserGroups } from './groups';
 import {
   ApiError,
@@ -48,6 +50,8 @@ import {
   deletePostOrComment,
   getUpdates,
   getUserProfile,
+  lookupPost,
+  PostGone,
   request,
   updateProfile,
 } from './client';
@@ -664,11 +668,225 @@ async function probeBioSource(): Promise<ProbeResult> {
   }
 }
 
+/* ------------------------------------------------------------------------ *
+ * Alerts
+ * ------------------------------------------------------------------------ */
+
+const UUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+/** An id's structure, not its values: `votes~<uuid>~<n>`. */
+function idShape(id: string) {
+  return id
+    .replace(UUID_ANYWHERE, '<uuid>')
+    .replace(/\b(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{12,}\b/g, '<token>')
+    .replace(/\d+/g, '<n>');
+}
+
+/** How a timestamp is written — the thing `activityDate` has to guess. */
+function timeShape(value: unknown) {
+  if (typeof value === 'number') return value < 1e12 ? 'epoch seconds' : 'epoch ms';
+  if (typeof value === 'string' && /^\d+(\.\d+)?$/.test(value)) {
+    return Number(value) < 1e12 ? 'epoch seconds, as a string' : 'epoch ms, as a string';
+  }
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value)) return 'ISO string';
+  return shape(value);
+}
+
+type Raw = Record<string, unknown>;
+
+function rawItems(page: { items?: unknown } | null | undefined): Raw[] {
+  return (Array.isArray(page?.items) ? page.items : []) as Raw[];
+}
+
+/**
+ * Alerts — what the activity feed carries, and whether marking read sticks.
+ *
+ * Most of what the Alerts screen assumes came from offsides' source rather
+ * than a response (docs/API.md#the-activity-feed-alerts). This reports, per
+ * type: the keys that arrive, the id's structure, the timestamp's format and
+ * what `post_id` resolves to. Then whether the feed pages, whether
+ * `getUpdates().activity_items` is the same list, and — for anything the
+ * Alerts screen marked read this page load — whether the server now agrees.
+ *
+ * Read-only: it lists and looks up, and never marks anything. Types, keys and
+ * counts only. An alert's text quotes posts, so it never enters the report.
+ */
+async function probeActivity(): Promise<ProbeResult> {
+  const base = {
+    id: 'activity',
+    label: 'Alerts — the activity feed',
+    question:
+      'Which alert types arrive, what does each point at, does the feed page, and does marking read stick? (PLAN Q14–Q17)',
+  };
+  const steps: string[] = [];
+  try {
+    const first = await request<Raw>('/v1/activity');
+    const items = rawItems(first);
+    steps.push(
+      `/v1/activity → ${items.length} item(s) · envelope [${Object.keys(first ?? {}).sort().join(', ')}] · cursor ${shape(first?.cursor)}`,
+    );
+
+    // Q14 — per type: how many, which keys, the id's structure, the time format.
+    interface Stats {
+      count: number;
+      unread: number;
+      keys: Set<string>;
+      ids: Set<string>;
+      times: Set<string>;
+      withPostId: number;
+      postIdInId: number;
+      samplePostId?: string;
+    }
+    const byType = new Map<string, Stats>();
+    for (const item of items) {
+      const type = typeof item.type === 'string' ? item.type : `(type ${shape(item.type)})`;
+      const stats: Stats = byType.get(type) ?? {
+        count: 0,
+        unread: 0,
+        keys: new Set(),
+        ids: new Set(),
+        times: new Set(),
+        withPostId: 0,
+        postIdInId: 0,
+      };
+      stats.count += 1;
+      if (!item.is_seen) stats.unread += 1;
+      for (const key of Object.keys(item)) stats.keys.add(key);
+      if (typeof item.id === 'string') stats.ids.add(idShape(item.id));
+      stats.times.add(timeShape(item.timestamp));
+      if (typeof item.post_id === 'string' && item.post_id) {
+        stats.withPostId += 1;
+        if (typeof item.id === 'string' && item.id.includes(item.post_id)) stats.postIdInId += 1;
+        stats.samplePostId ??= item.post_id;
+      }
+      byType.set(type, stats);
+    }
+    const types = [...byType.entries()].sort(([a], [b]) => a.localeCompare(b));
+    for (const [type, stats] of types) {
+      steps.push(
+        `  ${type}: ${stats.count} (${stats.unread} unread) · id ${[...stats.ids].join(' | ')} · timestamp ${[...stats.times].join(' | ')} · post_id on ${stats.withPostId}/${stats.count}${stats.withPostId ? `, inside the id on ${stats.postIdInId}` : ''}`,
+      );
+      steps.push(`    keys [${[...stats.keys].sort().join(', ')}]`);
+    }
+
+    // Q14 — what a post_id opens: a post, or a comment? One lookup per type.
+    for (const [type, stats] of types) {
+      if (!stats.samplePostId) continue;
+      try {
+        const post = await lookupPost(stats.samplePostId);
+        const isComment = Boolean(post.parent_post_id && post.parent_post_id !== post.id);
+        steps.push(`  ${type} post_id → ${isComment ? 'a comment' : 'a post'}`);
+      } catch (e) {
+        steps.push(
+          `  ${type} post_id → ${e instanceof PostGone ? 'gone (404)' : `error: ${e instanceof Error ? e.message : String(e)}`}`,
+        );
+      }
+    }
+
+    // Q15 — does it page, and how far back does page one reach?
+    const ages = items
+      .map((item) => activityDate(item as unknown as ActivityItem))
+      .filter((iso): iso is string => Boolean(iso))
+      .map((iso) => Math.round((Date.now() - Date.parse(iso)) / 86_400_000));
+    if (ages.length) {
+      steps.push(`page 1 spans ${Math.min(...ages)} to ${Math.max(...ages)} day(s) ago`);
+    }
+    let more: Raw[] = [];
+    let paging = 'one page';
+    const cursor = typeof first?.cursor === 'string' && first.cursor ? first.cursor : null;
+    if (cursor) {
+      const second = await request<Raw>(`/v1/activity?cursor=${encodeURIComponent(cursor)}`);
+      more = rawItems(second);
+      const onFirst = new Set(items.map((item) => item.id));
+      const repeated = more.filter((item) => onFirst.has(item.id)).length;
+      steps.push(
+        `page 2 → ${more.length} item(s), ${repeated} repeated from page 1, cursor ${shape(second?.cursor)}`,
+      );
+      paging = more.length > repeated ? 'pages' : 'a cursor that leads nowhere new';
+    } else {
+      steps.push('no cursor on page 1 — this is the whole feed, or it does not page');
+    }
+
+    // Q17 — is getUpdates().activity_items the same list?
+    const embedded = ((await getUpdates()) as Raw)?.activity_items as Raw | undefined;
+    const embeddedItems = rawItems(embedded);
+    const onPage = new Set(items.map((item) => item.id));
+    steps.push(
+      embedded === undefined
+        ? 'getUpdates().activity_items → absent'
+        : `getUpdates().activity_items → envelope [${Object.keys(embedded ?? {}).sort().join(', ')}], ${embeddedItems.length} item(s), ${embeddedItems.filter((item) => onPage.has(item.id)).length} also on /v1/activity page 1, ${embeddedItems.filter((item) => !item.is_seen).length} unread`,
+    );
+
+    // Q16 — did what the Alerts screen marked read stick? Read back, never re-sent.
+    const log = getSeenLog();
+    const known = new Map([...items, ...more].map((item) => [item.id, item] as const));
+    const readBack = (ids: readonly string[]) => {
+      let read = 0;
+      let unread = 0;
+      let absent = 0;
+      for (const id of ids) {
+        const item = known.get(id);
+        if (!item) absent += 1;
+        else if (item.is_seen) read += 1;
+        else unread += 1;
+      }
+      return { read, unread, absent };
+    };
+    let marking = 'untested';
+    if (log.calls.length === 0) {
+      steps.push(
+        'marking read → nothing sent this page load. Open Alerts, tap an unread alert or use Mark all read, then run this again.',
+      );
+    } else {
+      steps.push(
+        `marking read → ${log.calls.length} request(s): ${log.calls
+          .map(
+            (call) =>
+              `${call.count} id(s) → ${call.outcome}${call.status ? ` ${call.status}` : ''}${call.bodyKeys ? `, body [${call.bodyKeys.join(', ')}]` : ''}`,
+          )
+          .join('; ')}`,
+      );
+      const all = readBack(log.ids);
+      steps.push(
+        `  read back: of ${log.ids.length} id(s) marked, ${all.read} now read, ${all.unread} still unread, ${all.absent} not on the pages fetched`,
+      );
+      const batches = log.calls.filter((call) => call.count > 1 && call.outcome === 'ok');
+      if (batches.length) {
+        const batched = readBack(batches.flatMap((call) => call.ids));
+        steps.push(
+          `  batched requests: ${batches.length}, their ids ${batched.read} read, ${batched.unread} still unread`,
+        );
+      }
+      marking = log.calls.some((call) => call.outcome !== 'ok')
+        ? 'failed'
+        : all.unread > 0
+          ? "doesn't stick"
+          : all.read > 0
+            ? 'sticks'
+            : 'untested (nothing marked is on the pages fetched)';
+    }
+
+    const status: ProbeStatus =
+      marking === 'failed' || marking === "doesn't stick" ? 'fail' : items.length && marking === 'sticks' ? 'pass' : 'partial';
+    return {
+      ...base,
+      status,
+      detail: items.length
+        ? `${items.length} alert(s) on page 1, of ${types.length} type(s): ${types.map(([type, stats]) => `${type} ${stats.count}`).join(', ')}. The feed: ${paging}. Marking read: ${marking}.`
+        : 'No alerts on this account right now, so there is nothing to classify. Run it again once something has happened.',
+      evidence: steps.join('\n'),
+    };
+  } catch (e) {
+    return fail(base, e);
+  }
+}
+
 export async function runAllProbes(): Promise<ProbeResult[]> {
   return [
     await probeAuth(),
     await probeShareCode(),
     await probeMessaging(),
+    await probeActivity(),
     await probeVideoPoster(),
     await probeImageFailures(),
     await probeBioSource(),

@@ -3,6 +3,9 @@ import type { Href } from 'expo-router';
 
 type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
 
+/** Which live count a nav item shows — see `useNavBadges` in nav-badge.tsx. */
+export type NavBadgeKey = 'alerts';
+
 export interface NavItem {
   label: string;
   href: Href;
@@ -10,6 +13,7 @@ export interface NavItem {
   match: string;
   icon: IoniconName;
   activeIcon: IoniconName;
+  badge?: NavBadgeKey;
 }
 
 export const NAV_ITEMS: NavItem[] = [
@@ -27,6 +31,7 @@ export const NAV_ITEMS: NavItem[] = [
     match: '/notifications',
     icon: 'notifications-outline',
     activeIcon: 'notifications',
+    badge: 'alerts',
   },
   {
     label: 'Chats',

@@ -2,10 +2,12 @@ import {
   useInfiniteQuery,
   useQuery,
   useQueryClient,
+  type InfiniteData,
   type QueryClient,
 } from '@tanstack/react-query';
 import { useEffect, useMemo } from 'react';
 
+import { getActivity, type ActivityItem, type ActivityPage } from './activity';
 import {
   api,
   getGroupPosts,
@@ -63,6 +65,7 @@ export const queryKeys = {
   dmThread: (id: string) => ['chats', 'thread', id] as const,
   groupChats: () => ['chats', 'explore'] as const,
   joinedGroupChats: () => ['chats', 'joined'] as const,
+  activity: () => ['activity'] as const,
 };
 
 /** Resolve a URL slug to a group. Layered — see src/api/groups.ts. */
@@ -529,4 +532,58 @@ export function useGroupChats() {
     staleTime: 1000 * 60 * 10,
     queryFn: getGroupChats,
   });
+}
+
+/* ------------------------------------------------------------------------ *
+ * Alerts
+ * ------------------------------------------------------------------------ */
+
+/**
+ * How often alerts are re-read while the app is on screen.
+ *
+ * Slower than the chat list's 60s because this one is app-wide: the badge on
+ * the Alerts tab is always mounted, so the poll runs on every screen, not just
+ * while someone is reading alerts. Never in a background tab.
+ */
+const ACTIVITY_POLL_MS = 120_000;
+
+/**
+ * Your alerts, newest first, paged by the API's cursor.
+ *
+ * One query serves the badge and the screen, so marking something read on the
+ * screen clears it from the badge in the same render.
+ */
+export function useActivity() {
+  return useInfiniteQuery({
+    queryKey: queryKeys.activity(),
+    queryFn: ({ pageParam }) => getActivity(pageParam),
+    initialPageParam: null as string | null,
+    // Stops on an empty page or a cursor that doesn't move, rather than
+    // trusting the API to end the list. Whether it pages at all is PLAN Q15.
+    getNextPageParam: (last, _pages, lastParam) =>
+      last.items.length > 0 && last.cursor && last.cursor !== lastParam ? last.cursor : undefined,
+    staleTime: 30_000,
+    refetchInterval: ACTIVITY_POLL_MS,
+    refetchIntervalInBackground: false,
+  });
+}
+
+/** Every loaded alert, newest first, each once — pages can overlap. */
+export function activityItems(data: InfiniteData<ActivityPage> | undefined): ActivityItem[] {
+  const seen = new Set<string>();
+  const items: ActivityItem[] = [];
+  for (const page of data?.pages ?? []) {
+    for (const item of page.items) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+      items.push(item);
+    }
+  }
+  return items;
+}
+
+/** For the badge. Only what is loaded — the first page, unless Alerts paged further. */
+export function useUnseenActivityCount(): number {
+  const { data } = useActivity();
+  return useMemo(() => activityItems(data).filter((item) => !item.is_seen).length, [data]);
 }

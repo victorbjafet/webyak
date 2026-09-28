@@ -53,7 +53,7 @@ obvious from the code or `git log`.
 
 | File | Holds |
 |---|---|
-| [PLAN.md](PLAN.md) | Roadmap, phase checklists, parity matrix, live blocker list |
+| [PLAN.md](PLAN.md) | **§1 is the current status at a glance — update it whenever an item moves between its groups.** Then the roadmap, phase checklists, parity matrix, live blocker list |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | URL shape, hosting/deploy model, app structure, data flow |
 | [docs/ARCHIVE.md](docs/ARCHIVE.md) | The scrapers: resume logic, update/merge rules, thread linkage, and the staleness gaps a refresh pass has to close |
 | [docs/API.md](docs/API.md) | Sidechat API behaviour, auth flow, ID resolution, endpoint probes, sidechat.js defects |

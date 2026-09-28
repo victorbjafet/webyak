@@ -105,14 +105,15 @@ export default function DiagnosticsScreen() {
       <View
         style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <ThemedText type="small" themeColor="textSecondary">
-          Read-only. Six probes, each on a question that is still open: share-code resolution
-          (Blocker 1), the chat message types, video thumbnails, whatever failed to render this
-          page load, and where your bio lives. Settled questions were retired — their answers
-          are in docs/API.md.
+          Read-only. Seven probes, each on a question that is still open: share-code resolution
+          (Blocker 1), the chat message types, what your alerts carry, video thumbnails, whatever
+          failed to render this page load, and where your bio lives. Settled questions were
+          retired — their answers are in docs/API.md.
         </ThemedText>
         <ThemedText type="caption" themeColor="textTertiary">
-          For the image probes, browse a feed and a profile first — the failure log is per page
-          load. Then run this and paste the report back.
+          Two probes read what happened earlier in this page load. For images, browse a feed and
+          a profile first. For alerts, open Alerts and mark something read — tap an unread one,
+          or Mark all read. Then run this and paste the report back.
         </ThemedText>
         <View style={styles.actions}>
           <Button label={results ? 'Run again' : 'Run probes'} onPress={run} loading={busy} />

@@ -516,3 +516,59 @@ calls the auth flow and the three feeds — all already documented — plus one
 endpoint we have not seen: **`GET /v1/groups/login_type?email=<email>`**, called
 before registering a school email, whose `message` it shows the user. A lead
 from a 2025 client, unverified.
+
+
+## Round 8 — alerts (2026-09-27)
+
+Read before building the Alerts tab, which until now was a placeholder claiming
+the list endpoint had not been found. Two files at `main`:
+`src/components/ActivityItem.jsx` and `src/components/UserContent.jsx`.
+
+### Where their list comes from
+
+**Not `/v1/activity`.** They never call it; sidechat.js has no method for it.
+They read the copy of the same `{items, cursor}` list that `getUpdates()`
+carries as `activity_items`, shown in an Activity segment of the profile screen,
+**filtered to `!is_seen`**: an inbox that empties as you deal with it.
+
+### What an item carries, by their reading
+
+Everything here is from their source, not from our responses. Our probe had
+only seen `{id, timestamp, type, is_seen, text}` on `votes`
+([API.md](API.md#the-activity-feed-alerts)):
+
+- **`post_id`** — tapping any item opens that post's comments, for every type.
+- **`type`**, rendered with its own icon and label: `votes` ("Votes"),
+  `trending_post` ("Popular"), `followed_post` ("Followed post"), anything
+  containing `comment` ("Comment", or "Comment reply" for `comment_reply`),
+  `new_follower` ("New follower"), `suggested_sidechats` ("Suggested post").
+  An unknown type renders **nothing** — their switch has no default branch.
+- **`suggested_sidechats_data.group_ids_to_suggest`** — the first id is fetched
+  with `getGroupMetadata` and shown as a joinable community card.
+- **`conversation_icon`** on `new_follower` — the follower's avatar.
+- **`text`** is shown as sent, except a `📈 ` stripped from `trending_post` and
+  `followed_post`.
+- **`timestamp`** goes to `timesago()`, which takes dates, epoch numbers and
+  strings alike, so its format was never pinned down.
+
+### Marking read
+
+`readActivity(id)` — `POST /v1/activity/seen` with `{ids: [id]}` — on **tap**
+(then navigate) and on **swipe-away** (the card animates out). Never on sight.
+One id per request, though the body is an array.
+
+### Where we deliberately differ
+
+- **We call `/v1/activity` itself.** It pages, and polling it for the tab badge
+  costs a fraction of re-downloading the whole `getUpdates()` payload. Whether
+  it is the same list as `activity_items` is PLAN Q17.
+- **Seen alerts stay listed, dimmed**, with Unread as a filter — the owner's B2.
+  Theirs vanish once read.
+- **Unknown types still render**, as their type name with a bell, since the
+  server's sentence says what happened whatever the type.
+- **Mark all read**, one request for every unread id. It relies on the batching
+  their single-id calls never tested (PLAN Q16).
+- **No swipe-away.** On the web it has no obvious equivalent; tap and Mark all
+  read cover it.
+- **"Suggested community", not "Suggested post"** — the item suggests
+  communities, and opens one.

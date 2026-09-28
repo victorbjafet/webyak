@@ -1,5 +1,11 @@
-import { useMutation, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQueryClient,
+  type InfiniteData,
+  type QueryClient,
+} from '@tanstack/react-query';
 
+import { markActivitySeen, type ActivityPage } from './activity';
 import {
   createComment,
   createPost,
@@ -438,6 +444,52 @@ export function useJoinGroupChat() {
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: queryKeys.groupChats() });
       void client.invalidateQueries({ queryKey: queryKeys.dmThreads() });
+    },
+  });
+}
+
+/* ------------------------------------------------------------------------ *
+ * Alerts
+ * ------------------------------------------------------------------------ */
+
+/**
+ * Marks alerts read: one you tapped, or every unread one at once.
+ *
+ * Optimistic, and deliberately **not** refetched on success. A refetch racing
+ * the write could bring the alert straight back as unread, which reads as the
+ * tap having done nothing. The next poll reconciles. If marking never sticks at
+ * all, that poll is also where it shows — and the Alerts probe reads the result
+ * back directly (PLAN Q16).
+ */
+export function useMarkActivitySeen() {
+  const client = useQueryClient();
+
+  return useMutation({
+    mutationFn: (ids: string[]) => markActivitySeen(ids),
+
+    onMutate: async (ids) => {
+      const key = queryKeys.activity();
+      // A poll landing mid-write would put the unread state back over this one.
+      await client.cancelQueries({ queryKey: key });
+      const previous = client.getQueryData<InfiniteData<ActivityPage>>(key);
+      if (previous) {
+        const marked = new Set(ids);
+        client.setQueryData<InfiniteData<ActivityPage>>(key, {
+          ...previous,
+          pages: previous.pages.map((page) => ({
+            ...page,
+            items: page.items.map((item) =>
+              marked.has(item.id) ? { ...item, is_seen: true } : item,
+            ),
+          })),
+        });
+      }
+      return { previous };
+    },
+
+    onError: (error, ids, context) => {
+      if (context?.previous) client.setQueryData(queryKeys.activity(), context.previous);
+      toastError(error, ids.length > 1 ? "Couldn't mark those as read." : "Couldn't mark that as read.");
     },
   });
 }

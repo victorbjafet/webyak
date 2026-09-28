@@ -3,6 +3,7 @@ import { Link, usePathname } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { NavBadge, useNavBadges } from './nav-badge';
 import { ThemedText } from './themed-text';
 import { isActive, NAV_ITEMS } from './nav-config';
 
@@ -13,6 +14,7 @@ export function BottomBar() {
   const theme = useTheme();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
+  const badges = useNavBadges();
 
   return (
     <View
@@ -27,20 +29,27 @@ export function BottomBar() {
       ]}>
       {NAV_ITEMS.map((item) => {
         const active = isActive(pathname, item.match);
+        const count = item.badge ? badges[item.badge] : 0;
         return (
           // The layout style has to live on <Link>, not on the <Pressable>:
           // expo-router spreads its own `style` after `...rest` when cloning the
           // asChild child, so a style set on the child is overwritten with
           // undefined and every item collapses to its content width.
           <Link key={item.label} href={item.href} asChild style={styles.link}>
-            <Pressable accessibilityRole="link" accessibilityState={{ selected: active }}>
+            <Pressable
+              accessibilityRole="link"
+              accessibilityLabel={count ? `${item.label}, ${count} unread` : item.label}
+              accessibilityState={{ selected: active }}>
               {({ pressed }) => (
                 <View style={[styles.item, pressed && styles.pressed]}>
-                  <Ionicons
-                    name={active ? item.activeIcon : item.icon}
-                    size={22}
-                    color={active ? theme.brand : theme.textTertiary}
-                  />
+                  <View>
+                    <Ionicons
+                      name={active ? item.activeIcon : item.icon}
+                      size={22}
+                      color={active ? theme.brand : theme.textTertiary}
+                    />
+                    <NavBadge count={count} />
+                  </View>
                   <ThemedText
                     type="caption"
                     numberOfLines={1}

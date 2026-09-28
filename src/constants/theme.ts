@@ -41,6 +41,8 @@ export const Colors = {
 
     // semantic
     notification: '#EF514F',
+    /** A count on an unread badge. */
+    onNotification: '#FFFFFF',
     danger: '#EF514F',
     upvote: '#10CEAC',
     downvote: '#EF514F',
@@ -76,6 +78,7 @@ export const Colors = {
     brandMuted: '#0B2F29',
 
     notification: '#EF514F',
+    onNotification: '#FFFFFF',
     danger: '#EF514F',
     upvote: '#10CEAC',
     downvote: '#EF514F',
