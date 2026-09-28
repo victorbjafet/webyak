@@ -38,6 +38,11 @@ jobs:
       - run: npm ci
       # Also writes 404.html, which is what makes deep links load.
       - run: npm run build:web
+        env:
+          # The Worker's address, from the repo's Actions *variables*
+          # (worker/SETUP.md, step 5). Unset means no Worker: image uploads
+          # stay hidden and video stays blocked outside Safari.
+          EXPO_PUBLIC_WORKER_URL: ${{ vars.WORKER_URL }}
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist

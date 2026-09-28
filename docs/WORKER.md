@@ -1,7 +1,16 @@
-# The Cloudflare Worker — deferred, specified
+# The Cloudflare Worker
 
-**Status: not built.** This file exists so that whenever we do build it, no
-re-investigation is needed.
+**Status: built 2026-09-28, not yet deployed.** The code is
+[worker/src/index.js](../worker/src/index.js), one file with no dependencies,
+so it can be pasted into the Cloudflare dashboard. **Deploying it is
+[worker/SETUP.md](../worker/SETUP.md)**, a step-by-step guide for the
+dashboard. Every client hook below is wired to it, so deploying and setting
+the URL is the whole job. `cd worker && npm test` runs every route in Node
+against stubbed upstreams.
+
+This file was the spec before the code existed, and it still says why each
+route exists. [What was built](#what-was-built) records the choices made
+while building it.
 
 > ⚠️ **"Nothing depends on it" stopped being true on 2026-08-27.** Image upload
 > is blocked by CORS on the storage host and **cannot be fixed from a static
@@ -40,7 +49,7 @@ Probing established the authenticated API **cannot** close that gap:
 The public web client resolves share codes unauthenticated, and its only
 obstacles are CORS and an encoding — exactly what a worker is for.
 
-## What it would do
+## What it does
 
 One required route and one optional one, both the same shape: fetch a SvelteKit
 `__data.json`, rehydrate it, re-serve as clean JSON with CORS headers.
@@ -215,50 +224,98 @@ worker is that the client never sees this format.
 ## Contract
 
 ```
-GET /post/:code   → 200 { post: PostOrComment, comments: PostOrComment[] }
-GET /group/:slug  → 200 { group: Group }
-                    404 { error: "not_found" }
-                    502 { error: "upstream", status: <n> }
+POST /upload?content_type=png|jpeg|gif  → 200 { asset_id }
+GET  /asset?url=<api.sidechat.lol URL>  → 200 the bytes
+GET  /media?u=<R2 segment URL>          → 200/206 the bytes
+GET  /post/:code                        → 200 { post, comments }
+GET  /group/:slug                       → 200 { group }
+GET  /                                  → 200 { ok: true, routes }
+
+400 { error: "bad_url" | "bad_code" | "bad_slug" | "bad_content_type" | … }
+401 { error: "no_token" }, or Sidechat's own 401/403/429 passed through
+403 { error: "origin_not_allowed" }
+404 { error: "not_found" }
+413 { error: "too_large", max }
+502 { error: "upstream", status: <n> }
 ```
 
-- CORS: `Access-Control-Allow-Origin` restricted to the Pages origin, not `*`
-- No auth, no secrets, no state, no KV — a fetch, a parse, and a header
-- Cache upstream responses briefly (60s) via the Cache API; these are public and
-  hot-linked
-- Types already match `src/api/types.ts`
+- CORS: only the origins in `ALLOWED_ORIGINS` (a comma-separated Worker
+  variable; the defaults are the live site and `http://localhost:8081`). A
+  browser request from any other origin gets a 403 before any work is done. A
+  request with no `Origin` (curl) is served without CORS headers.
+- No secrets, no state, no KV. `/upload` and `/asset` forward the caller's own
+  bearer and nothing else.
+- The two scrapes and whole `/media` segments are cached with the Cache API,
+  best-effort (it does nothing in the dashboard preview).
 
 ## Wiring it in
 
-The client side is already built and inert:
+**Done 2026-09-28.** Every client path reads `EXPO_PUBLIC_WORKER_URL` through
+`workerEndpoint()` in [src/lib/worker.ts](../src/lib/worker.ts); empty means
+each one keeps its no-Worker behaviour:
 
-- `WORKER_URL` in [src/api/groups.ts](../src/api/groups.ts) reads
-  `EXPO_PUBLIC_WORKER_URL`. Empty means every worker layer no-ops.
-- `lookupGroupViaWorker()` is already **layer 5** of `resolveGroupBySlug`.
+| Route | Client | Without the Worker |
+|---|---|---|
+| `/upload` | `uploadAssetWeb` in [client.ts](../src/api/client.ts) posts the bytes there | the *Photo* button is hidden (`imageUploadEnabled`) |
+| `/asset` | `AuthedImage` (web) retries through it when the direct fetch throws, which is the redirect case | the image shows its fallback |
+| `/media` | `post-video.web.tsx` rewrites R2 segment URLs through it | video is labelled blocked outside Safari |
+| `/post/:code` | the third layer of `usePostIdByCode`, after the live cache and the archive. It takes only the id; the post and thread then come from the API by id | the "can't open this share code" state |
+| `/group/:slug` | layer 5 of `resolveGroupBySlug` | layer 4 (live search) already resolves slugs |
 
-So enabling it is: deploy the worker, set `EXPO_PUBLIC_WORKER_URL`, and add the
-matching `/post/:code` call in the post detail screen. No refactor. Image upload
-and video playback light up on their own.
+Checked end to end on 2026-09-28 against a scratch build with the variable set,
+the Worker running locally in Node with stubbed upstreams, and the app's own
+API answered by the stand-in tab: a share code resolved and opened, and an
+image post went out carrying the asset id the Worker returned, the Worker
+having sent the token to Sidechat and not to storage.
 
-**For the live site, set it in the deploy workflow, not `.env`.**
-[deploy.yml](../.github/workflows/deploy.yml) builds on a clean runner that never
-sees your `.env`, so give its `npm run build:web` step an
-`env: { EXPO_PUBLIC_WORKER_URL: https://… }`. It is a public URL that ends up in
-the bundle either way, so it needs no secret
-([ARCHITECTURE.md](ARCHITECTURE.md#deploying-to-github-pages)).
+**For the live site, the URL is a repository variable, not `.env`.**
+[deploy.yml](../.github/workflows/deploy.yml) builds on a clean runner that
+never sees your `.env`; its build step passes `vars.WORKER_URL` as
+`EXPO_PUBLIC_WORKER_URL`. Set it under the repo's *Settings → Secrets and
+variables → Actions → Variables* ([SETUP.md](../worker/SETUP.md), step 5). It is
+a public URL that ends up in the bundle either way, so it needs no secret.
+
+## What was built
+
+Decisions made while writing it, beyond the spec above:
+
+- **One plain-JavaScript file, no dependencies.** The dashboard's editor can't
+  install packages, and the owner asked for a dashboard setup. So `devalue`
+  isn't imported; its `unflatten` is inlined, about forty lines, handling the
+  sentinels (`undefined`, `NaN`, ±`Infinity`, `-0`), shared references and the
+  typed forms (`Date`, `Set`, `Map`, `RegExp`, `BigInt`, null-prototype objects).
+- **`/asset` follows redirects by hand.** The bearer goes to
+  `api.sidechat.lol` only. The redirect target, signed R2 storage, is fetched
+  with no `Authorization`, because S3-style storage rejects a request that
+  carries both a signature and that header.
+- **`/upload` checks before it spends.** Content type and token first, then
+  `Content-Length`, then the real body size, and only then a request to
+  Sidechat. Sidechat's 401, 403 and 429 pass through as themselves, so the
+  client's session handling sees a real 401.
+- **`/media` forwards `Range`** for byte-range playlists, and caches only
+  whole segments.
+- **Workers Logs off.** New Workers log each request by default, which would
+  record `/asset` and `/media` URLs. [wrangler.jsonc](../worker/wrangler.jsonc)
+  disables it, and SETUP.md step 3 does the same in the dashboard.
+- **`/post/:code` is still unverified against a real public-community code.**
+  The warning under [`GET /post/:code`](#get-postcode) stands.
 
 **Rebuild with `--clear` after setting it.** `EXPO_PUBLIC_*` variables are
 inlined when a file is transformed, and `expo export` reuses its transform cache:
 a rebuild after only changing the variable shipped a bundle without it
 (measured 2026-09-27). `npx expo export --platform web --clear`.
 
-## What we lose by deferring
+## Until it's deployed
 
-Only cold-loaded share links:
+Only these are missing, and each says so in the app rather than failing
+silently:
 
-- `/p/<code>` works whenever the post was reached from a feed, because the UUID
-  is already in cache. A **pasted link** fails until the worker exists.
-- `/g/<slug>` is unaffected — it resolves natively through the search layer,
-  including for groups outside explore.
+- Image attachments: the composer has no *Photo* button.
+- Video outside Safari: labelled as blocked.
+- Images that need the bearer and redirect (some video thumbnails): their
+  fallback shows.
+- A pasted yikyak.com `/p/<code>` opens only if the post is already cached or
+  archived. Links shared from webyak carry the id and always open.
 
-That is a "shared post links don't work yet" gap, not an "the app doesn't work"
-gap, and it does not block Phase 3 from being built or used.
+`/g/<slug>` is unaffected: it resolves natively through the search layer,
+including for groups outside explore.

@@ -63,13 +63,12 @@ back.
 `npm run build:web` on Node 22 and publishes `dist/` with GitHub's own Pages
 actions. It can also be started by hand from the Actions tab.
 
-No secrets are involved. The workflow has no `.env`, so `EXPO_PUBLIC_WORKER_URL`
-is unset in production, and everything that needs the Worker stays in its
-not-set-up state (image attachments hidden, videos labelled blocked outside
-Safari) until it exists ([WORKER.md](WORKER.md)). That is deliberate for now.
-When the Worker lands, its URL goes into the workflow as a plain `env:` value on
-the build step. It is a public URL, not a secret, and `EXPO_PUBLIC_*` values are
-inlined into the bundle anyway.
+No secrets are involved. The workflow has no `.env`; its build step reads the
+Worker's address from the repository **variable** `WORKER_URL` and passes it
+as `EXPO_PUBLIC_WORKER_URL`. Until that variable is set, everything that needs
+the Worker stays in its not-set-up state (image attachments hidden, videos
+labelled blocked outside Safari) ([WORKER.md](WORKER.md)). It is a public URL,
+not a secret, and `EXPO_PUBLIC_*` values are inlined into the bundle anyway.
 
 **Why Actions, not the `gh-pages` branch** that Expo's own guide uses: nothing
 built is committed, every deploy is a clean build of exactly what was pushed, and
@@ -157,7 +156,12 @@ Currently: nowhere. Tracked so we notice the moment it changes.
 | Push notifications | ❌ | Needs a server to hold subscriptions. Out of scope; polling only |
 | Hiding a secret | ❌ | We have none. If that ever changes, it needs a worker |
 
-### The Worker question — deferred
+### The Worker question — deferred, then built
+
+**Built 2026-09-28** in [worker/](../worker/): one dependency-free file with
+five routes, deployed from the Cloudflare dashboard
+([worker/SETUP.md](../worker/SETUP.md)). What follows is why it was deferred
+at first.
 
 Everything except one thing is static-only. That one thing is resolving a
 **share code** on a cold load: the authenticated API has no endpoint for it at

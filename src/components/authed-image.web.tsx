@@ -3,6 +3,25 @@ import { useEffect, useState } from 'react';
 
 import { api } from '@/api/client';
 import { assetNeedsAuth } from '@/lib/asset-url';
+import { workerEndpoint } from '@/lib/worker';
+
+/**
+ * Fetches an image that needs the bearer. Directly first. Some of these URLs
+ * answer with a redirect to signed storage, and a request carrying a header
+ * can't follow a cross-origin redirect, so that fetch throws. Then, if the
+ * Worker is set up, its `/asset` relay makes the same request server-side
+ * (docs/WORKER.md#get-asset).
+ */
+async function fetchAuthed(uri: string): Promise<Response> {
+  const headers = { Authorization: `Bearer ${api.userToken}` };
+  try {
+    return await fetch(uri, { headers });
+  } catch (error) {
+    const relay = workerEndpoint(`/asset?url=${encodeURIComponent(uri)}`);
+    if (!relay) throw error;
+    return fetch(relay, { headers });
+  }
+}
 
 /**
  * An image whose URL may require the bearer token.
@@ -41,7 +60,7 @@ export function AuthedImage({
 
     void (async () => {
       try {
-        const res = await fetch(uri, { headers: { Authorization: `Bearer ${api.userToken}` } });
+        const res = await fetchAuthed(uri);
         if (cancelled) return;
         if (!res.ok) {
           setFailed(uri);

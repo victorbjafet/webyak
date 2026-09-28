@@ -42,11 +42,11 @@ and let a friend sign in on your computer.
 
 | Waiting on | Items |
 |---|---|
-| **The Worker** (deferred by decision) | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. The client side of all four is built ([WORKER.md](docs/WORKER.md)) |
+| **Deploying the Worker** | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. **The Worker is built (2026-09-28)** in [worker/](worker/), every client path is wired to it, and both were tested end to end against stubs ([WORKER.md](docs/WORKER.md)). Deploying it is the owner's: [worker/SETUP.md](worker/SETUP.md), about ten minutes in the Cloudflare dashboard |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
 | **A probe run** | Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
 | **Nothing: buildable now** | The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Archive media back-fill. Phase 7 extras. Phase 9 polish |
-| **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
+| **The owner** | Deploy the Worker ([worker/SETUP.md](worker/SETUP.md)) and set the `WORKER_URL` repository variable. Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
 **Next:** the buildable Alerts follow-ups above, now that Q14 says what their
 ids name. **Playwright MCP works** (2026-09-28): the owner is signed in to
@@ -56,8 +56,9 @@ browser holds the real account. The rules for driving it are in
 [AGENTS.md](AGENTS.md#the-playwright-browser-is-signed-in-to-the-owners-real-account),
 and what writes to it is listed in
 [docs/API.md](docs/API.md#probes-what-is-still-asked-and-what-was-retired).
-Then the Worker, which image attachments, video outside Safari and video
-thumbnails all wait on ([WORKER.md](docs/WORKER.md)).
+The Worker, which image attachments, video outside Safari and video
+thumbnails wait on, was built on 2026-09-28 and waits only on being deployed
+([worker/SETUP.md](worker/SETUP.md)).
 
 **How it's built:** Expo SDK 57 and expo-router, `web.output: "single"` (one
 SPA page), React 19.2 with the React Compiler, react-native-web 0.21, TanStack
@@ -288,7 +289,7 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
       confirmed dead (`NOT_FOUND_ERROR`); search crashed on a library defect
 - [x] Search wrapper defect found and bypassed (`coerceGroupList`)
 - [x] Worker **deferred by decision**, fully specified in [docs/WORKER.md](docs/WORKER.md);
-      client hooks in place and inert
+      client hooks in place and inert. **Built 2026-09-28** in [worker/](worker/)
 - [x] Round-3 probes run — **Blocker 2 closed**. Search envelope is `{groups}`,
       not `results`; layer 4 resolves groups outside explore
 - [x] Unicode slugs handled (`wsu-wordle-🧩` is a real `index_name`)
@@ -307,7 +308,8 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 
 - [x] Slug → `group_id` resolver working end to end (`src/api/groups.ts`)
 - [ ] ⛔ `/p/<code>` from a **pasted link** needs [the Worker](docs/WORKER.md),
-      which is deferred. In-app navigation carries the UUID, so build the post
+      **built 2026-09-28 and wired as the third layer of `usePostIdByCode`;
+      waiting to be deployed**. Unverified for school communities. In-app navigation carries the UUID, so build the post
       screen against that and the gap closes later. `/g/<slug>` is unaffected.
 - [x] Group feed with hot/new/top tabs, cursor infinite scroll
 - [x] Post card: text, vote count, comment count, identity chip, relative time
@@ -395,7 +397,9 @@ Full checklist and pre-scan findings:
       cannot be fixed from a static origin
       ([docs/API.md](docs/API.md#-image-upload-is-blocked-by-cors)). ⛔ **Needs
       the Worker's `POST /upload` relay** ([docs/WORKER.md](docs/WORKER.md#post-upload))
-      — the first hard dependency on it
+      — the first hard dependency on it. **Relay built and wired 2026-09-28**;
+      an image post went through it end to end against stubs. Waiting to be
+      deployed
 - [x] **Attach control disabled 2026-08-27** until that relay exists. Gated on
       `EXPO_PUBLIC_WORKER_URL` in [src/lib/worker.ts](src/lib/worker.ts), not on
       a hand-flipped flag — deploying the worker turns it back on by itself,
@@ -486,7 +490,8 @@ Full checklist and pre-scan findings:
         exists, every browser but Apple's labels a video *Blocked until the
         worker is set up* and requests nothing; the download plays in VLC. The
         client side of the relay is built and tested
-        ([docs/API.md](docs/API.md#-video-playback-needs-the-worker))
+        ([docs/API.md](docs/API.md#-video-playback-needs-the-worker)). **The
+        Worker's `/media` is built (2026-09-28)**; plays once it's deployed
   - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
         URL, so feed avatars would need a profile lookup per author
 - [x] Explore page: group grid, member counts, icons. Two columns above 720px,
@@ -846,8 +851,9 @@ Resolved ones are kept with their answer so they don't get re-asked.
   ways. Note `index_name` isn't always derivable from the display name
   (`Who Would Win?` → `who-would-win-meun`), which is fine since we only go
   slug → group.
-- **Q7 — the Cloudflare Worker.** ✅ Decided: yes eventually, **deferred for now**.
-  Two routes, no state, fully specified in [docs/WORKER.md](docs/WORKER.md).
+- **Q7 — the Cloudflare Worker.** ✅ Decided: yes eventually, deferred at first.
+  **Built 2026-09-28**: five routes, no state, no secrets, one file in
+  [worker/](worker/). Deploying it is [worker/SETUP.md](worker/SETUP.md).
 - **Q8 — does group search work?** ✅ Resolved: yes. The envelope is `{groups}`;
   sidechat.js reads `results`, which is why it appeared broken. This closed
   Blocker 2.

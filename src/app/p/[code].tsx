@@ -17,6 +17,7 @@ import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { formatCount } from '@/lib/time';
 import { showToast } from '@/lib/toast';
+import { WORKER_URL } from '@/lib/worker';
 
 export default function PostDetailScreen() {
   const { code, comment: focusId } = useLocalSearchParams<{ code: string; comment?: string }>();
@@ -161,7 +162,11 @@ export default function PostDetailScreen() {
           <EmptyState
             icon="link-outline"
             title="Can't open this share code"
-            body="This looks like a Yik Yak share code, and their API has no way to look a post up by one — so it only opens if the post is already loaded somewhere in the app. Links shared from webyak carry the post id instead and open anywhere."
+            body={
+              WORKER_URL
+                ? "This looks like a Yik Yak share code. Their API can't look a post up by one, and webyak's worker couldn't find it on the public Yik Yak site either, which may only serve posts from public communities. Links shared from webyak carry the post id instead and open anywhere."
+                : "This looks like a Yik Yak share code, and their API has no way to look a post up by one — so it only opens if the post is already loaded somewhere in the app. Links shared from webyak carry the post id instead and open anywhere."
+            }
           />
         )}
       </Screen>

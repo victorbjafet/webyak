@@ -1,0 +1,18 @@
+// For deploying with Wrangler instead of the dashboard (worker/SETUP.md, "The
+// command-line way"). The dashboard route doesn't read this file.
+{
+  // Must match the name the Worker was created with in the dashboard, or a
+  // `wrangler deploy` creates a second Worker instead of updating the first.
+  "name": "webyak-worker",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-28",
+
+  // Off on purpose. Request logs would record /asset and /media URLs, which
+  // carry signatures and user ids (docs/WORKER.md: "never log the URL").
+  "observability": { "enabled": false },
+
+  // ALLOWED_ORIGINS is set in the dashboard (or left to the defaults in
+  // src/index.js). Keep it there: without this, a deploy from here would wipe
+  // dashboard variables.
+  "keep_vars": true,
+}

@@ -1,0 +1,11 @@
+{
+  "name": "webyak-worker",
+  "private": true,
+  "type": "module",
+  "description": "webyak's Cloudflare Worker: the few requests a browser can't make. See SETUP.md.",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "dev": "npx wrangler@latest dev",
+    "deploy": "npx wrangler@latest deploy"
+  }
+}

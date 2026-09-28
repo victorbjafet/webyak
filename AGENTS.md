@@ -39,6 +39,12 @@ on the browser context as `__harness`: `data` holds the fixtures (and an
 without it happening. Switch tabs with `browser_tabs` and check which one is
 current before every click: the other tab is the real account.
 
+The Worker in [worker/](worker/) has its own tests: `cd worker && npm test`
+runs every route in Node against stubbed upstreams. To exercise it from the
+app, build a scratch copy with `EXPO_PUBLIC_WORKER_URL` pointing at a local
+copy of the Worker; never point a signed-in tab at a Worker that reaches
+Sidechat unless the owner has asked for it.
+
 Some bugs only show in a built bundle, where the React Compiler has compiled
 away code that ran fine in dev. For those, build a scratch copy of the repo
 (`npx expo export --platform web`) with `fetch` patched the same way.

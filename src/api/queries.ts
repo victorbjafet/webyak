@@ -19,6 +19,7 @@ import {
   getUpvotedPosts,
   getUserContent,
   getUserProfile,
+  lookupPostIdViaWorker,
 } from './client';
 import { mergeFeedPages, sanitizePosts } from './feed';
 import { fetchExploreGroups, resolveGroupBySlug, searchGroups, type GroupRef } from './groups';
@@ -32,6 +33,7 @@ import {
   markPostsDeleted,
 } from '@/lib/archive/store';
 import { hasSeenPost, useSeenVersion } from '@/lib/seen-posts';
+import { WORKER_URL } from '@/lib/worker';
 import type {
   Cursor,
   FeedCategory,
@@ -335,11 +337,27 @@ export function usePostIdByCode(code: string | undefined) {
     queryFn: async () => (await findArchivedByCode(code as string)) ?? null,
   });
 
+  // Third, and only for a real share code neither knows: the Worker's
+  // `/post/:code`, when one is configured. Idle otherwise.
+  const viaWorker = useQuery({
+    queryKey: ['worker', 'post', code ?? ''],
+    enabled:
+      Boolean(WORKER_URL) &&
+      Boolean(code) &&
+      !live &&
+      !isPostId(code) &&
+      archived.isSuccess &&
+      !archived.data,
+    staleTime: Infinity,
+    retry: false,
+    queryFn: () => lookupPostIdViaWorker(code as string),
+  });
+
   return {
-    postId: live?.id ?? archived.data?.id,
+    postId: live?.id ?? archived.data?.id ?? viaWorker.data ?? undefined,
     /** The live object, when we have one — saves a fetch on the detail screen. */
     post: live,
-    isLoading: !live && archived.isLoading,
+    isLoading: !live && (archived.isLoading || viaWorker.isLoading),
   };
 }
 

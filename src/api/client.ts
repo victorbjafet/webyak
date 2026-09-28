@@ -1,5 +1,7 @@
 import { SidechatAPIClient } from 'sidechat.js';
 
+import { workerEndpoint } from '@/lib/worker';
+
 import type {
   AuthToken,
   Cursor,
@@ -230,6 +232,23 @@ export async function uploadAssetWeb(file: Blob, mimeType: string) {
   if (!['png', 'jpeg', 'gif'].includes(imageType)) {
     throw new ApiError(`Unsupported image format: ${mimeType}`);
   }
+
+  // The Worker does both steps server-side, where the storage host's CORS
+  // doesn't apply: it asks for the upload URL with this token, then PUTs the
+  // bytes (docs/WORKER.md#post-upload). Without it, the direct path below is
+  // kept so the failure says what is missing.
+  const relay = workerEndpoint(`/upload?content_type=${imageType}`);
+  if (relay) {
+    const res = await fetch(relay, {
+      method: 'POST',
+      body: file,
+      headers: { Authorization: `Bearer ${api.userToken}`, 'Content-Type': mimeType },
+    });
+    const { asset_id: relayed } = await unwrap<{ asset_id?: string }>(res, 'POST /upload');
+    if (!relayed) throw new ApiError('The upload relay answered without an asset id.');
+    return { assetId: relayed, url: `${api.apiRoot}/v1/assets/library/${relayed}` };
+  }
+
   const { upload_url, asset_id } = await request<{ upload_url: string; asset_id: string }>(
     `/v1/assets/upload_url?content_type=${imageType}`,
   );
@@ -254,6 +273,22 @@ export async function uploadAssetWeb(file: Blob, mimeType: string) {
     throw new ApiError(`Asset upload failed with ${put.status}`, put.status);
   }
   return { assetId: asset_id, url: `${api.apiRoot}/v1/assets/library/${asset_id}` };
+}
+
+/**
+ * A yikyak.com share code → a post id, through the Worker's `/post/:code`,
+ * which reads the public web client's data (docs/WORKER.md#get-postcode). The
+ * API can't do this (docs/API.md#blocker-1). Only the id is taken: the post
+ * and its thread are then fetched from the API by id, the authoritative copy.
+ * Null when the Worker isn't set up or doesn't find it.
+ */
+export async function lookupPostIdViaWorker(code: string): Promise<string | null> {
+  const endpoint = workerEndpoint(`/post/${encodeURIComponent(code)}`);
+  if (!endpoint) return null;
+  const res = await fetch(endpoint);
+  if (!res.ok) return null;
+  const json = (await res.json()) as { post?: { id?: unknown } };
+  return typeof json.post?.id === 'string' ? json.post.id : null;
 }
 
 /* ------------------------------------------------------------------------ *
