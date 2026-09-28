@@ -29,36 +29,48 @@ posts, comments, polls, quote-reposts, deleting your own); communities and
 Explore; profiles and the You tab; messaging; and the local archive, with
 search, backfill and refresh. **Alerts**, built and checked against a live
 account on 2026-09-27. **Chats are marked read when opened**, on the server
-too, so the official app agrees (2026-09-28). An alert about a comment opens
-the thread at that comment, a takedown shows the server's removal notice
-(B3), Alerts opens with how your karma moved since the last visit (B4), and a
-new `votes` alert raises that post's score everywhere it's cached (B1).
-Your posts and comments sort by top on the You tab (B7), and it charts your
-karma over time, sampled on this device (B5) (2026-09-28). **An account switcher and
-encrypted login files** move a login between webyaks without the texted code,
-and let a friend sign in on your computer.
+too, so the official app agrees. **An account switcher and encrypted login
+files** move a login between webyaks without the texted code.
+
+**Added 2026-09-28**, in one agent run:
+- **Alerts:** an alert about a comment opens the thread at that comment; a
+  takedown shows the server's removal notice and opens the removed post (B3);
+  Alerts opens with how your karma moved since the last visit (B4); a new
+  `votes` alert raises that post's score everywhere it's cached (B1).
+- **You tab:** sort your posts and comments by top (B7); this season's and
+  quarter's karma, and a chart of karma sampled on this device (B5); your
+  comments open in their thread; export your posts and comments as JSON.
+- **Composer:** drafts survive leaving; images from Sidechat's stock library
+  attach with no upload.
+- **Everywhere:** hide a person's posts (and unhide everyone, in Settings); a
+  theme switch (Settings → Appearance); keyboard shortcuts with a `?` overlay;
+  yikyak.com paths redirect; installable, with an offline shell; a 429 pauses
+  every request, and failures get plain words; reduced motion respected; the
+  For You *Unread* filter re-filters on return.
+- **The Cloudflare Worker**, built in [worker/](worker/) with a dashboard
+  setup guide, and every client path wired to it.
 
 **What's left, by what it's waiting on:**
 
 | Waiting on | Items |
 |---|---|
-| **Deploying the Worker** | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. **The Worker is built (2026-09-28)** in [worker/](worker/), every client path is wired to it, and both were tested end to end against stubs ([WORKER.md](docs/WORKER.md)). Deploying it is the owner's: [worker/SETUP.md](worker/SETUP.md), about ten minutes in the Cloudflare dashboard |
-| **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
-| **A probe run** | Hiding a user's posts, once, to see what the server does with it (a write). One post with a *Library* image, to confirm the API takes a library id (a write). Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
-| **Nothing: buildable now** | Phase 7 extras. Phase 9 polish |
-| **The owner** | Deploy the Worker ([worker/SETUP.md](worker/SETUP.md)) and set the `WORKER_URL` repository variable. Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
+| **Deploying the Worker** | Image uploads, video outside Safari, video thumbnails, pasted yikyak.com share links. **Built and wired** ([WORKER.md](docs/WORKER.md)), tested end to end against stubs. Deploying it is [worker/SETUP.md](worker/SETUP.md), about ten minutes in the Cloudflare dashboard, then the `WORKER_URL` repository variable |
+| **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard, acknowledging a removal. Needs a capture of the official app's traffic (Phase 8) |
+| **A write, with the owner's OK** | Hiding someone's posts, once, to see what the server does with it. One post with a *Library* image, to confirm the API takes a library id. The length probes (Q11). An agent can run each through Playwright |
+| **An owner decision** | What the desktop multi-column layout should show, and whether a multi-feed timeline adds anything over For You (Phase 7). A darker brand text color for light mode, which is ~2:1 on white (Phase 9). How much archive media to back-fill, once the Worker is up. Whether deep archive history should refresh on a schedule |
+| **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested) |
+| **Nothing: buildable now** | Tablet-width QA, the rest of the accessibility pass (labels audit), iOS/Android smoke test (Phase 9) |
 
-**Next:** the buildable Alerts follow-ups above, now that Q14 says what their
-ids name. **Playwright MCP works** (2026-09-28): the owner is signed in to
-webyak in its browser, on the dev server at `localhost:8081`, and an agent
-drives the app and runs probes itself, reading the reports off the page. That
-browser holds the real account. The rules for driving it are in
+**Next:** deploy the Worker, and answer the decisions above. **Playwright MCP
+works** (2026-09-28): the owner is signed in to webyak in its browser, on the
+dev server at `localhost:8081`, and an agent drives the app and runs read-only
+probes itself. That browser holds the real account; the rules for driving it
+are in
 [AGENTS.md](AGENTS.md#the-playwright-browser-is-signed-in-to-the-owners-real-account),
 and what writes to it is listed in
-[docs/API.md](docs/API.md#probes-what-is-still-asked-and-what-was-retired).
-The Worker, which image attachments, video outside Safari and video
-thumbnails wait on, was built on 2026-09-28 and waits only on being deployed
-([worker/SETUP.md](worker/SETUP.md)).
+[docs/API.md](docs/API.md#probes-what-is-still-asked-and-what-was-retired). UI
+changes are tested in a stand-in tab first
+([scripts/playwright/stand-in-tab.js](scripts/playwright/stand-in-tab.js)).
 
 **How it's built:** Expo SDK 57 and expo-router, `web.output: "single"` (one
 SPA page), React 19.2 with the React Compiler, react-native-web 0.21, TanStack
@@ -742,8 +754,14 @@ and comment it sees** — effectively a Yik Yak downloader
 ### Phase 7 — the extras from §5
 - [x] Keyboard shortcuts + shortcut help overlay (2026-09-28, web;
       [DESIGN.md](docs/DESIGN.md#keyboard-shortcuts-web))
-- [ ] Multi-feed merged timeline
-- [ ] Desktop multi-column layout
+- [ ] ⛔ Multi-feed merged timeline — **waits on the owner (2026-09-28).** For
+      You is already the API's own merged feed of every joined community;
+      what a multi-feed would add (a chosen subset? side-by-side columns?) is
+      the owner's call
+- [ ] ⛔ Desktop multi-column layout — **waits on the owner (2026-09-28).** At
+      2560px the single column works but sits in a lot of empty space. What
+      the extra columns hold (a right rail of alerts and karma, or
+      TweetDeck-style feeds side by side) is a design decision
 - [x] Light/system theme toggle — *Settings → Appearance*, 2026-09-28. Brand
       text on light surfaces is ~2:1 and waits on a palette decision
       ([DESIGN.md](docs/DESIGN.md#palette))
@@ -869,7 +887,9 @@ Resolved ones are kept with their answer so they don't get re-asked.
   mirror Yik Yak's URLs. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#url-shape).
 - **Q2 — asset URLs.** ✅ Resolved: pre-signed R2, `<img src>` works, no shim and
   no proxy. Caveat: asset-*library* URLs are not pre-signed.
-- **Q3 — rate limits.** Unknown. Add backoff before hammering feeds.
+- **Q3 — rate limits.** The limits themselves are still unknown. **Mitigated
+  2026-09-28:** a 429 now pauses every request for its `Retry-After`, or a
+  minute ([ARCHITECTURE.md](docs/ARCHITECTURE.md#a-429-pauses-everything)).
 - **Q4 — `App-Version: 6.0.0`.** Does the API accept it indefinitely, or force
   upgrades? Unknown.
 - **Q5 — logged-out mode.** ✅ Resolved: no. webyak is auth-only, matching the
