@@ -6,6 +6,7 @@ import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useCurrentGroup } from '@/api/current-group';
 import { groupDisplayName, isForYouFeed } from '@/api/groups';
 import type { Group } from '@/api/types';
+import { AccountsCard } from '@/components/accounts/accounts-card';
 import { ExternalLink } from '@/components/external-link';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
@@ -441,6 +442,8 @@ export default function SettingsScreen() {
   return (
     <Screen title="Settings" titleAccessory={<VersionAndSource />} back scroll={false}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <AccountsCard />
+
         {/* ---------------------------------------------------------------- */}
         <Card>
           <ThemedText type="bodyBold">Archive</ThemedText>

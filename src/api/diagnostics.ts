@@ -8,16 +8,16 @@
  * is answered and the answer is in `docs/API.md`, re-running it only produces
  * output nobody reads — and a long report makes the two results that matter
  * easy to miss. Twelve settled probes were retired on 2026-09-11 for that
- * reason, `probeIncludeDeleted` on 2026-09-27 after one run, and `probeMessaging`
- * the same day once both of its questions were answered; their answers live in
- * the docs, not here.
+ * reason, and seven more on 2026-09-27; their answers live in the docs
+ * (docs/API.md#probes-what-is-still-asked-and-what-was-retired), not here.
  *
  * ## Two rules, both learned the hard way
  *
- * 1. **Every sweep needs a control.** This API has catch-all routes that answer
- *    `200` with an empty body, so a status code alone proves nothing. Four
- *    "discovered" chat endpoints turned out to be a catch-all only after a
- *    nonsense path was sent alongside them.
+ * 1. **Every sweep needs a control.** This API has catch-all routes: a `GET`
+ *    under `/v1/chats/` answers `200` with an empty body whatever the path, and
+ *    a `POST` there answers `404`. A status code alone proves nothing until a
+ *    nonsense path has been sent alongside. That is how `POST /v1/chats/read`
+ *    showed up as real: a `500` where the control got a `404`.
  * 2. **Some parameters are validated and some are ignored.** `type` rejects an
  *    unknown value with a `400`; `period` silently falls back. A probe designed
  *    for the wrong one of those reads as a pass either way.
@@ -27,24 +27,16 @@
  * | Probe | Open question |
  * |---|---|
  * | `probeAuth` | control — is the token live at all? |
- * | `probeShareCode` | Blocker 1: can an `index_code` be resolved without the worker? |
- * | `probeVideoPoster` | are video thumbnails reachable, or worker-only? |
- * | `probeImageFailures` | what actually failed to render this page load |
- * | `probeImageUpload` | is there an upload route on the CORS-open host? |
- * | `probeBioSource` | is your bio on `getUpdates().user`, or only on your public profile? (PLAN Q10) |
  * | `probeActivity` | alert types with no label yet, what `takedown_data` holds, whose post each type opens (PLAN Q14) |
  * | `probePostLength`, `probeBioLength` | what length does the server enforce? (PLAN Q11) |
- * | `probeChatRead` | which request marks a chat read on the server? (PLAN Q19) |
+ * | `probeChatRead` | what body does `POST /v1/chats/read` want? (PLAN Q19) |
  *
- * `probeImageUpload` is not read-only — it requests an upload URL — the two
- * length probes **write**: they post and edit your bio, undoing both — and
- * `probeChatRead` marks one chat read. Each set has its own button behind a
- * confirm. The earlier write round-trip probes were
- * retired once writes were verified against the live app.
+ * The length probes **write** — they post and edit your bio, undoing both — and
+ * `probeChatRead` can mark one chat read. Each has its own button behind a
+ * confirm.
  */
 
 import { ACTIVITY_TYPES } from './activity';
-import { fetchUserGroups } from './groups';
 import {
   ApiError,
   api,
@@ -57,8 +49,6 @@ import {
   request,
   updateProfile,
 } from './client';
-import { summarizeImageFailures } from '@/lib/image-debug';
-import type { Asset, PostOrComment } from './types';
 
 /** A large public community, used wherever a probe needs a busy feed. */
 export const SAMPLE_GROUP_ID = '602fb305-4ec2-4d01-83be-4d80c6636a56';
@@ -105,400 +95,12 @@ async function probeAuth(): Promise<ProbeResult> {
   }
 }
 
-/* ------------------------------------------------------------------------ *
- * Phase 4 — writes
- * ------------------------------------------------------------------------ */
-
-/**
- * Why does attaching an image fail with "Failed to fetch"?
- *
- * `GET /v1/assets/upload_url` succeeds (201) and hands back a pre-signed URL;
- * the `PUT` to that URL is what dies. In a browser, "Failed to fetch" on a
- * cross-origin PUT means the request never left — it was blocked before the
- * server saw it — and a PUT **always** triggers a CORS preflight, so the
- * storage bucket has to answer an `OPTIONS` from our origin for this to work
- * at all. Native clients like offsides never hit this; CORS does not exist
- * there, which is why sidechat.js's own upload path was never written for it.
- *
- * This reports the host we are actually being pointed at, the exact failure,
- * and whether any upload route exists on `api.sidechat.lol` instead — that
- * host sends `access-control-allow-origin: *`, so an endpoint there would
- * sidestep the problem completely and save building a proxy.
- *
- * Signature and credential params are reported by **name only**. The URL is a
- * bearer credential in its own right (docs/OPEN-SOURCE.md).
- */
-async function probeImageUpload(): Promise<ProbeResult> {
-  const base = {
-    id: 'upload',
-    label: 'Phase 4 — image upload CORS',
-    question: 'Where does upload_url point, and can a browser PUT to it?',
-  };
-  const steps: string[] = [];
-
-  try {
-    const { upload_url, asset_id } = await request<{ upload_url: string; asset_id: string }>(
-      '/v1/assets/upload_url?content_type=png',
-    );
-    if (!upload_url) {
-      return { ...base, status: 'fail', detail: 'No upload_url came back.', evidence: steps.join('\n') };
-    }
-
-    const parsed = new URL(upload_url);
-    steps.push(`upload_url host → ${parsed.host}`);
-    steps.push(`  scheme ${parsed.protocol.replace(':', '')}, path depth ${parsed.pathname.split('/').filter(Boolean).length}`);
-    steps.push(`  query params (names only) → ${[...parsed.searchParams.keys()].join(', ') || '(none)'}`);
-    steps.push(`  asset_id returned → ${asset_id ? 'yes' : 'no'}`);
-    steps.push(`  same origin as the API? → ${parsed.host === new URL(api.apiRoot).host ? 'YES' : 'no'}`);
-
-    // 1x1 PNG, small enough that a successful upload costs nothing.
-    const png = await (
-      await fetch(
-        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-      )
-    ).blob();
-
-    try {
-      const put = await fetch(upload_url, {
-        method: 'PUT',
-        body: png,
-        headers: { 'Content-Type': 'image/png' },
-      });
-      steps.push(`PUT with Content-Type → HTTP ${put.status} ${put.ok ? '(WORKS)' : '(rejected by the server, not by CORS)'}`);
-    } catch (e) {
-      steps.push(
-        `PUT with Content-Type → BLOCKED: ${e instanceof Error ? e.message : String(e)}` +
-          '\n    (a thrown fetch here = the browser refused it; the server never replied)',
-      );
-    }
-
-    // Content-Type is not CORS-safelisted at image/*, so it forces a preflight
-    // on its own. Dropping it proves whether the method or the header is the
-    // trigger — PUT alone should still preflight, and if this also fails the
-    // bucket simply has no CORS policy for us.
-    try {
-      const put = await fetch(upload_url, { method: 'PUT', body: png });
-      steps.push(`PUT without Content-Type → HTTP ${put.status}`);
-    } catch (e) {
-      steps.push(`PUT without Content-Type → BLOCKED: ${e instanceof Error ? e.message : String(e)}`);
-    }
-
-    // Is there an upload route on the CORS-open API host instead?
-    const candidates = ['/v1/assets', '/v1/assets/upload', '/v1/assets/library'];
-    for (const path of candidates) {
-      try {
-        const res = await api.sendRequest(path, 'POST', JSON.stringify({}));
-        steps.push(`POST ${path} → ${res.status} ${res.status === 404 ? '(no such route)' : '(EXISTS — worth pursuing)'}`);
-      } catch (e) {
-        steps.push(`POST ${path} → threw: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-
-    const blocked = steps.some((line) => line.includes('BLOCKED'));
-    return {
-      ...base,
-      status: blocked ? 'fail' : 'pass',
-      detail: blocked
-        ? `Browser uploads are blocked by CORS on ${parsed.host}. This needs the Worker — see docs/WORKER.md.`
-        : 'The PUT was not blocked; the failure is something else.',
-      evidence: steps.join('\n'),
-    };
-  } catch (e) {
-    return fail(base, e);
-  }
-}
-
-/* ------------------------------------------------------------------------ *
- * Phase 5 — the image investigation
- * ------------------------------------------------------------------------ */
-
-/**
- * Finds a video asset to test against.
- *
- * Searches several groups and both rankings. The retired shape probe did this
- * and found videos; the poster probe looked at one group's hot feed only and
- * kept reporting "no video to test with" — in the same run where the other
- * found one. Videos are rare enough in any single feed that a narrow search
- * mostly measures luck.
- */
-async function findVideoAsset(): Promise<Asset | undefined> {
-  const groups = await fetchUserGroups();
-  const targets = [SAMPLE_GROUP_ID, ...groups.slice(0, 3).map((g) => g.id)];
-
-  for (const groupId of targets) {
-    for (const sort of ['hot', 'top'] as const) {
-      const page = (await api.getGroupPosts(groupId, sort)) as unknown as {
-        posts?: PostOrComment[];
-      };
-      const asset = page.posts
-        ?.flatMap((post) => post.assets ?? [])
-        .find((a) => a.type === 'video');
-      if (asset) return asset;
-    }
-  }
-  return undefined;
-}
-
-/**
- * Is the video thumbnail 401 real, and does the bearer actually fix it?
- *
- * `assetNeedsAuth` says these URLs need the token and `AuthedImage` fetches them
- * with it, yet posters stayed blank. This separates the two possibilities that
- * were never distinguished: the fetch is refused (auth or CORS), or it succeeds
- * and the *element* refuses the bytes.
- */
-async function probeVideoPoster(): Promise<ProbeResult> {
-  const base = {
-    id: 'video-poster',
-    label: 'Images — video thumbnail fetch',
-    question: 'Does fetching a poster with the bearer actually return an image?',
-  };
-  try {
-    const asset = await findVideoAsset();
-    const poster = asset?.thumbnail_asset?.url;
-
-    if (!poster) {
-      return {
-        ...base,
-        status: 'partial',
-        detail: 'No video in any sampled feed right now. Re-run when one is visible.',
-      };
-    }
-
-    const steps = [
-      `asset → content_type=${asset?.content_type}, ${asset?.width}x${asset?.height}, ` +
-        `stream is .m3u8=${String((asset?.url || '').split('?')[0].endsWith('.m3u8'))}`,
-      `poster host → ${new URL(poster).host}`,
-    ];
-
-    // `/v1/assets/profile` turned out to answer 302 to a signed R2 URL with no
-    // auth at all, which is why sending the bearer *broke* profile photos: a
-    // preflighted request cannot follow a cross-origin redirect. If posters
-    // behave the same way the fix is identical — stop sending the header.
-    const bare = await fetch(poster, { redirect: 'manual' });
-    steps.push(
-      `without bearer, redirect:manual → HTTP ${bare.status} type=${bare.type}` +
-        (bare.type === 'opaqueredirect'
-          ? '  ← IT REDIRECTS. Load it plainly in an <img> and drop the bearer.'
-          : ''),
-    );
-
-    const authed = await fetch(poster, {
-      headers: { Authorization: `Bearer ${api.userToken}` },
-    });
-    steps.push(`with bearer → HTTP ${authed.status}`);
-    if (authed.ok) {
-      const blob = await authed.blob();
-      steps.push(`  content-type ${blob.type || '(none)'}, ${blob.size} bytes`);
-      steps.push(
-        blob.size > 0 && blob.type.startsWith('image/')
-          ? '  → real image bytes, so the fetch is NOT the problem; the element is'
-          : '  → not image bytes, which is why the element renders nothing',
-      );
-    }
-
-    return {
-      ...base,
-      status: authed.ok ? 'pass' : 'fail',
-      detail: authed.ok
-        ? 'The authed fetch works. The failure is downstream of the request.'
-        : `The authed fetch returns ${authed.status} — the bearer is not enough for this URL.`,
-      evidence: steps.join('\n'),
-    };
-  } catch (e) {
-    return fail(base, e);
-  }
-}
-
-/**
- * Whatever failed to render since this page loaded.
- *
- * Browse the app first, then run this — the buffer is in memory and per page
- * load. This is the thing that was missing: a failure used to be a blank box
- * with no reason attached.
- */
-async function probeImageFailures(): Promise<ProbeResult> {
-  const base = {
-    id: 'image-failures',
-    label: 'Images — what actually failed',
-    question: 'Which images failed to render, and for what reason?',
-  };
-  const summary = summarizeImageFailures();
-  if (summary.length === 0) {
-    return {
-      ...base,
-      status: 'partial',
-      detail:
-        'Nothing recorded. Either every image loaded, or nothing has been rendered yet this page load — browse a feed and a profile first, then run this again.',
-    };
-  }
-  return {
-    ...base,
-    status: 'fail',
-    detail: `${summary.length} distinct failure(s). "no-url" means the API gave us nothing to load; "http"/"network" mean the request failed; "decode" means the bytes arrived and the element rejected them.`,
-    evidence: summary
-      .map((row) => `${row.count}x  ${row.key}${row.sample.detail ? `\n      ${row.sample.detail}` : ''}`)
-      .join('\n'),
-  };
-}
-
-/**
- * Can a share code be resolved to a post? (Blocker 1, re-attacked.)
- *
- * `/p/<code>` only works today for posts already in the query cache, because
- * the API is UUID-keyed and nothing was found that accepts an `index_code`. That
- * sweep predated two things worth applying: **always include a control**, and
- * the discovery that this API has catch-all routes returning 200 with empty
- * bodies.
- *
- * offsides cannot help here — it is a native app with no URLs at all and no
- * deep-link handling, so it never needed to resolve a code (docs/OFFSIDES.md).
- *
- * Differential by construction: every candidate is tried with a **real** code
- * pulled from the live feed *and* a well-formed fake one. A route only counts if
- * it returns the real post for the real code and something different for the
- * fake. A 200 for both means a catch-all; a failure for both means no route.
- */
-async function probeShareCode(): Promise<ProbeResult> {
-  const base = {
-    id: 'share-code',
-    label: 'Blocker 1 — share code → post',
-    question: 'Does any endpoint resolve an index_code, or is the worker still required?',
-  };
-  const steps: string[] = [];
-
-  try {
-    const page = (await api.getGroupPosts(SAMPLE_GROUP_ID, 'hot')) as unknown as {
-      posts?: PostOrComment[];
-    };
-    const sample = page.posts?.find((p) => p.index_code);
-    if (!sample?.index_code) {
-      return { ...base, status: 'partial', detail: 'No post with an index_code in the feed to test with.' };
-    }
-
-    const real = sample.index_code;
-    // Same alphabet and length, so a route that validates the *format* still
-    // accepts it and answers "not found" rather than "bad request".
-    const fake = 'Zz9Qx7Lm'.slice(0, real.length);
-    steps.push(`real code → ${real} (expect it to resolve to post ${sample.id.slice(0, 8)}…)`);
-    steps.push(`fake code → ${fake} (expect not-found)`);
-
-    const candidates = [
-      (c: string) => `/v1/posts?index_code=${c}`,
-      (c: string) => `/v1/posts/${c}`,
-      (c: string) => `/v1/posts/get?index_code=${c}`,
-      (c: string) => `/v1/posts/by_code?code=${c}`,
-      (c: string) => `/v1/posts/share/${c}`,
-      (c: string) => `/v1/posts?share_code=${c}`,
-      (c: string) => `/v1/share/${c}`,
-    ];
-
-    for (const build of candidates) {
-      const path = build(real);
-      try {
-        const [realRes, fakeRes] = await Promise.all([
-          api.sendRequest(build(real)),
-          api.sendRequest(build(fake)),
-        ]);
-        const realBody = (await realRes.text()).slice(0, 240);
-        const fakeBody = (await fakeRes.text()).slice(0, 120);
-
-        const identical = realRes.status === fakeRes.status && realBody.slice(0, 120) === fakeBody;
-        const resolves = realRes.ok && realBody.includes(sample.id);
-
-        steps.push(
-          `\n${path.replace(real, '<code>')}` +
-            `\n  real → ${realRes.status}   fake → ${fakeRes.status}` +
-            (resolves
-              ? '\n  ✅ RESOLVES — the real code returned the real post id. Blocker 1 is closed.'
-              : identical
-                ? '\n  ✗ identical for both codes — catch-all or a fixed response, not a lookup'
-                : `\n  ~ differs but no post id in the body: ${realBody}`),
-        );
-      } catch (e) {
-        steps.push(`\n${path.replace(real, '<code>')} → threw ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-
-    const solved = steps.some((l) => l.includes('RESOLVES'));
-    return {
-      ...base,
-      status: solved ? 'pass' : 'fail',
-      detail: solved
-        ? 'A route resolves share codes — the worker is not needed for this after all.'
-        : 'No route resolves a share code. Cold-loading /p/<code> still needs the worker.',
-      evidence: steps.join('\n'),
-    };
-  } catch (e) {
-    return fail(base, e);
-  }
-}
-
-/* ------------------------------------------------------------------------ *
- * Profile
- * ------------------------------------------------------------------------ */
-
 /** How a value looked, never what it said. */
 function shape(value: unknown) {
   if (value === undefined) return 'absent';
   if (value === null) return 'null';
   if (typeof value === 'string') return value ? `a string, ${value.length} chars` : 'an empty string';
   return typeof value;
-}
-
-/**
- * Where does your bio live?
- *
- * offsides 1.0 falls back from `getUpdates().user` to your public profile's
- * `description` — *"The bio lives on the public profile object"* — and
- * `useMyIdentity` now does the same. This settles whether that fallback is ever
- * the path taken, by the shape of each field. The bio itself stays out of the
- * report.
- */
-async function probeBioSource(): Promise<ProbeResult> {
-  const base = {
-    id: 'bio-source',
-    label: 'Profile — where your bio lives',
-    question: 'Is your bio on getUpdates().user, or only on your public profile?',
-  };
-  try {
-    const user = ((await getUpdates())?.user ?? {}) as Record<string, unknown>;
-    const steps = [
-      `getUpdates().user.bio → ${shape(user.bio)}`,
-      `getUpdates().user.description → ${shape(user.description)}`,
-      `getUpdates().user keys: [${Object.keys(user).sort().join(', ')}]`,
-    ];
-    const username = typeof user.username === 'string' ? user.username : undefined;
-    let profile: Record<string, unknown> | null = null;
-    if (username) {
-      profile = (await getUserProfile(username)) as Record<string, unknown> | null;
-      steps.push(
-        profile
-          ? `public profile description → ${shape(profile.description)}, bio → ${shape(profile.bio)}`
-          : 'public profile → none (private, or no username)',
-      );
-    } else {
-      steps.push('no username, so there is no public profile to read');
-    }
-
-    const onUpdates = typeof user.bio === 'string' || typeof user.description === 'string';
-    const onProfile = typeof profile?.description === 'string' && profile.description !== '';
-    const status: ProbeStatus = onUpdates || onProfile ? 'pass' : 'partial';
-    return {
-      ...base,
-      status,
-      detail: onUpdates
-        ? 'getUpdates() carries the bio. The profile fallback is never taken for this account.'
-        : onProfile
-          ? 'Only the public profile carries it — getUpdates() does not. Without the fallback the You tab showed "No bio yet".'
-          : username
-            ? 'Neither carries a bio. Set one in Edit Profile and run this again to tell the two apart.'
-            : 'Neither carries a bio, and getUpdates().user has no username either — so there is no public profile to fall back to. This account cannot settle it; one with a bio can.',
-      evidence: steps.join('\n'),
-    };
-  } catch (e) {
-    return fail(base, e);
-  }
 }
 
 /* ------------------------------------------------------------------------ *
@@ -628,14 +230,7 @@ async function probeActivity(): Promise<ProbeResult> {
 }
 
 export async function runAllProbes(): Promise<ProbeResult[]> {
-  return [
-    await probeAuth(),
-    await probeShareCode(),
-    await probeActivity(),
-    await probeVideoPoster(),
-    await probeImageFailures(),
-    await probeBioSource(),
-  ];
+  return [await probeAuth(), await probeActivity()];
 }
 
 /* ------------------------------------------------------------------------ *
@@ -831,106 +426,85 @@ export async function runLengthProbes(groupId: string, userId: string | null): P
   return [posts, bio];
 }
 
-/**
- * Kept out of `runAllProbes` deliberately. These create real content in a real
- * community, so they need a separate, explicit press — nobody should post to
- * Virginia Tech by clicking "run diagnostics".
- */
-/**
- * Kept separate from the read-only run because it isn't a plain read — it asks
- * for an upload URL and PUTs bytes at it. Nothing is posted and nothing becomes
- * visible to anyone.
- *
- * This used to hold the Phase 4 write round-trip (create a post, comment, vote,
- * delete) and the poll round-trip. Both were retired on 2026-09-11 once writing
- * was verified against the live API *and* confirmed to sync both ways with the
- * official app — at which point a probe that posts real content to a real
- * community every run is a liability rather than evidence.
- */
-export async function runUploadProbe(): Promise<ProbeResult[]> {
-  return [await probeImageUpload()];
-}
-
 /* ------------------------------------------------------------------------ *
- * Chats — the mark-read route, behind its own button (PLAN Q19)
+ * Chats — the body `POST /v1/chats/read` wants (PLAN Q19)
  * ------------------------------------------------------------------------ */
 
 interface ChatUnderTest {
   id: string;
   updatedAt?: string;
-  lastMessageId?: string;
-}
-
-interface ChatReadCandidate {
-  method: 'GET' | 'POST' | 'PATCH';
-  path: (id: string) => string;
-  body?: (chat: ChatUnderTest) => Raw;
+  latestMessageId?: string;
+  deviceId?: string;
 }
 
 /**
- * Where a chat might be marked read. No client has this call — sidechat.js,
- * offsides and the official web client all lack it — so these are guesses in
- * the API's own style, `/v1/<thing>/<verb>` with the id as `chat_id`. They are
- * ordered by likeness to the one read call that does exist:
- * `POST /v1/activity/seen {ids}`.
+ * Bodies to try. The first sweep (2026-09-27) sent twelve candidate routes:
+ * ten answered `404` exactly like the nonsense control, and
+ * `POST /v1/chats/read` answered `500` to both `{chat_id}` and
+ * `{chat_id, message_id}`. So the route is real and the body is wrong. An empty
+ * body goes first, because the error for "nothing at all" is the likeliest to
+ * name the field it misses.
  */
-const CHAT_READ_CANDIDATES: ChatReadCandidate[] = [
-  { method: 'POST', path: () => '/v1/chats/seen', body: (c) => ({ chat_id: c.id }) },
-  { method: 'POST', path: () => '/v1/chats/seen', body: (c) => ({ ids: [c.id] }) },
-  { method: 'POST', path: () => '/v1/chats/read', body: (c) => ({ chat_id: c.id }) },
-  { method: 'POST', path: () => '/v1/chats/mark_read', body: (c) => ({ chat_id: c.id }) },
-  { method: 'POST', path: () => '/v1/chats/messages/seen', body: (c) => ({ chat_id: c.id }) },
-  { method: 'POST', path: () => '/v1/chats/messages/read', body: (c) => ({ chat_id: c.id }) },
+const CHAT_READ_BODIES: { label: string; path?: (id: string) => string; body: (c: ChatUnderTest) => Raw }[] = [
+  { label: '{}', body: () => ({}) },
+  { label: '{chat_id}', body: (c) => ({ chat_id: c.id }) },
+  { label: '{chat_id, message_id}', body: (c) => ({ chat_id: c.id, message_id: c.latestMessageId }) },
+  { label: '{chat_id, last_message_id}', body: (c) => ({ chat_id: c.id, last_message_id: c.latestMessageId }) },
+  { label: '{chat_id, last_read_message_id}', body: (c) => ({ chat_id: c.id, last_read_message_id: c.latestMessageId }) },
+  { label: '{chat_id, message_ids}', body: (c) => ({ chat_id: c.id, message_ids: [c.latestMessageId] }) },
+  { label: '{chat_id, last_read_timestamp}', body: (c) => ({ chat_id: c.id, last_read_timestamp: c.updatedAt }) },
+  { label: '{chat_id, timestamp}', body: (c) => ({ chat_id: c.id, timestamp: c.updatedAt }) },
+  { label: '{chat_id, client_id}', body: (c) => ({ chat_id: c.id, client_id: c.deviceId }) },
+  { label: '{chat_ids}', body: (c) => ({ chat_ids: [c.id] }) },
+  { label: '{ids}', body: (c) => ({ ids: [c.id] }) },
+  { label: '{id}', body: (c) => ({ id: c.id }) },
+  { label: '?chat_id= and {}', path: (id) => `/v1/chats/read?chat_id=${encodeURIComponent(id)}`, body: () => ({}) },
   {
-    method: 'POST',
-    path: () => '/v1/chats/read',
-    body: (c) => ({ chat_id: c.id, message_id: c.lastMessageId }),
+    label: '{chat_id} without its -v2 suffix',
+    body: (c) => ({ chat_id: c.id.replace(/-v2$/, '') }),
   },
-  {
-    method: 'POST',
-    path: () => '/v1/chats/last_read',
-    body: (c) => ({ chat_id: c.id, last_read_timestamp: c.updatedAt }),
-  },
-  {
-    method: 'POST',
-    path: () => '/v1/chats/update',
-    body: (c) => ({ chat_id: c.id, last_read_timestamp: c.updatedAt }),
-  },
-  { method: 'PATCH', path: (id) => `/v1/chats/${id}`, body: (c) => ({ last_read_timestamp: c.updatedAt }) },
-  { method: 'POST', path: (id) => `/v1/chats/${id}/read`, body: () => ({}) },
-  { method: 'GET', path: (id) => `/v1/chats/messages?chat_id=${id}&mark_read=true` },
 ];
 
-/** A response body, described by shape: `empty`, `json {…}`, or its length. */
-async function bodyShape(res: Response) {
+/**
+ * What a response said, in a form safe to paste: a 2xx by shape, an error by
+ * the server's own `error_code` and `message`, with ids masked.
+ */
+async function describeResponse(res: Response, hide: (text: string) => string) {
   const text = await res.text().catch(() => '');
-  if (!text) return 'empty';
+  if (!text) return 'empty body';
+  let json: unknown;
   try {
-    return `json ${fieldShapes(JSON.parse(text))}`;
+    json = JSON.parse(text);
   } catch {
-    return `${text.length} chars`;
+    return `${text.length} chars, not JSON`;
   }
+  if (res.ok) return `json ${fieldShapes(json)}`;
+  const body = (json ?? {}) as Raw;
+  const said = [body.error_code, body.message, body.error]
+    .filter((part): part is string => typeof part === 'string' && part.length > 0)
+    .map((part) => hide(part).replace(UUID_ANYWHERE, '<uuid>').slice(0, 160));
+  return said.length ? `"${said.join(' — ')}"` : `json ${fieldShapes(json)}`;
 }
 
 /**
- * Chats — which request marks a chat read on the server?
+ * What body does `POST /v1/chats/read` want?
  *
- * Opening a thread in webyak doesn't mark it read: `last_read_timestamp` only
- * moves when the official app reads it, so a chat stayed unread here, and
- * still does in the official app (webyak now keeps its own mark,
- * src/lib/chat-reads.ts). Every path under `/v1/chats/` answers `200`, so a
- * status proves nothing. This sends each candidate for one unread chat and
- * re-reads the list after each; the route is the one after which that chat's
- * `last_read_timestamp` moves. It stops at the first that works.
+ * Opening a thread in webyak doesn't mark it read on the server, so a chat read
+ * here stays unread in the official app (webyak keeps its own mark meanwhile,
+ * src/lib/chat-reads.ts). This sends each body to the one route known to be
+ * real, for one chat the server has unread, and re-reads the list after each.
+ * The right body is the one after which that chat's `last_read_timestamp`
+ * moves. It stops there.
  *
- * Writes: it marks one chat read, which is what webyak wants to do anyway.
- * Paths are reported with the id replaced, and bodies by their keys.
+ * Writes: it can mark one chat read, which is what webyak wants to do anyway.
+ * Ids are masked in everything it reports; error messages are the server's own
+ * words, which is the point of this round.
  */
-async function probeChatRead(): Promise<ProbeResult> {
+async function probeChatRead(deviceId: string | null): Promise<ProbeResult> {
   const base = {
     id: 'chat-read',
-    label: 'Chats — the mark-read route',
-    question: 'Which request marks a chat read on the server, so the official app agrees? (PLAN Q19)',
+    label: 'Chats — what POST /v1/chats/read wants',
+    question: 'Which body makes POST /v1/chats/read mark a chat read on the server? (PLAN Q19)',
   };
   const steps: string[] = [];
   const chats = async () =>
@@ -945,56 +519,48 @@ async function probeChatRead(): Promise<ProbeResult> {
 
   try {
     const all = (await chats()).filter((chat) => typeof chat.id === 'string');
-    const target = all.find(unreadOnServer) ?? all[0];
+    const target = all.find(unreadOnServer);
     if (!target) {
-      return { ...base, status: 'partial', detail: 'No chats on this account to test with.' };
+      return {
+        ...base,
+        status: 'partial',
+        detail:
+          "No chat is unread on the server, so there is nothing whose read mark could visibly move. Wait for a new message — one the official app hasn't opened — and run it again.",
+        evidence: `/v1/chats → ${all.length} chat(s), none unread by last_read_timestamp`,
+      };
     }
-    const unread = unreadOnServer(target);
     const messages = (Array.isArray(target.messages) ? target.messages : []) as Raw[];
-    const last = messages[messages.length - 1];
+    const latest = [...messages]
+      .filter((m) => typeof m.id === 'string' && typeof m.created_at === 'string')
+      .sort((a, b) => Date.parse(b.created_at as string) - Date.parse(a.created_at as string))[0];
     const chat: ChatUnderTest = {
       id: target.id as string,
       updatedAt: typeof target.updated_at === 'string' ? target.updated_at : undefined,
-      lastMessageId: typeof last?.id === 'string' ? last.id : undefined,
+      latestMessageId: typeof latest?.id === 'string' ? latest.id : undefined,
+      deviceId: deviceId ?? undefined,
     };
+    const hide = (text: string) => text.split(chat.id).join('<chat_id>');
     const before = lastRead(target);
     steps.push(
-      `/v1/chats → ${all.length} chat(s), ${all.filter(unreadOnServer).length} unread by the server's mark. Testing one that is ${unread ? 'unread' : 'already read, so a miss proves less'}; its last_read_timestamp is ${before ? 'set' : 'unset'}`,
+      `/v1/chats → ${all.length} chat(s), ${all.filter(unreadOnServer).length} unread by the server's mark. Testing one of those: a ${target.type === 'group' || target.name ? 'group chat' : 'DM'}, id ${/-v2$/.test(chat.id) ? 'ending -v2' : 'without a suffix'}, ${messages.length} message(s) inlined`,
     );
-
-    const hide = (path: string) => path.split(chat.id).join('<chat_id>');
-    const control = await api.sendRequest(
-      `/v1/chats/webyak-control-${Date.now()}`,
-      'POST',
-      JSON.stringify({ chat_id: chat.id }),
-    );
-    const controlBody = await bodyShape(control);
-    steps.push(`CONTROL POST /v1/chats/webyak-control-… → ${control.status}, body ${controlBody}`);
 
     let found: string | null = null;
-    for (const candidate of CHAT_READ_CANDIDATES) {
-      const path = candidate.path(chat.id);
-      const body = candidate.body?.(chat);
-      const label = `${candidate.method} ${hide(path)}${body ? ` {${Object.keys(body).join(', ')}}` : ''}`;
+    for (const candidate of CHAT_READ_BODIES) {
+      const path = candidate.path?.(chat.id) ?? '/v1/chats/read';
       try {
-        const res = await api.sendRequest(
-          path,
-          candidate.method,
-          body === undefined ? undefined : JSON.stringify(body),
-        );
-        const shapeOf = await bodyShape(res);
+        const res = await api.sendRequest(path, 'POST', JSON.stringify(candidate.body(chat)));
+        const said = await describeResponse(res, hide);
         await pause(600);
         const after = lastRead((await chats()).find((c) => c.id === chat.id));
         const moved = after !== before;
-        steps.push(
-          `${label} → ${res.status}, body ${shapeOf}${res.status === control.status && shapeOf === controlBody ? ' (same as control)' : ''}${moved ? '  ✓ last_read_timestamp MOVED' : ''}`,
-        );
+        steps.push(`${candidate.label} → ${res.status}, ${said}${moved ? '  ✓ last_read_timestamp MOVED' : ''}`);
         if (moved) {
-          found = label;
+          found = candidate.label;
           break;
         }
       } catch (e) {
-        steps.push(`${label} → error: ${e instanceof Error ? e.message : String(e)}`);
+        steps.push(`${candidate.label} → error: ${e instanceof Error ? hide(e.message) : String(e)}`);
       }
     }
 
@@ -1002,8 +568,8 @@ async function probeChatRead(): Promise<ProbeResult> {
       ...base,
       status: found ? 'pass' : 'fail',
       detail: found
-        ? `${found} marks a chat read on the server. webyak can send it on open and for Mark all read, and the official app will agree.`
-        : `None of ${CHAT_READ_CANDIDATES.length} candidates moved last_read_timestamp${unread ? '' : ' — though the chat was already read, which makes a miss less telling'}. The route is elsewhere; a capture of the official app's traffic would find it.`,
+        ? `POST /v1/chats/read with ${found} marks a chat read on the server. webyak can send it on open and for Mark all read, and the official app will agree.`
+        : `None of ${CHAT_READ_BODIES.length} bodies moved last_read_timestamp. The server's error messages above are the next clue; failing that, a capture of the official app's traffic.`,
       evidence: steps.join('\n'),
     };
   } catch (e) {
@@ -1012,9 +578,9 @@ async function probeChatRead(): Promise<ProbeResult> {
 }
 
 /**
- * Separate from the read-only run because it writes: it marks one chat read,
- * in the official app too if a candidate works.
+ * Separate from the read-only run because it writes: it can mark one chat
+ * read, in the official app too.
  */
-export async function runChatReadProbe(): Promise<ProbeResult[]> {
-  return [await probeChatRead()];
+export async function runChatReadProbe(deviceId: string | null): Promise<ProbeResult[]> {
+  return [await probeChatRead(deviceId)];
 }

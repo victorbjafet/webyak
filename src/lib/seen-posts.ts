@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
+import { accountKey } from './account-scope';
 import { cacheStorage } from './storage';
 
 /**
@@ -14,6 +15,9 @@ import { cacheStorage } from './storage';
  * Deliberately per-device. There is no server-side read state to sync with, so
  * a second browser starts fresh. That is the honest behaviour rather than a
  * bug, and the empty state says as much.
+ *
+ * And per account: a friend scrolling the same school feed on your laptop
+ * would otherwise empty your Unread (src/lib/account-scope.ts).
  */
 
 const STORAGE_KEY = 'webyak.seenPosts';
@@ -28,7 +32,10 @@ const MAX_IDS = 4000;
 /** Oldest-first insertion order, so trimming drops the least recently seen. */
 let seen: string[] = [];
 let index = new Set<string>();
-let restored = false;
+/** Whose seen posts are loaded: `undefined` until the first restore. */
+let restoredFor: string | null | undefined;
+/** Where they persist. Nothing is written until an account has been restored. */
+let storageKey: string | null = null;
 let version = 0;
 const listeners = new Set<() => void>();
 
@@ -44,27 +51,46 @@ let persistHandle: ReturnType<typeof setTimeout> | null = null;
  * change would serialize thousands of ids many times a second.
  */
 function persistSoon() {
+  const key = storageKey;
+  if (!key) return;
   if (persistHandle) clearTimeout(persistHandle);
   persistHandle = setTimeout(() => {
     persistHandle = null;
-    void cacheStorage.setItem(STORAGE_KEY, JSON.stringify(seen));
+    // Dropped if the account changed meanwhile, rather than written to the new one.
+    if (storageKey === key) void cacheStorage.setItem(key, JSON.stringify(seen));
   }, 1000);
 }
 
-export async function restoreSeenPosts() {
-  if (restored) return;
-  restored = true;
+/**
+ * Loads `userId`'s seen posts, or swaps to them from another account's.
+ * `null` is a session with no known id, which keeps the old unscoped key.
+ */
+export async function restoreSeenPosts(userId: string | null) {
+  if (restoredFor === userId) return;
+  const previous = restoredFor;
+  restoredFor = userId;
+  const key = userId ? await accountKey(STORAGE_KEY, userId) : STORAGE_KEY;
+  if (restoredFor !== userId) return; // another restore started meanwhile
+  if (previous !== undefined) {
+    seen = [];
+    index = new Set();
+  }
+  storageKey = key;
+  const pending = seen.length > 0;
   try {
-    const raw = await cacheStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return;
-    seen = parsed.filter((id): id is string => typeof id === 'string').slice(-MAX_IDS);
-    index = new Set(seen);
-    emit();
+    const raw = await cacheStorage.getItem(key);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    if (Array.isArray(parsed)) {
+      const stored = parsed.filter((id): id is string => typeof id === 'string');
+      // Anything marked while this loaded is newer than the disk, so it goes last.
+      seen = [...stored.filter((id) => !index.has(id)), ...seen].slice(-MAX_IDS);
+      index = new Set(seen);
+    }
   } catch {
     /* corrupt entry — start clean rather than failing the app */
   }
+  if (pending) persistSoon();
+  emit();
 }
 
 /** No-ops for ids already known, so scrolling over the same rows costs nothing. */

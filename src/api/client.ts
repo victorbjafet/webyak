@@ -295,6 +295,23 @@ export async function getUpdates(groupId?: string) {
   }>(`/v1/updates?${params.toString()}`);
 }
 
+/**
+ * Whose a token is, if it still works — without touching the session's own.
+ * Checked before switching to an imported login, so a dead one is refused on
+ * the spot instead of signing the fresh tab straight back out.
+ */
+export async function checkToken(token: string): Promise<{ userId: string } | null> {
+  const res = await fetch(`${api.apiRoot}/v1/users/me`, {
+    headers: {
+      ...(api.defaultHeaders as unknown as Record<string, string>),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) return null;
+  const me = (await res.json().catch(() => null)) as { id?: unknown } | null;
+  return typeof me?.id === 'string' ? { userId: me.id } : null;
+}
+
 export async function getCurrentUser() {
   return (await api.getCurrentUser()) as unknown as CurrentUser;
 }

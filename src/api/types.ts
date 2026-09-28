@@ -214,6 +214,8 @@ export interface MyIdentity {
   username?: string;
   bio?: string;
   conversation_icon?: ConversationIcon;
+  /** The account's number. Only its last four digits are ever kept, as a label. */
+  phone_number?: string;
 }
 
 /**

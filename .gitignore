@@ -50,6 +50,8 @@ example
 # See docs/OPEN-SOURCE.md.
 *.har
 probe-*.json
+# Exported logins (Settings → Accounts). Encrypted, but a login all the same.
+webyak-login*.json
 probe-*.txt
 *-probe.json
 *.probe

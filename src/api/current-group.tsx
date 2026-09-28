@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchUserGroups, indexGroups } from './groups';
 import { useSession } from './session';
 import type { Group } from './types';
 
+import { accountKey } from '@/lib/account-scope';
 import { cacheStorage } from '@/lib/storage';
 
 /**
@@ -15,6 +16,9 @@ import { cacheStorage } from '@/lib/storage';
  * a missed lookup falls back silently to the primary group, which looks exactly
  * like "selecting a community does nothing". Storing the object removes the
  * lookup, so a selection cannot fail to take effect.
+ *
+ * Kept per account (src/lib/account-scope.ts): one account's community is
+ * rarely another's, and the account switcher shares a browser.
  */
 const SELECTED_KEY = 'webyak.currentGroup';
 
@@ -37,9 +41,11 @@ const CurrentGroupContext = createContext<CurrentGroupValue | null>(null);
  * API offers for switching", not "everything you belong to".
  */
 export function CurrentGroupProvider({ children }: { children: React.ReactNode }) {
-  const { status, primaryGroup } = useSession();
+  const { status, primaryGroup, userId } = useSession();
   const [selected, setSelected] = useState<Group | null>(null);
   const [restored, setRestored] = useState(false);
+  // Where this account's selection lives, once the session says whose it is.
+  const storageKey = useRef<string | null>(null);
 
   const query = useQuery({
     queryKey: ['my-groups'],
@@ -54,27 +60,32 @@ export function CurrentGroupProvider({ children }: { children: React.ReactNode }
   });
 
   useEffect(() => {
+    if (status === 'loading') return;
     let cancelled = false;
     void (async () => {
-      const raw = await cacheStorage.getItem(SELECTED_KEY);
+      const key = userId ? await accountKey(SELECTED_KEY, userId) : SELECTED_KEY;
+      const raw = await cacheStorage.getItem(key);
       if (cancelled) return;
+      storageKey.current = key;
+      let group: Group | null = null;
       if (raw) {
         try {
-          setSelected(JSON.parse(raw) as Group);
+          group = JSON.parse(raw) as Group;
         } catch {
           /* corrupt entry — fall through to the default */
         }
       }
+      setSelected(group);
       setRestored(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [status, userId]);
 
   const setCurrent = useCallback((group: Group) => {
     setSelected(group);
-    void cacheStorage.setItem(SELECTED_KEY, JSON.stringify(group));
+    if (storageKey.current) void cacheStorage.setItem(storageKey.current, JSON.stringify(group));
   }, []);
 
   const groups = useMemo(() => query.data ?? [], [query.data]);

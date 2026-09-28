@@ -68,7 +68,8 @@ schedule as identifying.
 ### Hardened while here
 
 `.gitignore` now also covers `*.har`, `probe-*.json`, `diagnostics-*.json` and
-friends. A HAR exported from DevTools is the single most likely way a live
+friends, and, since 2026-09-27, `webyak-login*.json`: exported logins, which are
+encrypted but hold a live token all the same. A HAR exported from DevTools is the single most likely way a live
 bearer token gets committed in a project debugged like this one, and it would
 sail past a reviewer as "just a log file".
 

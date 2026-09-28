@@ -18,8 +18,7 @@ import { useTheme } from '@/hooks/use-theme';
  *
  * The initials are a real fallback, not just an else-branch: they render when
  * there is no URL *and* when the URL fails, so a broken icon degrades to
- * something readable instead of a hole. Which of those happened is recorded —
- * see src/lib/image-debug.ts.
+ * something readable instead of a hole.
  *
  * Pass `group` rather than a bare `iconUrl` wherever you have the object: most
  * group payloads omit `icon_url` entirely, and `useGroupIcon` fetches it from
@@ -30,14 +29,12 @@ export function GroupAvatar({
   iconUrl,
   color,
   size = 28,
-  context = 'group-icon',
   group,
 }: {
   name?: string;
   iconUrl?: string;
   color?: string;
   size?: number;
-  context?: string;
   /** Enables the icon lookup for groups whose payload has no `icon_url`. */
   group?: GroupIconSubject | null;
 }) {
@@ -73,7 +70,6 @@ export function GroupAvatar({
   return (
     <AuthedImage
       uri={resolvedUrl}
-      context={context}
       fallback={initialsBlock}
       style={[base, { backgroundColor: theme.control }]}
       contentFit="cover"

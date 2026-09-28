@@ -318,6 +318,22 @@ Built 2026-09-27; what the API gives it is in
 - *Mark all read* sits in the header's action slot, as it does on Alerts, and
   appears only while something is unread.
 
+## Accounts
+
+- **The switcher is the first card in Settings**, above the archive: the
+  signed-in account marked *Signed in*, each other account with *Switch* and
+  *Remove*, then *Add account* and *Export login file*. An account is its
+  emoji, its name (`@username`, or *Phone ending 1234*), and its community
+  underneath, which is often what tells two numbers apart.
+- **The sign-in screen offers what's saved first**: *Saved in this browser*,
+  above the phone number, one *Continue* each. *Use a login file instead* sits
+  under *Send code*.
+- **A passphrase is asked for in a dialog, never kept.** Exporting asks twice and
+  wants 8 characters; importing asks once. The fields live in the dialog, which
+  is only mounted while open.
+- **Switching reloads the page.** A moment's blank is the price of nothing from
+  one account showing under another ([ARCHITECTURE.md](ARCHITECTURE.md#accounts-and-login-files)).
+
 ## Media sizing
 
 Inline media is capped at ~68% of viewport height. A tall portrait image

@@ -80,7 +80,6 @@ export function IdentityAvatar({
   return (
     <AuthedImage
       uri={url}
-      context="profile-photo"
       fallback={emojiOrGlyph}
       style={[base, { backgroundColor: theme.control }]}
       contentFit="cover"

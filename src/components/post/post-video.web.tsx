@@ -315,7 +315,6 @@ export function PostVideo({
             <View style={styles.posterLayer} pointerEvents="none">
               <AuthedImage
                 uri={poster}
-                context="video-poster"
                 style={styles.poster}
                 contentFit="contain"
                 fallback={

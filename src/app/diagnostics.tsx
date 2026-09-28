@@ -6,7 +6,6 @@ import {
   runAllProbes,
   runChatReadProbe,
   runLengthProbes,
-  runUploadProbe,
   SAMPLE_GROUP_ID,
   type ProbeResult,
   type ProbeStatus,
@@ -33,10 +32,9 @@ export default function DiagnosticsScreen() {
   const [results, setResults] = useState<ProbeResult[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [confirmingUpload, setConfirmingWrites] = useState(false);
   const [confirmingLengths, setConfirmingLengths] = useState(false);
   const [confirmingChatRead, setConfirmingChatRead] = useState(false);
-  const { userId, primaryGroup } = useSession();
+  const { userId, primaryGroup, deviceId } = useSession();
   // Your own community when the session knows it: posting where you are not a
   // member would be refused for that, and read as a length limit.
   const home = primaryGroup && !isForYouFeed(primaryGroup) ? primaryGroup : null;
@@ -60,17 +58,6 @@ export default function DiagnosticsScreen() {
     }
   }, []);
 
-  const runUploadProbeNow = useCallback(async () => {
-    setConfirmingWrites(false);
-    setBusy(true);
-    setCopied(false);
-    try {
-      setResults(await runUploadProbe());
-    } finally {
-      setBusy(false);
-    }
-  }, []);
-
   const runLengthProbesNow = useCallback(async () => {
     setConfirmingLengths(false);
     setBusy(true);
@@ -87,11 +74,11 @@ export default function DiagnosticsScreen() {
     setBusy(true);
     setCopied(false);
     try {
-      setResults(await runChatReadProbe());
+      setResults(await runChatReadProbe(deviceId));
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [deviceId]);
 
   const copy = useCallback(async () => {
     if (!results) return;
@@ -118,14 +105,12 @@ export default function DiagnosticsScreen() {
       <View
         style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <ThemedText type="small" themeColor="textSecondary">
-          Read-only. Six probes, each on a question that is still open: share-code resolution
-          (Blocker 1), alert types with no label yet, video thumbnails, whatever failed to render
-          this page load, and where your bio lives. Settled questions were retired — their
-          answers are in docs/API.md.
+          Read-only. A control that your login still works, then the one read-only question
+          still open: alert types with no label yet, and what the new ones carry. Everything
+          settled was retired — its answer is in docs/API.md.
         </ThemedText>
         <ThemedText type="caption" themeColor="textTertiary">
-          For the image probes, browse a feed and a profile first — the failure log is per page
-          load. Then run this and paste the report back.
+          Run it and paste the report back.
         </ThemedText>
         <View style={styles.actions}>
           <Button label={results ? 'Run again' : 'Run probes'} onPress={run} loading={busy} />
@@ -136,25 +121,6 @@ export default function DiagnosticsScreen() {
               onPress={copy}
             />
           ) : null}
-        </View>
-      </View>
-
-      <View
-        style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <ThemedText type="bodyBold">Image upload</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
-          Separated because it isn&rsquo;t read-only: it asks the API for an upload URL and tries a
-          1×1 PNG against it. Nothing is posted and nothing becomes visible to anyone. The
-          write round-trip probes that did post were retired once writing was verified against
-          the official app.
-        </ThemedText>
-        <View style={styles.actions}>
-          <Button
-            label="Run upload probe"
-            variant="secondary"
-            onPress={() => setConfirmingWrites(true)}
-            disabled={busy}
-          />
         </View>
       </View>
 
@@ -182,9 +148,10 @@ export default function DiagnosticsScreen() {
         <ThemedText type="bodyBold">Chat read state</ThemedText>
         <ThemedText type="small" themeColor="textSecondary">
           Writes. Opening a chat here doesn&rsquo;t mark it read on the server, so it stays unread
-          in the official app. This tries twelve likely requests on one unread chat and checks
-          after each whether the server&rsquo;s read mark moved, stopping at the first that works.
-          Have an unread chat first — one the official app hasn&rsquo;t opened.
+          in the official app. The first run found the route — POST /v1/chats/read — but not what
+          it wants. This sends it fourteen different bodies for one unread chat, reports the
+          server&rsquo;s own error for each, and stops at the first that marks the chat read. Have
+          an unread chat first — one the official app hasn&rsquo;t opened.
         </ThemedText>
         <View style={styles.actions}>
           <Button
@@ -199,7 +166,7 @@ export default function DiagnosticsScreen() {
       <ConfirmDialog
         visible={confirmingChatRead}
         title="Try marking a chat read?"
-        body="This sends up to twelve guesses at the mark-read request for one unread chat. If one works, that chat is read — in the official app too. Nothing is sent to anyone, and no message is posted."
+        body="This sends up to fourteen guesses at what the mark-read request wants, for one unread chat. If one works, that chat is read — in the official app too. Nothing is sent to anyone, and no message is posted."
         confirmLabel="Run it"
         onCancel={() => setConfirmingChatRead(false)}
         onConfirm={runChatReadProbeNow}
@@ -212,15 +179,6 @@ export default function DiagnosticsScreen() {
         confirmLabel="Run them"
         onCancel={() => setConfirmingLengths(false)}
         onConfirm={runLengthProbesNow}
-      />
-
-      <ConfirmDialog
-        visible={confirmingUpload}
-        title="Run the upload probe?"
-        body="This requests an upload URL and PUTs a 1×1 PNG to it. Nothing is posted and nobody else sees anything — it's separated only because it isn't a plain read."
-        confirmLabel="Run it"
-        onCancel={() => setConfirmingWrites(false)}
-        onConfirm={runUploadProbeNow}
       />
 
       {results?.map((r) => (

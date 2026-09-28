@@ -264,7 +264,6 @@ export default function ChatThreadScreen() {
                       <AuthedImage
                         key={asset.id}
                         uri={uri}
-                        context="chat-message"
                         style={[
                           styles.messageImage,
                           {

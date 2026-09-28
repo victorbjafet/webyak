@@ -18,7 +18,7 @@ import { ThemePreferenceProvider } from '@/theme/theme-provider';
 SplashScreen.preventAutoHideAsync();
 
 function RootNavigator() {
-  const { status } = useSession();
+  const { status, userId } = useSession();
   const scheme = useColorScheme();
   const theme = useTheme();
 
@@ -28,12 +28,14 @@ function RootNavigator() {
     }
   }, [status]);
 
-  // Read state for the unread filter and for chats. Restored once at boot; a
-  // failure here just means things look unread, which is the safe direction.
+  // Read state for the unread filter and for chats, kept per account, so it
+  // waits to know whose. A failure just means things look unread, which is the
+  // safe direction.
   useEffect(() => {
-    void restoreSeenPosts();
-    void restoreChatReads();
-  }, []);
+    if (status !== 'authenticated') return;
+    void restoreSeenPosts(userId);
+    void restoreChatReads(userId);
+  }, [status, userId]);
 
   // Map our palette onto the navigation theme so native stack transitions and
   // the web document background match the app instead of flashing white.

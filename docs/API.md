@@ -392,8 +392,10 @@ More, from offsides 1.0 (2026-09-27 pass —
 - **Your own bio is not reliably on `getUpdates().user`.** offsides checks there
   first — `typeof bio === 'string'`, then `description` — and falls back to your
   public profile's `description`. `useMyIdentity` now does exactly the same, so
-  the You tab and Edit Profile read the real bio either way. Which path your
-  account actually takes is what `probeBioSource` reports (PLAN Q10).
+  the You tab and Edit Profile read the real bio either way. Which path an
+  account takes is still open (PLAN Q10): the one account tested has no bio to
+  tell them apart, so its probe was retired on 2026-09-27. The fallback covers
+  both paths either way.
 - **Writing it** is `PATCH /v1/users/<id>` with `{bio}` — what sidechat.js's
   `setUserBio` sends and what `updateProfile` sends. offsides caps the field at
   200 characters; webyak at 150. Neither limit comes from the server.
@@ -582,7 +584,7 @@ videos played, and cause 1 hid the change from 2026-08-27 on.
 | No `Authorization` header | `/v1/assets?post_id=…&asset_id=…` → **401**. Verified directly, with and without `post_context`. Unlike `/v1/assets/profile`, this one really does want the token |
 | With the header | Forces a CORS preflight; the endpoint then answers **302** to signed storage, and a preflighted request **cannot follow a cross-origin redirect** |
 
-The failure log is what proves the second row: it records
+The failure log is what proved the second row: it recorded
 `video-poster · network · Failed to fetch` — a **network** failure, not
 `http · 401`. If the token were being rejected we would see a 401 response. We
 see no response at all, which means the request succeeded far enough to be
@@ -752,13 +754,13 @@ it.**
 `AuthedImage` used to `return null` on any problem, so a 404, a blocked request,
 a decode failure and a missing URL were indistinguishable — and because the
 caller had already branched into the image path, its own placeholder was
-unreachable. Every failure now renders the caller's `fallback` and is recorded
-with a reason (`no-url` / `http` / `network` / `decode`), readable from
-`/diagnostics` → *Images — what actually failed*. Only the host is recorded,
-never the full URL, since a pre-signed asset URL is a credential.
+unreachable. Every failure now renders the caller's `fallback`.
 
-Every call site passes a `context` (`group-icon`, `profile-photo`,
-`video-poster`, `post-image`) so a failure names the place it happened.
+While the image bugs were open, each failure was also logged with a reason
+(`no-url` / `http` / `network` / `decode`), the host only and never the full URL,
+and a `context` naming where it happened — readable from *Diagnostics → Images —
+what actually failed*. That log is how the rows below were settled. **Retired
+2026-09-27**, with its probe, once there was nothing left failing to explain.
 
 #### What is known about profiles
 
@@ -1062,10 +1064,11 @@ why offsides never hit it: on Android the request is native and unrestricted.
 Our `uploadAssetWeb` fixed the *body* (the library PUTs `[object Object]`), which
 was a real bug, but the body was never the thing standing in the way.
 
-Run `/diagnostics` → *Run write probes* → **Phase 4 — image upload CORS** for the
-actual host, the exact failure, and a sweep for an upload route on the API host
-that would avoid the problem. The probe reports signature parameters **by name
-only** — a pre-signed URL is a credential.
+The probe that showed this, *Phase 4 — image upload CORS*, was **retired on
+2026-09-27**. It also swept for an upload route on the API host, which would
+have avoided the problem; that result was never written down. It stopped
+mattering: the Worker is needed for video anyway, and its `/upload` relay
+covers this ([WORKER.md](WORKER.md)).
 
 **This is the first thing that genuinely requires the Worker** rather than merely
 benefiting from it. Share-code resolution (Blocker 1) was a missing convenience
@@ -1507,13 +1510,26 @@ read handling at all, and the official web client is no help:
 web.yikyak.com is a read-only public viewer whose bundle calls only
 `/api/publicGroups`, `/api/home/posts` and `/api/groups/…`. It has no chats.
 
-**Every path under `/v1/chats/` answers `200`**, including nonsense ones, so a
-sweep can't go by status. *Diagnostics → Chat read state* (PLAN Q19) sends
-twelve candidates for one unread chat, in this API's own naming
-(`/v1/chats/seen`, `/v1/chats/read`, `/v1/chats/messages/seen`, …). After each,
-it re-reads the list; the route is the one after which that chat's
-`last_read_timestamp` moves. It stops at the first that works, and reports
-paths with the id masked.
+**The first sweep, 2026-09-27, found the route but not its body.** Twelve
+candidates were sent for one chat the server has unread, each followed by a
+re-read of the list, against a nonsense control:
+
+| Request | Answer |
+|---|---|
+| control, `POST /v1/chats/webyak-control-…` | `404 {error}` |
+| `POST` `/v1/chats/seen` (twice, two bodies), `/v1/chats/mark_read`, `/v1/chats/messages/seen`, `/v1/chats/messages/read`, `/v1/chats/last_read`, `/v1/chats/update`, `/v1/chats/<id>/read`; `PATCH /v1/chats/<id>` | `404 {error}`, byte-identical to the control: **not routes** |
+| **`POST /v1/chats/read`** with `{chat_id}`, and with `{chat_id, message_id}` | **`500 {error_code, message}`**: a real route, refusing the body |
+| `GET /v1/chats/messages?chat_id=&mark_read=true` | `200`, the thread, and nothing moved |
+
+The catch-all differs by method: a `GET` under `/v1/chats/` answers `200` with
+an empty body, a `POST` answers `404`. So a `500` where the control got `404`
+is the tell.
+
+**Now:** the same probe sends `POST /v1/chats/read` fourteen body shapes, the
+empty one first, since the error for "nothing at all" is the likeliest to name
+the field it wants. It reports the server's own `error_code` and `message` with
+ids masked, and stops at the first body after which `last_read_timestamp`
+moves.
 
 **Until then, webyak keeps its own marks**
 ([src/lib/chat-reads.ts](../src/lib/chat-reads.ts)). Opening a thread, or
@@ -1530,17 +1546,28 @@ same two places once Q19 finds it.
 down here, re-running it produces output nobody reads and buries the one or two
 results that still matter.
 
-Still asked, as of 2026-09-27: the list at the top of
-[src/api/diagnostics.ts](../src/api/diagnostics.ts). The newest are **Alerts —
-unmapped types and fields** ([Q14](#the-activity-feed-alerts)) and **Chats —
-the mark-read route** ([Q19](#chats-dont-mark-read-from-here)).
+**Still asked, as of 2026-09-27** — the list at the top of
+[src/api/diagnostics.ts](../src/api/diagnostics.ts):
 
-Retired on 2026-09-27: `probeIncludeDeleted` after one run
-([deleted posts](#deleted-posts-are-omitted-not-tombstoned)), and
-`probeMessaging` once its last two questions were answered. `message.type` is
-`message` or `status`, and explore group chats page
-([group chats](#group-chats-joinable-and-openable)). Alerts' paging,
-marking-read and `activity_items` checks went too, after their first run.
+- The token control.
+- **Alerts — unmapped types and fields** ([Q14](#the-activity-feed-alerts)).
+- The length probes (PLAN Q11).
+- **Chats — what `POST /v1/chats/read` wants** ([Q19](#chats-dont-mark-read-from-here)).
+
+**Retired on 2026-09-27**, seven of them:
+
+| Retired | Why, and where the answer lives |
+|---|---|
+| `probeIncludeDeleted` | Answered in one run: the flag does nothing ([deleted posts](#deleted-posts-are-omitted-not-tombstoned)) |
+| `probeMessaging` | `message.type` is `message` or `status`, and explore group chats page ([group chats](#group-chats-joinable-and-openable)) |
+| `probeShareCode` | Seven routes, identical answers every run ([Blocker 1](#the-api-still-cannot-resolve-a-share-code)) |
+| `probeVideoPoster` | Settled 2026-08-27: needs the Worker ([video thumbnails](#-video-thumbnails-need-the-worker)) |
+| `probeImageFailures` | Nothing left failing; its log went with it ([images](#failures-are-no-longer-silent)) |
+| `probeImageUpload` | Needs the Worker regardless ([upload](#-image-upload-is-blocked-by-cors)) |
+| `probeBioSource` | This account has no bio to tell the paths apart, and the fallback covers both (PLAN Q10) |
+
+Alerts' paging, marking-read and `activity_items` checks also went, after
+their first run.
 
 Twelve probes were retired on 2026-09-11. Their answers are all above:
 
@@ -1594,7 +1621,9 @@ Re-swept with a proper differential design — every candidate tried with a **re
 /v1/share/<code>         real 404  fake 404     identical
 ```
 
-Not one behaves differently for a code that exists. That is settled.
+Not one behaves differently for a code that exists. That is settled. The probe
+kept re-running it until 2026-09-27, when it was retired, with the same seven
+answers every time.
 
 ### The realisation
 

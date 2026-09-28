@@ -70,7 +70,6 @@ export default function ProfileScreen() {
             <View style={[styles.bigAvatar, { backgroundColor: icon?.color || theme.control }]}>
               <AuthedImage
                 uri={imageUrl}
-                context="profile-photo"
                 fallback={<ThemedText style={styles.bigEmoji}>{icon?.emoji ?? '👤'}</ThemedText>}
                 style={styles.avatarImage}
                 contentFit="cover"

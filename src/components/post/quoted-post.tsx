@@ -63,7 +63,6 @@ export function QuotedPost({
       {previewUri ? (
         <AuthedImage
           uri={previewUri}
-          context="quoted-post-image"
           style={[
             styles.media,
             {

@@ -184,6 +184,80 @@ single day. Semver's promises about compatibility have nothing to describe here.
 The `version` fields in `package.json` and `app.json` are not this, and stay at
 `1.0.0`: npm expects semver there, and iOS allows at most three numbers.
 
+## Accounts and login files
+
+Added 2026-09-27, for two jobs: moving a login from one webyak to another
+(localhost to the live site) without the texted code, and letting a friend use
+webyak on your computer without signing you out.
+
+### Saved accounts
+
+**The active session is still the four keys it always was** (`webyak.token`,
+`webyak.userId`, `webyak.primaryGroup`, and the per-install `webyak.deviceId`).
+Beside them, `webyak.accounts` in `secureStorage` holds every account saved in
+this browser: token, user id, primary community, a label and an icon
+([src/api/accounts.ts](../src/api/accounts.ts)). A browser signed in from
+before the switcher gets its session saved on first load, so nothing changes
+for anyone who never adds a second account.
+
+- **Labels** come from `getUpdates().user`: `@username`, or else *Phone ending
+  1234* — only those four digits are kept — with the account's emoji and
+  colour. One `getUpdates()` after a sign-in, and on load for an account whose
+  icon was never looked up.
+- **Switching, adding and signing out reload the page.** It's the only reset sure
+  to be complete: query keys aren't per-account (`['chats', 'threads']` is the
+  same key for everyone), and module-level stores, open players and in-flight
+  requests would all otherwise carry one account's data under another.
+- **Signing out removes the account from the browser**, which is what a friend
+  wants when they're done. A `401` does too, since its token is what died. The
+  sign-in screen lists whatever is left.
+- **The device id is not per account.** Each install keeps its own, as a second
+  phone would.
+
+### What is per account, and what isn't
+
+Three settings moved to per-account keys, `<key>:<userId>`, via
+[src/lib/account-scope.ts](../src/lib/account-scope.ts): the selected
+community, the For You feed's seen posts, and chat read marks. Friends at one
+school share its feed and its group chats, so one person's reading would
+otherwise empty another's Unread. The first account to load after the change
+adopts the old unscoped value — it is the one that was signed in — and the old
+key is removed, so it can't be adopted twice.
+
+**The archive stays the browser's, not an account's.** It is a record of what
+this browser has seen, so a friend's session is archived into it too, and
+fields like `authored_by_user` and `vote_status` reflect whoever was signed in
+when a post was read. Splitting it per account would mean a second IndexedDB
+database. Not worth it for a guest's hour; revisit if an account is ever
+shared for long.
+
+### Login files
+
+A login file ([src/lib/login-file.ts](../src/lib/login-file.ts)) carries one
+account: user id, token, primary community, label, icon, when and where it was
+exported. **Not the device id.** It is JSON with only ciphertext in it:
+
+- **PBKDF2-SHA256, 600,000 rounds** (OWASP's current figure), stretches the
+  passphrase into an **AES-GCM-256** key, with a random 16-byte salt and 12-byte
+  IV per file. GCM's tag makes a wrong passphrase or an edited file fail
+  outright, instead of decrypting to garbage. About 70ms each way.
+- **The passphrase is at least 8 characters**, typed twice to export. A file
+  that asks for more than 5,000,000 rounds is refused rather than left to hang
+  the tab.
+- **An import checks the token before switching** (`checkToken`, a bare
+  `/v1/users/me` with that token, leaving the session's own alone), so a dead
+  login is refused on the spot. The id the token answers with wins over the
+  one in the file.
+- Web only: Web Crypto exists on https origins and on localhost, which is
+  everywhere webyak runs.
+- `.gitignore` covers `webyak-login*.json`, the name every export gets.
+
+**What the encryption does and doesn't protect.** It protects the file at rest:
+a login file left in Downloads on a shared computer is useless without its
+passphrase. It doesn't protect the browser it came from. The live token still
+sits in that browser's localStorage, readable by any script on the origin,
+exactly as before. That's why webyak ships no third-party scripts (README).
+
 ## URL shape
 
 **Decision: we do not mirror Yik Yak's URLs.** Their shape is built for SEO on a

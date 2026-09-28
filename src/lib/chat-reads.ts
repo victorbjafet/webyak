@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 
+import { accountKey } from './account-scope';
 import { cacheStorage } from './storage';
 
 /**
@@ -17,7 +18,9 @@ import { cacheStorage } from './storage';
  * that write these marks send it too.
  *
  * A mark is the chat's own `updated_at` when it was read, never this device's
- * clock, so a clock running fast can't swallow a message.
+ * clock, so a clock running fast can't swallow a message. Marks are kept per
+ * account too, since friends at one school share its group chats
+ * (src/lib/account-scope.ts).
  */
 
 const STORAGE_KEY = 'webyak.chatReads';
@@ -30,7 +33,10 @@ const MAX_CHATS = 500;
  * map itself is the snapshot `useChatReads` hands out.
  */
 let reads: ReadonlyMap<string, string> = new Map();
-let restored = false;
+/** Whose marks are loaded: `undefined` until the first restore. */
+let restoredFor: string | null | undefined;
+/** Where they persist. Nothing is written until an account has been restored. */
+let storageKey: string | null = null;
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -42,19 +48,27 @@ function later(current: string | undefined, next: string) {
 }
 
 function persist() {
-  void cacheStorage.setItem(STORAGE_KEY, JSON.stringify([...reads]));
+  if (storageKey) void cacheStorage.setItem(storageKey, JSON.stringify([...reads]));
 }
 
-export async function restoreChatReads() {
-  if (restored) return;
-  restored = true;
+/**
+ * Loads `userId`'s marks, or swaps to them from another account's. `null` is
+ * a session with no known id, which keeps the old unscoped key.
+ */
+export async function restoreChatReads(userId: string | null) {
+  if (restoredFor === userId) return;
+  const previous = restoredFor;
+  restoredFor = userId;
+  const key = userId ? await accountKey(STORAGE_KEY, userId) : STORAGE_KEY;
+  if (restoredFor !== userId) return; // another restore started meanwhile
+  if (previous !== undefined) reads = new Map();
+  storageKey = key;
+  const pending = reads.size > 0;
   try {
-    const raw = await cacheStorage.getItem(STORAGE_KEY);
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return;
+    const raw = await cacheStorage.getItem(key);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
     const stored = new Map<string, string>();
-    for (const entry of parsed) {
+    for (const entry of Array.isArray(parsed) ? parsed : []) {
       if (Array.isArray(entry) && typeof entry[0] === 'string' && typeof entry[1] === 'string') {
         stored.set(entry[0], entry[1]);
       }
@@ -66,10 +80,11 @@ export async function restoreChatReads() {
       stored.set(id, mark);
     }
     reads = stored;
-    emit();
   } catch {
     /* corrupt entry — start clean rather than failing the app */
   }
+  if (pending) persist();
+  emit();
 }
 
 /**

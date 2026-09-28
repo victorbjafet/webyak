@@ -29,7 +29,8 @@ posts, comments, polls, quote-reposts, deleting your own); communities and
 Explore; profiles and the You tab; messaging; and the local archive, with
 search, backfill and refresh. **Alerts**, built and checked against a live
 account on 2026-09-27. Chats now clear their unread state when opened, on this
-device.
+device. **An account switcher and encrypted login files** move a login between
+webyaks without the texted code, and let a friend sign in on your computer.
 
 **What's left, by what it's waiting on:**
 
@@ -37,12 +38,13 @@ device.
 |---|---|
 | **The Worker** (deferred by decision) | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. The client side of all four is built ([WORKER.md](docs/WORKER.md)) |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
-| **A probe run** | Chats: which request marks a chat read on the server (Q19), a write probe behind its own button. Alerts: `takedown_data` and any unlabelled type (Q14). Length limits (Q11). Where a bio lives (Q10) |
+| **A probe run** | Chats: what body `POST /v1/chats/read` wants (Q19). The route is found; the probe now reports the server's own error for each body it tries. Alerts: `takedown_data` and any unlabelled type (Q14). Length limits (Q11) |
 | **Nothing: buildable now** | Alerts follow-ups: B4 upvote counter, B1 score refresh, `takedown` alerts as B3's removal notice, `comment` alerts opening at their comment. The For You Unread filter re-filtering on return (Phase 5). Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Sorting your own posts by top (B7). Archive media back-fill. Phase 7 extras. Phase 9 polish |
-| **The owner** | Tick *Enforce HTTPS*. Run the length probes. Import the comment-recovery export |
+| **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Tick *Enforce HTTPS*. Run the length probes. Import the comment-recovery export |
 
 **Next:** with a chat unread (one the official app hasn't opened), run
-*Diagnostics → Chat read state* and bring back the report. Then the Worker.
+*Diagnostics → Chat read state* again and bring back the report. It now prints
+the server's error for each body it tries. Then the Worker.
 
 **How it's built:** Expo SDK 57 and expo-router, `web.output: "single"` (one
 SPA page), React 19.2 with the React Compiler, react-native-web 0.21, TanStack
@@ -213,8 +215,9 @@ Two things worth deciding before any of these start:
 
 ### Probe hygiene
 
-`/diagnostics` holds **seven** read-only probes, plus the upload and length
-probes behind their own buttons, down from eighteen. A probe earns its place by being able to change a decision; once its
+`/diagnostics` holds **two** read-only probes, the token control and Alerts
+(Q14), plus the length probes (Q11) and the chat read probe (Q19) behind their
+own buttons. That's down from eighteen; seven were retired on 2026-09-27. A probe earns its place by being able to change a decision; once its
 question is answered and written into `docs/API.md`, re-running it buries the
 results that still matter. Twelve were retired on 2026-09-11 — the table of what
 they answered is in
@@ -543,8 +546,9 @@ one list rather than two sources
       ([docs/API.md](docs/API.md#chats-dont-mark-read-from-here))
   - [x] webyak keeps its own per-device marks: opening a thread, or *Mark all
         read* on Chats, clears it here
-  - [ ] Q19: find the server call with *Diagnostics → Chat read state*, then send
-        it from the same two places, so the official app agrees
+  - [~] Q19: the route is `POST /v1/chats/read`, and its body is still unknown.
+        Once *Diagnostics → Chat read state* finds it, send it from the same two
+        places, so the official app agrees
 - [ ] `can_start_dm` on group-chat messages — presumably "you may DM this
       sender", but `/v1/chats/start` needs a `post_id`, so what such a DM would
       hang off is unclear
@@ -777,6 +781,14 @@ and comment it sees** — effectively a Yik Yak downloader
   - [x] `vbjfr.xyz` domain verification: the TXT record is in place
   - [ ] **Tick Enforce HTTPS** (repo → Settings → Pages). On 2026-09-27
         `http://webyak.vbjfr.xyz` still answered `200` instead of redirecting
+- [x] **Account switcher and login files** (2026-09-27). Several accounts per
+      browser, per-account settings, and a passphrase-sealed file that moves a
+      login to another webyak without the texted code
+      ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#accounts-and-login-files))
+  - [x] Tested end to end in a browser against a stand-in API: an old session
+        saved and named, its settings adopted, an export opened elsewhere, a
+        wrong passphrase refused, import, switch, and sign-out removing only
+        that account
 - [x] Version number, `yyyy.mm.dd.v`, bumped on every commit, and shown next to
       a *View source* link at the top of Settings. The rule is in
       [AGENTS.md](AGENTS.md), the reasoning in
@@ -821,8 +833,8 @@ Resolved ones are kept with their answer so they don't get re-asked.
   profile object."* **The fallback is in** (2026-09-27): `useMyIdentity` does
   the same, with offsides' own `typeof === 'string'` tests, so the You tab and
   Edit Profile read the real bio either way. What is still open is only which
-  path an account takes — **Diagnostics → Run probes → "Profile — where your bio
-  lives"** reports it by field shape, never the bio
+  path an account takes. Its probe was retired on 2026-09-27: this account
+  can't answer it, and the fallback covers both paths
   ([docs/API.md](docs/API.md#a-user-profile-is-a-group)).
   *First run, 2026-09-27:* the test account's `user` has **no `username`, `bio`
   or `description` key at all** — and that account has neither set, so the
@@ -867,11 +879,14 @@ Resolved ones are kept with their answer so they don't get re-asked.
   webyak, so the official app most likely marks them when its list is opened,
   without showing it.
 - **Q19 — which request marks a chat read on the server?** Opening a chat in
-  webyak doesn't (the owner, 2026-09-27), and no client has the call.
-  **Diagnostics → Chat read state** tries twelve candidates on one unread chat,
-  stopping when its `last_read_timestamp` moves
+  webyak doesn't (the owner, 2026-09-27), and no client has the call. *First
+  sweep, 2026-09-27:* ten of twelve candidates matched the control's `404`, so
+  they aren't routes. **`POST /v1/chats/read` answered `500`** to `{chat_id}` and
+  to `{chat_id, message_id}`: the route is real, and the body is wrong.
+  **Diagnostics → Chat read state** now sends it fourteen bodies and reports
+  the server's own error for each
   ([docs/API.md](docs/API.md#chats-dont-mark-read-from-here)). If none works,
-  it joins the traffic-capture list in Phase 8.
+  the answer is in the official app's traffic (Phase 8).
 ---
 
 ## 8. Risks

@@ -53,6 +53,14 @@ readable by whoever wrote it. Native builds use the platform keychain instead.
 Logging in requires a phone number, because that is how Yik Yak's auth works. The
 token it returns is a real account credential — treat it like a password.
 
+**Moving a login.** *Settings → Accounts → Export login file* writes the token
+to a file sealed with a passphrase you choose (PBKDF2 and AES-GCM in the
+browser), and *Use a login file instead* on another webyak's sign-in screen
+opens it. That's how to get from localhost to the live site without the texted
+code. Anyone with both the file and the passphrase can use the account, so
+delete the file once it's imported. The same card holds several accounts, for a
+friend on your computer; signing out removes one from the browser.
+
 ## Running it
 
 ```sh

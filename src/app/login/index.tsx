@@ -18,6 +18,7 @@ import {
 } from '@/api/auth';
 import { setAuthToken } from '@/api/client';
 import { useSession } from '@/api/session';
+import { LoginFileImport, SavedAccounts } from '@/components/accounts/sign-in-options';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
@@ -170,6 +171,7 @@ export default function LoginScreen() {
 
   return (
     <Screen title={copy.title}>
+      {step === 'phone' ? <SavedAccounts /> : null}
       <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <ThemedText type="small" themeColor="textSecondary">
           {copy.body}
@@ -195,6 +197,7 @@ export default function LoginScreen() {
               disabled={!isValidPhone(phone)}
               fullWidth
             />
+            <LoginFileImport />
           </>
         ) : null}
 
