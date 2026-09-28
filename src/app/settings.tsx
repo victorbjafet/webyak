@@ -7,6 +7,7 @@ import { useCurrentGroup } from '@/api/current-group';
 import { groupDisplayName, isForYouFeed } from '@/api/groups';
 import type { Group } from '@/api/types';
 import { AccountsCard } from '@/components/accounts/accounts-card';
+import { AppearanceCard } from '@/components/settings/appearance-card';
 import { ExternalLink } from '@/components/external-link';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
@@ -444,6 +445,8 @@ export default function SettingsScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <AccountsCard />
 
+        <AppearanceCard />
+
         {/* ---------------------------------------------------------------- */}
         <Card>
           <ThemedText type="bodyBold">Archive</ThemedText>
@@ -851,8 +854,8 @@ export default function SettingsScreen() {
         <Card>
           <ThemedText type="bodyBold">Diagnostics</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">
-            Probes that answer the API questions still open — share-code resolution, chat message
-            types, video thumbnails.
+            Probes that answer the API questions still open: alert types webyak has no label for
+            yet, and the length limits the server enforces.
           </ThemedText>
           <Button
             label="Open diagnostics"

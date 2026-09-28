@@ -8,6 +8,16 @@ hard-code a hex value outside that file.
 Dark is the primary theme and the default. Light exists and is kept working, but
 it is not what the app is designed around — Yik Yak's own web client is dark-only.
 
+**Settings → Appearance** picks Dark, Light or System (2026-09-28). System
+follows the device and says which it resolved to. The choice is per browser
+(`webyak.themePreference`) and applies immediately.
+
+**Open: brand text on light surfaces is about 2:1.** `brand` (`#10CEAC`) is
+the title color and the selected-tab color, and on white it measures roughly
+2:1, under WCAG's 4.5:1 for text (and 3:1 for large text). On dark it is about
+10:1. A darker text-only teal for light mode would fix it without touching the
+fills, but the palette is a decided one, so it waits on the owner (PLAN, Phase 9).
+
 ### The four decided colors
 
 | Role | Value | Where it appears |

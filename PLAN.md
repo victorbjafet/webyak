@@ -45,7 +45,7 @@ and let a friend sign in on your computer.
 | **Deploying the Worker** | Image attachments, video outside Safari, video thumbnails, pasted yikyak.com share links. **The Worker is built (2026-09-28)** in [worker/](worker/), every client path is wired to it, and both were tested end to end against stubs ([WORKER.md](docs/WORKER.md)). Deploying it is the owner's: [worker/SETUP.md](worker/SETUP.md), about ten minutes in the Cloudflare dashboard |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard. Needs a capture of the official app's traffic (Phase 8) |
 | **A probe run** | Length limits (Q11), which write. An agent can run them through Playwright, with the owner's OK. Q14 (Alerts) was answered by the first agent-run probe on 2026-09-28 |
-| **Nothing: buildable now** | Hiding a user's posts. The community sticker library. A theme switch (the provider exists, no control does). Archive media back-fill. Phase 7 extras. Phase 9 polish |
+| **Nothing: buildable now** | Hiding a user's posts. The community sticker library. Archive media back-fill. Phase 7 extras. Phase 9 polish |
 | **The owner** | Deploy the Worker ([worker/SETUP.md](worker/SETUP.md)) and set the `WORKER_URL` repository variable. Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). Run the length probes, or OK an agent running them |
 
 **Next:** the buildable Alerts follow-ups above, now that Q14 says what their
@@ -737,7 +737,9 @@ and comment it sees** — effectively a Yik Yak downloader
 - [ ] Keyboard shortcuts + shortcut help overlay
 - [ ] Multi-feed merged timeline
 - [ ] Desktop multi-column layout
-- [ ] Light/system theme toggle
+- [x] Light/system theme toggle — *Settings → Appearance*, 2026-09-28. Brand
+      text on light surfaces is ~2:1 and waits on a palette decision
+      ([DESIGN.md](docs/DESIGN.md#palette))
 - [ ] Draft autosave, offline cache, JSON export
 - [ ] PWA manifest + service worker
 - [ ] Redirect real Yik Yak URLs (`/cy/<group>/comments/<code>/<slug>`) to `/p/<code>`
@@ -796,7 +798,9 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/API.md](docs/API.md#a-user-profile-is-a-group))
 
 ### Phase 9 — polish & ship
-- [ ] Accessibility pass (focus order, labels, contrast, reduced motion)
+- [ ] Accessibility pass (focus order, labels, contrast, reduced motion).
+      ⛔ Contrast first needs a palette call: brand text on light surfaces is
+      ~2:1 ([DESIGN.md](docs/DESIGN.md#palette))
 - [ ] Rate-limit handling + friendly error surfaces
 - [ ] Responsive QA: 360px → 2560px
 - [ ] iOS/Android smoke test (universal comes nearly free)
