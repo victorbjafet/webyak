@@ -1563,6 +1563,25 @@ go out the first time the list loads.
 down here, re-running it produces output nobody reads and buries the one or two
 results that still matter.
 
+**Running them:** open `/diagnostics` in a signed-in webyak, press *Run
+probes*, and read the report on the page, or *Copy report* to paste it
+elsewhere. Only the length probes write, behind their own confirm.
+
+**What else writes to the account, when driving the app.** Nearly every write is
+a control pressed for that purpose: vote, post, comment, send a message, join,
+edit the bio, delete. Four happen on the way to something else:
+
+- **Opening a chat** marks it read on Yik Yak's server, so the official app
+  shows it read too ([marking a chat read](#marking-a-chat-read)).
+- **Loading the Chats list** sends any read marks this browser made that the
+  server doesn't have yet.
+- **Tapping an alert** marks it seen. Only viewing Alerts doesn't.
+- ***Mark all read***, on Chats or on Alerts.
+
+Everything else a session does only reads: feeds, posts, profiles, Explore,
+the read-only probes, and the archive, which writes to this browser's
+IndexedDB and never to the account.
+
 **Still asked, as of 2026-09-28** — the list at the top of
 [src/api/diagnostics.ts](../src/api/diagnostics.ts):
 

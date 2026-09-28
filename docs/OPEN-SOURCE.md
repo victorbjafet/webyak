@@ -86,6 +86,11 @@ produces our best documentation — run an authenticated probe, paste the result
 write down what it proved — is exactly the workflow that carries live
 credentials and personal data into tracked files.
 
+**The same goes for an agent driving a signed-in browser** (Playwright MCP,
+being set up from 2026-09-28). What it reads off the page is a probe result like
+any other. That browser's `localStorage` also holds the live token, which is
+never read out, printed or quoted.
+
 So, when writing up a probe result:
 
 - Write down **what it proved**, not **what it returned**. "The envelope is

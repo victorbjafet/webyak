@@ -31,8 +31,9 @@ type Filter = 'all' | 'unread';
  * **An alert is marked read when you act on it, never by being shown**: tap one,
  * or Mark all read. offsides behaves the same way (tap, or swipe it away), and it
  * keeps Unread meaningful — a list that cleared itself on sight would have
- * nothing left to filter. Whether the official app marks alerts on open instead
- * is PLAN Q18.
+ * nothing left to filter. The official app shows no read state for alerts at
+ * all, and most likely marks them when its list opens (PLAN Q18, answered
+ * 2026-09-27), so this state is webyak's own.
  *
  * Seen alerts stay listed, dimmed, where offsides hides them. Unread is the
  * owner's B2, a filter rather than the whole list.

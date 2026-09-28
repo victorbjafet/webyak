@@ -103,10 +103,13 @@ done. **Step 5 wasn't yet:** `http://` still answered `200` rather than
 redirecting to `https://`. GitHub's Pages settings API needs a token even for a
 public repo, so these checks are the only view available from here.
 
-**Rechecked 2026-09-28**, after the owner ticked *Enforce HTTPS*: at 07:15 UTC
-`http://` still answered `200`, fresh from GitHub (`Age: 0`) and past its
-10-minute cache, rather than a `301`. An enforced site redirects every plain
-request, so the setting hadn't taken. The checkbox needs a second look.
+**Step 5 done 2026-09-28.** The owner's first tick of *Enforce HTTPS* didn't
+take: at 07:15 UTC plain `http://` still answered `200`, fresh from GitHub
+(`Age: 0`) rather than from its cache. After a second try, at 07:31, every
+fresh `http://` request got a `301` to `https://`. One path still answered with
+a `404` from a cache entry made before the switch (`X-Cache: HIT`, and an `Age`
+reaching back past it). So read those two headers before deciding a plain-HTTP
+answer means the setting failed.
 
 ### GitHub Pages gotchas
 

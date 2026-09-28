@@ -17,7 +17,9 @@ Early, but usable. Reading works — feeds, sorting, posts, comments, polls,
 images, and video in Safari and on iPhone. Other browsers need the Worker for
 video. Writing works too: voting, composing, comments and replies,
 polls, quote-reposts and deleting your own content, all verified against the
-live API and confirmed to sync both ways with the official app.
+live API and confirmed to sync both ways with the official app. Direct
+messages, group chats and Alerts work as well, and a chat read here shows as
+read in the official app.
 
 **Known gap: image attachments are disabled.** The upload is a pre-signed `PUT`
 to Yik Yak's storage host, which a browser cannot issue — a cross-origin `PUT`
