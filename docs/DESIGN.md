@@ -461,6 +461,15 @@ implement, and it is what any destructive action must use.
   nothing is uploaded. It hides where the community sets
   `asset_library_visibility: "hide"`.
 
+### Drafts survive leaving
+
+- **The composer keeps what you typed.** Text, the three toggles and poll
+  options are saved half a second after each change, per account and per
+  target (a plain post, or each quote-repost), in this browser. On return they
+  come back with a quiet *Draft restored · Discard* under the box. Posting
+  clears it. An attached image isn't kept: it is a file in memory, not
+  something storage can hold.
+
 ### Anonymous is the default, and it is stated
 
 The composer defaults to anonymous, matching Yik Yak, and the toggle spells out

@@ -746,7 +746,8 @@ and comment it sees** — effectively a Yik Yak downloader
 - [x] Light/system theme toggle — *Settings → Appearance*, 2026-09-28. Brand
       text on light surfaces is ~2:1 and waits on a palette decision
       ([DESIGN.md](docs/DESIGN.md#palette))
-- [ ] Draft autosave, offline cache, JSON export
+- [~] Draft autosave, offline cache, JSON export. **Draft autosave done
+      2026-09-28** (per account and target; images aren't kept)
 - [ ] PWA manifest + service worker
 - [x] Redirect real Yik Yak URLs (`/cy/<group>/comments/<code>/<slug>`) to `/p/<code>`,
       and `/cy/<group>` to `/g/<group>` (2026-09-28)

@@ -22,6 +22,7 @@ import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 import { canPickImages, pickImage, releaseImage, type PickedImage } from '@/lib/image-picker';
 import { imageUploadEnabled } from '@/lib/worker';
+import { clearDraft, readDraft, writeDraft } from '@/lib/drafts';
 import { AuthedImage } from '@/components/authed-image';
 import { LibraryPicker } from '@/components/compose/library-picker';
 
@@ -37,7 +38,7 @@ export default function ComposeScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { current } = useCurrentGroup();
-  const { primaryGroup } = useSession();
+  const { primaryGroup, userId } = useSession();
   const params = useLocalSearchParams<{ repost?: string; group?: string }>();
 
   const [text, setText] = useState('');
@@ -53,6 +54,9 @@ export default function ComposeScreen() {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [focused, setFocused] = useState(false);
+  // Set when a saved draft was put back, so the screen can say so and offer to
+  // throw it away. Null otherwise.
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
 
   const create = useCreatePost();
   const quoted = usePost(params.repost);
@@ -71,6 +75,57 @@ export default function ComposeScreen() {
   // The preview is an object URL; dropping the screen without releasing it pins
   // the decoded bitmap for the life of the tab.
   useEffect(() => () => releaseImage(image), [image]);
+
+  /*
+    Drafts (src/lib/drafts.ts): put back once on open, then saved half a
+    second after each change. `draftReady` holds saving off until the restore
+    has run, so an empty first render can't overwrite the draft it's about to
+    restore.
+  */
+  const draftTarget = params.repost ?? 'new';
+  const [draftReady, setDraftReady] = useState(false);
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    void readDraft(userId, draftTarget).then((draft) => {
+      if (cancelled) return;
+      if (draft) {
+        setText(draft.text);
+        setAnonymous(draft.anonymous);
+        setDisableDMs(draft.disableDMs);
+        setDisableComments(draft.disableComments);
+        setPollOptions(draft.pollOptions);
+        setRestoredAt(draft.savedAt);
+      }
+      setDraftReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, draftTarget]);
+  useEffect(() => {
+    if (!userId || !draftReady) return;
+    const handle = setTimeout(() => {
+      void writeDraft(userId, draftTarget, {
+        text,
+        anonymous,
+        disableDMs,
+        disableComments,
+        pollOptions,
+      });
+    }, 500);
+    return () => clearTimeout(handle);
+  }, [userId, draftReady, draftTarget, text, anonymous, disableDMs, disableComments, pollOptions]);
+
+  const discardDraft = useCallback(() => {
+    setText('');
+    setAnonymous(true);
+    setDisableDMs(false);
+    setDisableComments(false);
+    setPollOptions(null);
+    setRestoredAt(null);
+    if (userId) void clearDraft(userId, draftTarget);
+  }, [userId, draftTarget]);
 
   const trimmed = text.trim();
   // Memoised because `submit` depends on it — a fresh array each render would
@@ -145,7 +200,13 @@ export default function ComposeScreen() {
       {
         // `back()` throws with nothing to go back to, which is the case when
         // /compose is opened cold from a pasted URL.
-        onSuccess: () => (router.canGoBack() ? router.back() : router.replace('/')),
+        onSuccess: () => {
+          // Held off first, so the pending save can't write it straight back.
+          setDraftReady(false);
+          if (userId) void clearDraft(userId, draftTarget);
+          if (router.canGoBack()) router.back();
+          else router.replace('/');
+        },
         onError: (e) =>
           setError(e instanceof Error ? e.message : "That didn't post. Try again."),
       },
@@ -162,6 +223,8 @@ export default function ComposeScreen() {
     params.repost,
     filledOptions,
     router,
+    userId,
+    draftTarget,
   ]);
 
   if (!groupId) {
@@ -226,6 +289,22 @@ export default function ComposeScreen() {
         />
 
         <View style={styles.counterRow}>
+          {restoredAt ? (
+            <View style={styles.draftNote}>
+              <ThemedText type="caption" themeColor="textTertiary">
+                Draft restored
+              </ThemedText>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Discard the draft"
+                onPress={discardDraft}
+                style={({ hovered }) => [styles.discard, hovered && { backgroundColor: theme.controlHover }]}>
+                <ThemedText type="caption" themeColor="textSecondary">
+                  Discard
+                </ThemedText>
+              </Pressable>
+            </View>
+          ) : null}
           <View style={styles.spacer} />
           <ThemedText
             type="caption"
@@ -391,6 +470,16 @@ export default function ComposeScreen() {
 }
 
 const styles = StyleSheet.create({
+  draftNote: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+  },
+  discard: {
+    paddingVertical: Spacing.half,
+    paddingHorizontal: Spacing.two,
+    borderRadius: Radius.pill,
+  },
   body: {
     gap: Spacing.three,
     paddingBottom: Spacing.five,
