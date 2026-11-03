@@ -519,8 +519,12 @@ it wrote. The emoji stays as the fallback, which is what it always was.
 #### ⛔ Video playback needs the worker
 
 > **The worker was deployed on 2026-11-02**, so the live site plays video
-> through its `/media` relay. Everything below still describes a build without
-> it.
+> through its `/media` relay. **Checked live the same day** in the Playwright
+> browser's Chromium: a video played at full resolution, and every segment
+> came back from `/media` as `200 video/MP2T`. Chrome's own HLS player still
+> tries first: it fails on one direct R2 segment before hls.js takes over, so
+> playback starts a little later than it has to. Everything below still
+> describes a build without the worker.
 
 **Found 2026-09-27, after "videos don't load at all any more".** Three causes
 stacked, and only the last is outside our code:
@@ -607,6 +611,21 @@ throws.
 
 Without the worker, the poster renders a neutral panel with a video glyph
 rather than nothing, so a video reads as a video.
+
+**Live check, 2026-11-02: posters still don't load, because their URL is on
+another host.** On the live site, the poster of the one video checked came
+from `<a school's name>.tasted.nyc/v1/assets?post_id=…&asset_id=…`, not from
+`api.sidechat.lol`. That host is the API under another name: it resolves to
+the same three addresses, its certificate has the same issuer, and it answers
+an unauthenticated `/v1/users/me` with the same Express `401`. Neither
+sidechat.js nor offsides knows about it. [asset-url.ts](../src/lib/asset-url.ts)
+sends the bearer only to `api.sidechat.lol`, so the poster loads with no
+token, gets a 401 and falls back to the panel. The Worker's `/asset` refuses
+every host but `api.sidechat.lol` as well, so the relay never runs.
+**Proposed fix, waiting on the owner's OK:** rewrite that alias host to
+`api.sidechat.lol` before fetching, so the bearer still goes only to the host
+it always has. **Bites at: Phase 3, every video poster
+(`post-video.web.tsx`).**
 
 > This is the third time the same underlying rule has bitten: **on the web,
 > `fetch` + `Authorization` cannot follow a redirect.** Profile photos escaped it
@@ -1832,6 +1851,11 @@ would make it useless for exactly the posts this account shares. It should be
 verified against a public-community code before any worker work starts, because
 it could remove the route's justification entirely. The worker's other jobs —
 image upload, video thumbnails and video playback — are unaffected.
+
+**Public communities verified 2026-11-02.** A share code from a public
+community, resolved through the deployed Worker's `/post/:code`, came back
+`200` with the post and its id. A made-up code answered `not_found`. Whether
+school-community codes resolve is still the open question above.
 
 
 ## Crawling politely

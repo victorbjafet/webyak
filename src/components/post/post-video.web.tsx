@@ -305,9 +305,11 @@ export function PostVideo({
             header means 401, header means a blocked redirect. It needs the
             worker's asset relay — docs/API.md#-video-thumbnails-need-the-worker.
 
-            Left in place because it costs nothing and starts working the moment
-            the relay exists. `fallback` is what actually renders today: a
-            neutral panel, so a video reads as a video rather than a black hole.
+            The relay was deployed on 2026-11-02, but posters still don't reach
+            it: the API now hands out their URLs on an alias host, which
+            `assetNeedsAuth` doesn't count as the API (same doc). `fallback` is
+            what actually renders: a neutral panel, so a video reads as a video
+            rather than a black hole.
           */}
           {/* Not when blocked: its glyph would show through the label, and a
               blocked video has no poster either — thumbnails need the worker too. */}

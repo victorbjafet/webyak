@@ -52,9 +52,11 @@ files** move a login between webyaks without the texted code.
 
 **The Worker is deployed (2026-11-02)**, on its own subdomain of the site's
 domain, and the live site is built with its address (the `WORKER_URL`
-repository variable). That turns on image uploads, video outside Safari,
-video thumbnails and pasted yikyak.com share links on the live site
-([WORKER.md](docs/WORKER.md)).
+repository variable). Checked on the live site that day: video plays in
+Chromium, public-community share codes resolve, and the composer offers
+*Photo*. Video thumbnails still don't show: their URLs now come on an alias
+host of the API (below). An image post through `/upload` hasn't been tried,
+since it's a write ([WORKER.md](docs/WORKER.md)).
 
 **What's left, by what it's waiting on:**
 
@@ -62,7 +64,7 @@ video thumbnails and pasted yikyak.com share links on the live site
 |---|---|
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard, acknowledging a removal. Needs a capture of the official app's traffic (Phase 8) |
 | **A write, with the owner's OK** | Hiding someone's posts, once, to see what the server does with it. One post with a *Library* image, to confirm the API takes a library id. One post with an uploaded image, the first through the deployed Worker's `/upload`. The length probes (Q11). An agent can run each through Playwright |
-| **An owner decision** | What the desktop multi-column layout should show, and whether a multi-feed timeline adds anything over For You (Phase 7). A darker brand text color for light mode, which is ~2:1 on white (Phase 9). How much archive media to back-fill, now that the Worker is up. Whether deep archive history should refresh on a schedule |
+| **An owner decision** | What the desktop multi-column layout should show, and whether a multi-feed timeline adds anything over For You (Phase 7). A darker brand text color for light mode, which is ~2:1 on white (Phase 9). Whether video posters may be fetched from `api.sidechat.lol` when the API hands out an alias host for them (Phase 3, [API.md](docs/API.md#-video-thumbnails-need-the-worker)). How much archive media to back-fill, now that the Worker is up. Whether deep archive history should refresh on a schedule |
 | **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested) |
 | **Nothing: buildable now** | Tablet-width QA, the rest of the accessibility pass (labels audit), iOS/Android smoke test (Phase 9) |
 
@@ -497,22 +499,27 @@ Full checklist and pre-scan findings:
         a 302 a preflighted request may not follow. Needs the worker's asset
         relay ([docs/WORKER.md](docs/WORKER.md#get-asset)), **deployed
         2026-11-02**. Without it, the poster falls back to a neutral panel
-        instead of a black box
+        instead of a black box. ⛔ **Still the panel on the live site
+        (2026-11-02):** poster URLs now come on an alias host of the API that
+        neither the client nor `/asset` recognises. The fix, rewriting it to
+        `api.sidechat.lol`, waits on the owner's OK
+        ([docs/API.md](docs/API.md#-video-thumbnails-need-the-worker))
         ([docs/API.md](docs/API.md#-video-thumbnails-need-the-worker))
   - [x] Video preloading — **fixed 2026-09-27.** Not the `preload` attribute
         or hls.js config it was filed under: the player destroyed its own
         hls.js instance the moment it attached, from 2026-08-27, so nothing
         buffered and nothing played on that path
         ([docs/API.md](docs/API.md#videos-were-not-preloading--fixed-2026-09-27))
-  - [~] **Video playback outside Safari — needs the worker, now deployed.**
+  - [x] **Video playback outside Safari — needs the worker, now deployed.**
         Segments moved to Cloudflare R2, which sends no CORS headers, and
         Chrome 153's own HLS player fails on them too, so they go through the
         worker's `/media` relay
         ([docs/API.md](docs/API.md#-video-playback-needs-the-worker)). A build
         without the worker still labels a video *Blocked until the worker is
         set up* in every browser but Apple's and requests nothing. **The
-        Worker's `/media` is built (2026-09-28) and deployed (2026-11-02)**;
-        playback on the live site is still to be checked
+        Worker's `/media` is built (2026-09-28) and deployed (2026-11-02)**,
+        and a video played through it on the live site in Chromium the same
+        day
   - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
         URL, so feed avatars would need a profile lookup per author
 - [x] Explore page: group grid, member counts, icons. Two columns above 720px,

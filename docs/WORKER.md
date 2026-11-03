@@ -66,7 +66,8 @@ One required route and one optional one, both the same shape: fetch a SvelteKit
 >    "couldn't find that post" for a Virginia Tech code. If it only serves
 >    publicly visible communities, this route cannot resolve a school-community
 >    post no matter how it is built. **Verify against a public-community code
->    before building it.**
+>    before building it.** *(Verified 2026-11-02: public-community codes
+>    resolve.)*
 >
 > `POST /upload` and `GET /asset` are unaffected and remain required.
 
@@ -299,8 +300,13 @@ Decisions made while writing it, beyond the spec above:
 - **Workers Logs off.** New Workers log each request by default, which would
   record `/asset` and `/media` URLs. [wrangler.jsonc](../worker/wrangler.jsonc)
   disables it, and SETUP.md step 3 does the same in the dashboard.
-- **`/post/:code` is still unverified against a real public-community code.**
-  The warning under [`GET /post/:code`](#get-postcode) stands.
+- **`/post/:code` works for public communities**, verified 2026-11-02 through
+  the deployed Worker with a real public-community code. For school
+  communities, the warning under [`GET /post/:code`](#get-postcode) stands.
+- **`/asset` doesn't reach video posters yet** (2026-11-02). The API now
+  hands out poster URLs on an alias host of its own, which neither the client
+  nor this route recognises as the API
+  ([API.md](API.md#-video-thumbnails-need-the-worker)).
 
 **Rebuild with `--clear` after setting it.** `EXPO_PUBLIC_*` variables are
 inlined when a file is transformed, and `expo export` reuses its transform cache:
