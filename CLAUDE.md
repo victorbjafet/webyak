@@ -59,7 +59,7 @@ obvious from the code or `git log`.
 | [docs/API.md](docs/API.md) | Sidechat API behaviour, auth flow, ID resolution, endpoint probes, sidechat.js defects |
 | [docs/DESIGN.md](docs/DESIGN.md) | Color tokens, type scale, layout rules, component conventions |
 | [docs/OFFSIDES.md](docs/OFFSIDES.md) | What the reference Android client already solved, and where we diverge |
-| [docs/WORKER.md](docs/WORKER.md) | The deferred Cloudflare Worker: why, what it does, how to wire it in |
+| [docs/WORKER.md](docs/WORKER.md) | The Cloudflare Worker (deployed 2026-11-02): why, what each route does, how the client is wired to it |
 | [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | Release audit before going public: what must be scrubbed, the standing pre-commit rule |
 
 ## Check offsides first

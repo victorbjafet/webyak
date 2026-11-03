@@ -183,8 +183,12 @@ unflattens, and re-serves as clean JSON with CORS — which is exactly the
 [ARCHITECTURE.md](ARCHITECTURE.md#where-serverless-stops-working). It would also
 make real Yik Yak share links openable in webyak.
 
-**Status: awaiting a decision on standing up that worker.** Until then `/p/<code>`
-works from in-app navigation (the UUID is in cache) and fails on cold load.
+**Status: that worker route exists, deployed 2026-11-02** as the Worker's
+`/post/:code` ([WORKER.md](WORKER.md)). It is the third layer of
+`usePostIdByCode`, after the live cache and the archive, so a cold load of
+`/p/<code>` resolves for public communities. Before the deploy, `/p/<code>`
+worked from in-app navigation (the UUID is in cache) and failed on cold load,
+which is still what a build without the Worker does.
 
 **Bites at: Phase 3, `src/app/p/[code].tsx`.**
 
@@ -514,6 +518,10 @@ it wrote. The emoji stays as the fallback, which is what it always was.
 
 #### ⛔ Video playback needs the worker
 
+> **The worker was deployed on 2026-11-02**, so the live site plays video
+> through its `/media` relay. Everything below still describes a build without
+> it.
+
 **Found 2026-09-27, after "videos don't load at all any more".** Three causes
 stacked, and only the last is outside our code:
 
@@ -553,7 +561,7 @@ with CORS. The client side is built and inert — `post-video.web.tsx` rewrites 
 segment URLs through `${EXPO_PUBLIC_WORKER_URL}/media` when it is set — and was
 tested end to end with a stand-in relay: the video buffers ahead and plays.
 
-Until then:
+Without the worker:
 
 - **Every browser but Apple's** labels the video *"Blocked until the worker is
   set up"* straight away and requests nothing — no play button to press and
@@ -593,11 +601,12 @@ redirected somewhere the browser refused to follow.
 This is the same wall as image upload, and it wants the same fix: an
 authenticated **asset relay** in the worker, which forwards the bearer and
 follows the redirect server-side where CORS does not apply
-([WORKER.md](WORKER.md#get-asset)).
+([WORKER.md](WORKER.md#get-asset)). **That relay was deployed on
+2026-11-02**: `AuthedImage` retries through `/asset` when the direct fetch
+throws.
 
-Until then the poster renders a neutral panel with a video glyph rather than
-nothing, so a video reads as a video. The `AuthedImage` call is left in place —
-it costs nothing and starts working the moment the relay exists.
+Without the worker, the poster renders a neutral panel with a video glyph
+rather than nothing, so a video reads as a video.
 
 > This is the third time the same underlying rule has bitten: **on the web,
 > `fetch` + `Authorization` cannot follow a redirect.** Profile photos escaped it
@@ -1118,8 +1127,10 @@ account (a write, so it needs the owner's OK):
 
 ### ⛔ Image upload is blocked by CORS
 
-**Found 2026-08-27, unresolved.** Attaching an image fails with `Failed to
-fetch`, with or without caption text.
+**Found 2026-08-27. Worked around by the Worker's `/upload` relay, deployed
+2026-11-02** ([WORKER.md](WORKER.md#post-upload)); no image has been posted
+through the deployed relay yet. From a static origin alone, attaching an image
+fails with `Failed to fetch`, with or without caption text.
 
 The two-step upload works like this, and only the first step succeeds:
 

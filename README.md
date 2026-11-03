@@ -14,19 +14,22 @@ static origin (see below), and a small Cloudflare Worker is specced to relay it.
 ## Status
 
 Early, but usable. Reading works — feeds, sorting, posts, comments, polls,
-images, and video in Safari and on iPhone. Other browsers need the Worker for
-video. Writing works too: voting, composing, comments and replies,
+images, and video (in Safari and on iPhone on their own; other browsers through
+the Worker). Writing works too: voting, composing, comments and replies,
 polls, quote-reposts and deleting your own content, all verified against the
 live API and confirmed to sync both ways with the official app. Direct
 messages, group chats and Alerts work as well, and a chat read here shows as
 read in the official app.
 
-**Known gap: image attachments are disabled.** The upload is a pre-signed `PUT`
-to Yik Yak's storage host, which a browser cannot issue — a cross-origin `PUT`
-always preflights and that bucket answers no preflight from our origin. Native
-clients never hit this because CORS doesn't exist for them. The fix is a small
-relay in the Worker; the control stays hidden until one is configured, rather
-than offering an upload that provably cannot finish.
+**Image attachments and video need the Worker.** An image upload is a
+pre-signed `PUT` to Yik Yak's storage host, which a browser cannot issue — a
+cross-origin `PUT` always preflights and that bucket answers no preflight from
+our origin — and video segments come from a host that sends no CORS headers.
+Native clients never hit either, because CORS doesn't exist for them. A small
+Cloudflare Worker ([worker/](worker/)) relays both, and the live site has used
+one since 2026-11-02. A build without one hides the attach control and labels
+videos blocked outside Safari, rather than offering something that provably
+cannot finish. [worker/SETUP.md](worker/SETUP.md) sets one up;
 [docs/API.md](docs/API.md#-image-upload-is-blocked-by-cors) has the detail.
 
 It also keeps a **local archive** of every post and comment it sees — text,
@@ -99,7 +102,7 @@ Everything non-obvious is written down as it is discovered — that rule is in
 | [docs/API.md](docs/API.md) | What the Sidechat API actually does: auth flow, ID resolution, probe results, library defects |
 | [docs/DESIGN.md](docs/DESIGN.md) | Color tokens, type scale, layout rules |
 | [docs/OFFSIDES.md](docs/OFFSIDES.md) | What the reference Android client solved first, and where we diverge |
-| [docs/WORKER.md](docs/WORKER.md) | The deferred Cloudflare Worker |
+| [docs/WORKER.md](docs/WORKER.md) | The Cloudflare Worker: why it exists and what each route does |
 | [docs/OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | Secret-hygiene rules for contributing |
 
 ## Contributing

@@ -99,7 +99,7 @@ export function PostVideo({
   const poster = asset.thumbnail_asset?.url;
   const ratio = asset.width && asset.height ? asset.width / asset.height : 16 / 9;
 
-  // Blocked until the worker exists, in every browser but Apple's — see
+  // Blocked in a build without the worker, in every browser but Apple's — see
   // `hasApplePlayer`. Nothing is attached, so nothing is requested.
   const blocked = !workerEndpoint('/media') && !hasApplePlayer();
 

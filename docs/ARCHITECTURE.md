@@ -65,10 +65,11 @@ actions. It can also be started by hand from the Actions tab.
 
 No secrets are involved. The workflow has no `.env`; its build step reads the
 Worker's address from the repository **variable** `WORKER_URL` and passes it
-as `EXPO_PUBLIC_WORKER_URL`. Until that variable is set, everything that needs
-the Worker stays in its not-set-up state (image attachments hidden, videos
-labelled blocked outside Safari) ([WORKER.md](WORKER.md)). It is a public URL,
-not a secret, and `EXPO_PUBLIC_*` values are inlined into the bundle anyway.
+as `EXPO_PUBLIC_WORKER_URL`. It has been set since 2026-11-02, when the Worker
+was deployed. A build without it (a fork, say) keeps everything that needs the
+Worker in its not-set-up state: image attachments hidden, and videos labelled
+blocked outside Safari ([WORKER.md](WORKER.md)). It is a public URL, not a
+secret, and `EXPO_PUBLIC_*` values are inlined into the bundle anyway.
 
 **Why Actions, not the `gh-pages` branch** that Expo's own guide uses: nothing
 built is committed, every deploy is a clean build of exactly what was pushed, and
@@ -151,7 +152,7 @@ Currently: nowhere. Tracked so we notice the moment it changes.
 | Deep links / routing | ✅ | via the `404.html` fallback above |
 | Images and video in posts | ✅ **verified** | Mixed: some URLs are pre-signed, some need the bearer. Both work client-side — `AuthedImage` fetches the authenticated ones to a blob. No proxy needed. [Rules](API.md#asset-urls-and-auth--corrected) |
 | Cold-load group links (`/g/<slug>`) | ✅ **verified** | Resolved natively via `/v1/groups/explore/search` — [Blocker 2 closed](API.md#blocker-2--group-slug--group_id---closed) |
-| **Cold-load share links** (`/p/<id>`) | ✅ | Solved without a server: webyak links carry the post **id**, which `getPost` resolves cold. The share *code* is still unresolvable, but nothing of ours depends on it any more ([API.md](API.md#blocker-1-resolved--by-changing-the-url-not-the-api)). |
+| **Cold-load share links** (`/p/<id>`) | ✅ | Solved without a server: webyak links carry the post **id**, which `getPost` resolves cold. The API still can't resolve a share *code*, but nothing of ours depends on it any more; a pasted yikyak.com code goes through the Worker's `/post/:code` ([API.md](API.md#blocker-1-resolved--by-changing-the-url-not-the-api)). |
 | Logged-out browsing | ❌ | Out of scope — webyak is auth-only |
 | Push notifications | ❌ | Needs a server to hold subscriptions. Out of scope; polling only |
 | Hiding a secret | ❌ | We have none. If that ever changes, it needs a worker |
@@ -159,9 +160,9 @@ Currently: nowhere. Tracked so we notice the moment it changes.
 ### The Worker question — deferred, then built
 
 **Built 2026-09-28** in [worker/](../worker/): one dependency-free file with
-five routes, deployed from the Cloudflare dashboard
-([worker/SETUP.md](../worker/SETUP.md)). What follows is why it was deferred
-at first.
+five routes. **Deployed 2026-11-02** from the Cloudflare dashboard
+([worker/SETUP.md](../worker/SETUP.md)), on a custom subdomain of the site's
+domain. What follows is why it was deferred at first.
 
 Everything except one thing is static-only. That one thing is resolving a
 **share code** on a cold load: the authenticated API has no endpoint for it at

@@ -1,12 +1,13 @@
 # The Cloudflare Worker
 
-**Status: built 2026-09-28, not yet deployed.** The code is
-[worker/src/index.js](../worker/src/index.js), one file with no dependencies,
-so it can be pasted into the Cloudflare dashboard. **Deploying it is
-[worker/SETUP.md](../worker/SETUP.md)**, a step-by-step guide for the
-dashboard. Every client hook below is wired to it, so deploying and setting
-the URL is the whole job. `cd worker && npm test` runs every route in Node
-against stubbed upstreams.
+**Status: built 2026-09-28, deployed 2026-11-02.** The owner deployed it from
+the Cloudflare dashboard by following [worker/SETUP.md](../worker/SETUP.md),
+on a custom subdomain of the site's own domain (that guide's *Using your own
+domain*). The live site's build has its address through the `WORKER_URL`
+repository variable. The code is [worker/src/index.js](../worker/src/index.js),
+one file with no dependencies, so it can be pasted into the dashboard. Every
+client hook below is wired to it. `cd worker && npm test` runs every route in
+Node against stubbed upstreams.
 
 This file was the spec before the code existed, and it still says why each
 route exists. [What was built](#what-was-built) records the choices made
@@ -274,6 +275,7 @@ never sees your `.env`; its build step passes `vars.WORKER_URL` as
 `EXPO_PUBLIC_WORKER_URL`. Set it under the repo's *Settings → Secrets and
 variables → Actions → Variables* ([SETUP.md](../worker/SETUP.md), step 5). It is
 a public URL that ends up in the bundle either way, so it needs no secret.
+It has been set since 2026-11-02.
 
 ## What was built
 

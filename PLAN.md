@@ -17,7 +17,7 @@ The rule for keeping them current is in [CLAUDE.md](CLAUDE.md).
 ## 1. Current state
 
 *The at-a-glance answer to "where are we?" Kept current with every change that
-moves an item between these groups; §6 holds the detail. Updated 2026-09-28.
+moves an item between these groups; §6 holds the detail. Updated 2026-11-02.
 This section used to be a snapshot of the day-one scaffold, still describing a
 one-commit repo and `web.output: "static"` a month later.*
 
@@ -50,18 +50,23 @@ files** move a login between webyaks without the texted code.
 - **The Cloudflare Worker**, built in [worker/](worker/) with a dashboard
   setup guide, and every client path wired to it.
 
+**The Worker is deployed (2026-11-02)**, on its own subdomain of the site's
+domain, and the live site is built with its address (the `WORKER_URL`
+repository variable). That turns on image uploads, video outside Safari,
+video thumbnails and pasted yikyak.com share links on the live site
+([WORKER.md](docs/WORKER.md)).
+
 **What's left, by what it's waiting on:**
 
 | Waiting on | Items |
 |---|---|
-| **Deploying the Worker** | Image uploads, video outside Safari, video thumbnails, pasted yikyak.com share links. **Built and wired** ([WORKER.md](docs/WORKER.md)), tested end to end against stubs. Deploying it is [worker/SETUP.md](worker/SETUP.md), about ten minutes in the Cloudflare dashboard, then the `WORKER_URL` repository variable |
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard, acknowledging a removal. Needs a capture of the official app's traffic (Phase 8) |
-| **A write, with the owner's OK** | Hiding someone's posts, once, to see what the server does with it. One post with a *Library* image, to confirm the API takes a library id. The length probes (Q11). An agent can run each through Playwright |
-| **An owner decision** | What the desktop multi-column layout should show, and whether a multi-feed timeline adds anything over For You (Phase 7). A darker brand text color for light mode, which is ~2:1 on white (Phase 9). How much archive media to back-fill, once the Worker is up. Whether deep archive history should refresh on a schedule |
+| **A write, with the owner's OK** | Hiding someone's posts, once, to see what the server does with it. One post with a *Library* image, to confirm the API takes a library id. One post with an uploaded image, the first through the deployed Worker's `/upload`. The length probes (Q11). An agent can run each through Playwright |
+| **An owner decision** | What the desktop multi-column layout should show, and whether a multi-feed timeline adds anything over For You (Phase 7). A darker brand text color for light mode, which is ~2:1 on white (Phase 9). How much archive media to back-fill, now that the Worker is up. Whether deep archive history should refresh on a schedule |
 | **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested) |
 | **Nothing: buildable now** | Tablet-width QA, the rest of the accessibility pass (labels audit), iOS/Android smoke test (Phase 9) |
 
-**Next:** deploy the Worker, and answer the decisions above. **Playwright MCP
+**Next:** answer the decisions above. **Playwright MCP
 works** (2026-09-28): the owner is signed in to webyak in its browser, on the
 dev server at `localhost:8081`, and an agent drives the app and runs read-only
 probes itself. That browser holds the real account; the rules for driving it
@@ -301,7 +306,8 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
       confirmed dead (`NOT_FOUND_ERROR`); search crashed on a library defect
 - [x] Search wrapper defect found and bypassed (`coerceGroupList`)
 - [x] Worker **deferred by decision**, fully specified in [docs/WORKER.md](docs/WORKER.md);
-      client hooks in place and inert. **Built 2026-09-28** in [worker/](worker/)
+      client hooks in place and inert. **Built 2026-09-28** in [worker/](worker/),
+      **deployed 2026-11-02**
 - [x] Round-3 probes run — **Blocker 2 closed**. Search envelope is `{groups}`,
       not `results`; layer 4 resolves groups outside explore
 - [x] Unicode slugs handled (`wsu-wordle-🧩` is a real `index_name`)
@@ -311,8 +317,8 @@ Verified: `tsc --noEmit` clean, `expo lint` clean, `expo export --platform web` 
 
 > Both ID blockers are **closed**. Blocker 2: `/g/<slug>` resolves for any group.
 > Blocker 1: the API still cannot resolve a share code, but share links carry the
-> post **id** now, so they open cold — only *pasted yikyak.com codes* are still
-> unresolvable
+> post **id** now, so they open cold. *Pasted yikyak.com codes* resolve through
+> the Worker's `/post/:code`, deployed 2026-11-02, for public communities
 > ([docs/API.md](docs/API.md#blocker-1-resolved--by-changing-the-url-not-the-api)).
 > Read [docs/API.md](docs/API.md#two-id-resolution-blockers) before starting.
 > The feed helpers in `src/api/feed.ts` are **not optional** — see
@@ -410,8 +416,9 @@ Full checklist and pre-scan findings:
       ([docs/API.md](docs/API.md#-image-upload-is-blocked-by-cors)). ⛔ **Needs
       the Worker's `POST /upload` relay** ([docs/WORKER.md](docs/WORKER.md#post-upload))
       — the first hard dependency on it. **Relay built and wired 2026-09-28**;
-      an image post went through it end to end against stubs. Waiting to be
-      deployed
+      an image post went through it end to end against stubs. **Deployed
+      2026-11-02**; the first real image post through it waits on the owner's
+      OK, since it is a write
 - [x] **Attach control disabled 2026-08-27** until that relay exists. Gated on
       `EXPO_PUBLIC_WORKER_URL` in [src/lib/worker.ts](src/lib/worker.ts), not on
       a hand-flipped flag — deploying the worker turns it back on by itself,
@@ -488,22 +495,24 @@ Full checklist and pre-scan findings:
         routes are closed. No header → the endpoint is a hard 401 (verified
         directly, unlike `/v1/assets/profile`). With the header → preflight, then
         a 302 a preflighted request may not follow. Needs the worker's asset
-        relay ([docs/WORKER.md](docs/WORKER.md#get-asset)). The poster now falls
-        back to a neutral panel instead of a black box
+        relay ([docs/WORKER.md](docs/WORKER.md#get-asset)), **deployed
+        2026-11-02**. Without it, the poster falls back to a neutral panel
+        instead of a black box
         ([docs/API.md](docs/API.md#-video-thumbnails-need-the-worker))
   - [x] Video preloading — **fixed 2026-09-27.** Not the `preload` attribute
         or hls.js config it was filed under: the player destroyed its own
         hls.js instance the moment it attached, from 2026-08-27, so nothing
         buffered and nothing played on that path
         ([docs/API.md](docs/API.md#videos-were-not-preloading--fixed-2026-09-27))
-  - [ ] ⛔ **Video playback — blocked by the worker** outside Safari. Segments
-        moved to Cloudflare R2, which sends no CORS headers, and Chrome 153's
-        own HLS player fails on them too. Until the worker's `/media` relay
-        exists, every browser but Apple's labels a video *Blocked until the
-        worker is set up* and requests nothing; the download plays in VLC. The
-        client side of the relay is built and tested
-        ([docs/API.md](docs/API.md#-video-playback-needs-the-worker)). **The
-        Worker's `/media` is built (2026-09-28)**; plays once it's deployed
+  - [~] **Video playback outside Safari — needs the worker, now deployed.**
+        Segments moved to Cloudflare R2, which sends no CORS headers, and
+        Chrome 153's own HLS player fails on them too, so they go through the
+        worker's `/media` relay
+        ([docs/API.md](docs/API.md#-video-playback-needs-the-worker)). A build
+        without the worker still labels a video *Blocked until the worker is
+        set up* in every browser but Apple's and requests nothing. **The
+        Worker's `/media` is built (2026-09-28) and deployed (2026-11-02)**;
+        playback on the live site is still to be checked
   - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
         URL, so feed avatars would need a profile lookup per author
 - [x] Explore page: group grid, member counts, icons. Two columns above 720px,
@@ -630,12 +639,13 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#integrity-checking-local-medians-not-a-flat-average))
 - [ ] ⛔ **Media back-fill** — download the bytes for flagged attachments. The
       schema and flags exist; the fetching does not. **Blocked (2026-09-28)
-      on the Worker and a decision.** Post images are presigned R2 URLs: an
-      `<img>` shows them, but R2 sends no CORS headers, so JavaScript can't
-      read the bytes to store them without the Worker's `/media` relay. Old
-      URLs have expired, so each post needs a fresh read first. And across an
-      archive of hundreds of thousands of posts, how much to fetch and keep is
-      a storage and account-risk call for the owner
+      on the Worker and a decision; since 2026-11-02, the Worker is
+      deployed and only the decision is left.** Post images are presigned R2
+      URLs: an `<img>` shows them, but R2 sends no CORS headers, so
+      JavaScript can't read the bytes to store them without the Worker's
+      `/media` relay. Old URLs have expired, so each post needs a fresh read
+      first. And across an archive of hundreds of thousands of posts, how
+      much to fetch and keep is a storage and account-risk call for the owner
 - [x] **Search over the archive** — a `multiEntry` token index built at write
       time, which is IndexedDB's native inverted index. Terms resolve to ids,
       intersect, and only survivors are deserialized
@@ -901,7 +911,8 @@ Resolved ones are kept with their answer so they don't get re-asked.
   slug → group.
 - **Q7 — the Cloudflare Worker.** ✅ Decided: yes eventually, deferred at first.
   **Built 2026-09-28**: five routes, no state, no secrets, one file in
-  [worker/](worker/). Deploying it is [worker/SETUP.md](worker/SETUP.md).
+  [worker/](worker/). **Deployed 2026-11-02** by the owner, following
+  [worker/SETUP.md](worker/SETUP.md), on a custom subdomain.
 - **Q8 — does group search work?** ✅ Resolved: yes. The envelope is `{groups}`;
   sidechat.js reads `results`, which is why it appeared broken. This closed
   Blocker 2.
@@ -982,7 +993,8 @@ Resolved ones are kept with their answer so they don't get re-asked.
   and video thumbnails for one reason — a browser request carrying an `Authorization` header
   cannot follow a redirect — and **video playback** (2026-09-27) for another: the segments are on
   a host that sends no CORS headers. Everything else works from a static origin
-  ([docs/WORKER.md](docs/WORKER.md)). Share links used to be a third; they are not, since webyak
+  ([docs/WORKER.md](docs/WORKER.md)). That proxy is the Worker, deployed 2026-11-02: if it is
+  down, those three fail, and the rest of the app doesn't notice. Share links used to be a third; they are not, since webyak
   links now carry the post id
   ([docs/API.md](docs/API.md#blocker-1-resolved--by-changing-the-url-not-the-api)).
 - **Private API.** sidechat.js is reverse-engineered and unofficial. Endpoints can change or break
