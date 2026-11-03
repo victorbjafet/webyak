@@ -31,7 +31,8 @@ code is one file, [src/index.js](src/index.js), with no dependencies.
 
 You land on the Worker's page. Its address is shown there, in the form
 `https://webyak-worker.<your-subdomain>.workers.dev`. Copy it; steps 5 and 6
-need it.
+need it. To serve it from a domain of your own instead, follow the steps here
+first, then [Using your own domain](#using-your-own-domain-optional).
 
 ## 2. Replace the code with webyak's
 
@@ -116,6 +117,61 @@ site's JavaScript either way. It isn't sensitive.
   curl -s -H "Origin: https://example.com" https://webyak-worker.<your-subdomain>.workers.dev/
   # {"error":"origin_not_allowed"}
   ```
+
+---
+
+## Using your own domain (optional)
+
+The Worker can answer at an address on a domain you own, such as
+`https://webyak-worker.example.com`, instead of the `workers.dev` one. The
+code doesn't depend on its own address, so nothing in it changes. Only the
+address you give the app does.
+
+**What it needs.** Cloudflare has to run the domain's DNS: the domain is
+listed in your Cloudflare account and shows as **Active**. If your registrar
+runs it now, moving it means pointing the domain's nameservers at Cloudflare,
+and every record on the domain moves with them. Cloudflare's
+[add a site](https://developers.cloudflare.com/fundamentals/setup/manage-domains/add-site/)
+guide covers that, and it is a bigger change than anything else on this page.
+
+Pick a name that the domain doesn't use yet, because Cloudflare refuses one
+that already has a CNAME record. If webyak itself is on a subdomain, such as
+`webyak.example.com`, put the Worker on a different name next to it, such as
+`webyak-worker.example.com`.
+
+1. On the Worker's page, open **Settings** → **Domains & Routes** → **Add** →
+   **Custom domain**.
+2. Type the full name, for example `webyak-worker.example.com`, and select
+   **Add Custom Domain**.
+
+   Cloudflare creates the DNS record and the HTTPS certificate itself, so
+   don't add a record by hand. The certificate can take a few minutes; until
+   it's issued, the address fails with a certificate error.
+3. Check it: open `https://webyak-worker.example.com/` in a browser tab. It
+   should show the same `{"ok":true,…}` as in setup step 2.
+4. Give the app the new address, with `https://` and no trailing slash:
+   - change the `WORKER_URL` variable (setup step 5), then deploy again;
+   - change `.env` (setup step 6), then restart the dev server with
+     `--clear`.
+5. Optional: switch the `workers.dev` address off. On **Domains & Routes**,
+   select **Disable** next to `workers.dev`. Wait until the deploy from the
+   previous step is live: the site calls whatever address it was built with,
+   so until it is rebuilt it still calls the old one.
+
+`ALLOWED_ORIGINS` (step 4 of the setup) stays as it is. It lists the sites
+that *use* the Worker, not the Worker's own address.
+
+**With the command line.** `wrangler deploy` only knows what is in
+wrangler.jsonc, and Cloudflare's docs say a config with no `routes` deploys
+with `workers.dev` switched on. If you deploy that way, add the domain to your
+copy of the file:
+
+```jsonc
+"routes": [{ "pattern": "webyak-worker.example.com", "custom_domain": true }],
+```
+
+Once `routes` is there, `workers.dev` is off unless you also add
+`"workers_dev": true`.
 
 ---
 
