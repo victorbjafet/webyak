@@ -622,10 +622,14 @@ sidechat.js nor offsides knows about it. [asset-url.ts](../src/lib/asset-url.ts)
 sends the bearer only to `api.sidechat.lol`, so the poster loads with no
 token, gets a 401 and falls back to the panel. The Worker's `/asset` refuses
 every host but `api.sidechat.lol` as well, so the relay never runs.
-**Proposed fix, waiting on the owner's OK:** rewrite that alias host to
-`api.sidechat.lol` before fetching, so the bearer still goes only to the host
-it always has. **Bites at: Phase 3, every video poster
-(`post-video.web.tsx`).**
+**Fixed 2026-11-02, with the owner's OK:** `canonicalAssetUrl` in
+[asset-url.ts](../src/lib/asset-url.ts) rewrites that alias host to
+`api.sidechat.lol` before anything fetches an asset URL (`AuthedImage` on web
+and native, and the download button). The bearer still goes only to the host
+it always has, and the Worker needed no change. Checked against stubs: the
+poster goes out to `api.sidechat.lol` with the bearer, falls through to
+`/asset` for that host, and renders, and nothing is sent to the alias. Not yet
+checked against the live API.
 
 > This is the third time the same underlying rule has bitten: **on the web,
 > `fetch` + `Authorization` cannot follow a redirect.** Profile photos escaped it

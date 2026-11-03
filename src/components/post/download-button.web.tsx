@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
 import { api } from '@/api/client';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { assetNeedsAuth } from '@/lib/asset-url';
+import { assetNeedsAuth, canonicalAssetUrl } from '@/lib/asset-url';
 
 /**
  * Saves an asset to disk.
@@ -16,7 +16,7 @@ import { assetNeedsAuth } from '@/lib/asset-url';
  * the asset URLs that need it.
  */
 export function DownloadButton({
-  uri,
+  uri: given,
   filename,
   label = 'Download',
 }: {
@@ -26,6 +26,7 @@ export function DownloadButton({
 }) {
   const theme = useTheme();
   const [busy, setBusy] = useState(false);
+  const uri = canonicalAssetUrl(given);
 
   if (!uri) return null;
 

@@ -2,7 +2,7 @@ import { Image, type ImageProps } from 'expo-image';
 import { useState } from 'react';
 
 import { api } from '@/api/client';
-import { assetNeedsAuth } from '@/lib/asset-url';
+import { assetNeedsAuth, canonicalAssetUrl } from '@/lib/asset-url';
 
 /**
  * Native counterpart of authed-image.web.tsx. React Native's image loader
@@ -13,13 +13,14 @@ import { assetNeedsAuth } from '@/lib/asset-url';
  * collapsing to nothing.
  */
 export function AuthedImage({
-  uri,
+  uri: given,
   fallback = null,
   ...rest
 }: Omit<ImageProps, 'source'> & {
   uri?: string;
   fallback?: React.ReactNode;
 }) {
+  const uri = canonicalAssetUrl(given);
   const [failed, setFailed] = useState<string | null>(null);
 
   if (!uri || failed === uri) return <>{fallback}</>;

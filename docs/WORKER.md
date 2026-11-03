@@ -303,9 +303,9 @@ Decisions made while writing it, beyond the spec above:
 - **`/post/:code` works for public communities**, verified 2026-11-02 through
   the deployed Worker with a real public-community code. For school
   communities, the warning under [`GET /post/:code`](#get-postcode) stands.
-- **`/asset` doesn't reach video posters yet** (2026-11-02). The API now
-  hands out poster URLs on an alias host of its own, which neither the client
-  nor this route recognises as the API
+- **Video posters can arrive on an alias host of the API** (found
+  2026-11-02). This route still relays only `api.sidechat.lol`; the client
+  rewrites the alias to it before fetching, so the route needed no change
   ([API.md](API.md#-video-thumbnails-need-the-worker)).
 
 **Rebuild with `--clear` after setting it.** `EXPO_PUBLIC_*` variables are

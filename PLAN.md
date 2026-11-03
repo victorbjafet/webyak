@@ -54,9 +54,10 @@ files** move a login between webyaks without the texted code.
 domain, and the live site is built with its address (the `WORKER_URL`
 repository variable). Checked on the live site that day: video plays in
 Chromium, public-community share codes resolve, and the composer offers
-*Photo*. Video thumbnails still don't show: their URLs now come on an alias
-host of the API (below). An image post through `/upload` hasn't been tried,
-since it's a write ([WORKER.md](docs/WORKER.md)).
+*Photo*. Video thumbnails didn't show, because their URLs now come on an
+alias host of the API. The client now rewrites that host, which has been
+checked against stubs but not yet live. An image post through `/upload`
+hasn't been tried, since it's a write ([WORKER.md](docs/WORKER.md)).
 
 **What's left, by what it's waiting on:**
 
@@ -64,7 +65,7 @@ since it's a write ([WORKER.md](docs/WORKER.md)).
 |---|---|
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard, acknowledging a removal. Needs a capture of the official app's traffic (Phase 8) |
 | **A write, with the owner's OK** | Hiding someone's posts, once, to see what the server does with it. One post with a *Library* image, to confirm the API takes a library id. One post with an uploaded image, the first through the deployed Worker's `/upload`. The length probes (Q11). An agent can run each through Playwright |
-| **An owner decision** | What the desktop multi-column layout should show, and whether a multi-feed timeline adds anything over For You (Phase 7). A darker brand text color for light mode, which is ~2:1 on white (Phase 9). Whether video posters may be fetched from `api.sidechat.lol` when the API hands out an alias host for them (Phase 3, [API.md](docs/API.md#-video-thumbnails-need-the-worker)). How much archive media to back-fill, now that the Worker is up. Whether deep archive history should refresh on a schedule |
+| **An owner decision** | What the desktop multi-column layout should show, and whether a multi-feed timeline adds anything over For You (Phase 7). A darker brand text color for light mode, which is ~2:1 on white (Phase 9). How much archive media to back-fill, now that the Worker is up. Whether deep archive history should refresh on a schedule |
 | **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested) |
 | **Nothing: buildable now** | Tablet-width QA, the rest of the accessibility pass (labels audit), iOS/Android smoke test (Phase 9) |
 
@@ -499,10 +500,10 @@ Full checklist and pre-scan findings:
         a 302 a preflighted request may not follow. Needs the worker's asset
         relay ([docs/WORKER.md](docs/WORKER.md#get-asset)), **deployed
         2026-11-02**. Without it, the poster falls back to a neutral panel
-        instead of a black box. ⛔ **Still the panel on the live site
-        (2026-11-02):** poster URLs now come on an alias host of the API that
-        neither the client nor `/asset` recognises. The fix, rewriting it to
-        `api.sidechat.lol`, waits on the owner's OK
+        instead of a black box. **Found and fixed 2026-11-02:** the live
+        site still showed the panel because poster URLs now come on an alias
+        host of the API. The client rewrites it to `api.sidechat.lol`
+        (`canonicalAssetUrl`). Checked against stubs; not yet live
         ([docs/API.md](docs/API.md#-video-thumbnails-need-the-worker))
         ([docs/API.md](docs/API.md#-video-thumbnails-need-the-worker))
   - [x] Video preloading — **fixed 2026-09-27.** Not the `preload` attribute

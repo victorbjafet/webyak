@@ -296,7 +296,7 @@ export function PostVideo({
       {!playing ? (
         <>
           {/*
-            ⛔ The poster does not load in a browser, and cannot be made to.
+            The poster can't load from a browser alone.
 
             `/v1/assets?post_id=…` is a hard 401 unauthenticated (verified), so
             the bearer is required; but sending it forces a CORS preflight, the
@@ -305,11 +305,11 @@ export function PostVideo({
             header means 401, header means a blocked redirect. It needs the
             worker's asset relay — docs/API.md#-video-thumbnails-need-the-worker.
 
-            The relay was deployed on 2026-11-02, but posters still don't reach
-            it: the API now hands out their URLs on an alias host, which
-            `assetNeedsAuth` doesn't count as the API (same doc). `fallback` is
-            what actually renders: a neutral panel, so a video reads as a video
-            rather than a black hole.
+            So it goes through the relay, deployed 2026-11-02. The API hands
+            out some poster URLs on an alias host of itself; AuthedImage
+            rewrites those to the API's own (`canonicalAssetUrl`). Without the
+            relay, `fallback` renders: a neutral panel, so a video reads as a
+            video rather than a black hole.
           */}
           {/* Not when blocked: its glyph would show through the label, and a
               blocked video has no poster either — thumbnails need the worker too. */}

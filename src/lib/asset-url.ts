@@ -18,6 +18,26 @@
 const API_HOST = 'api.sidechat.lol';
 
 /**
+ * Hosts that are the API under another name. Seen 2026-11-02: a video poster's
+ * URL on `<a school's name>.tasted.nyc`, which resolves to the same addresses
+ * as the API, has a certificate from the same issuer and answers like it
+ * (docs/API.md#-video-thumbnails-need-the-worker). Neither sidechat.js nor
+ * offsides knows it.
+ */
+const API_ALIAS = /^https:\/\/(?:[a-z0-9-]+\.)*tasted\.nyc(?=[/?#]|$)/i;
+
+/**
+ * The URL to actually fetch: an alias host rewritten to the API's own.
+ * Rewritten rather than trusted, so the bearer still only ever goes to
+ * `api.sidechat.lol`, and the Worker's `/asset`, which relays only that host,
+ * takes it. Every fetch of an asset URL goes through this before
+ * `assetNeedsAuth`.
+ */
+export function canonicalAssetUrl(url: string | undefined): string | undefined {
+  return url?.replace(API_ALIAS, `https://${API_HOST}`);
+}
+
+/**
  * `/v1/assets/profile` is **not** authenticated, despite living on the API host
  * with no signature in the URL. Verified 2026-08-27 with an unauthenticated
  * request: it answers `302` and redirects to a pre-signed R2 URL carrying its

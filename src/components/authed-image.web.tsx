@@ -2,7 +2,7 @@ import { Image, type ImageProps } from 'expo-image';
 import { useEffect, useState } from 'react';
 
 import { api } from '@/api/client';
-import { assetNeedsAuth } from '@/lib/asset-url';
+import { assetNeedsAuth, canonicalAssetUrl } from '@/lib/asset-url';
 import { workerEndpoint } from '@/lib/worker';
 
 /**
@@ -38,7 +38,7 @@ async function fetchAuthed(uri: string): Promise<Response> {
  * the image bugs were open; that was retired with them on 2026-09-27.
  */
 export function AuthedImage({
-  uri,
+  uri: given,
   fallback = null,
   ...rest
 }: Omit<ImageProps, 'source'> & {
@@ -46,6 +46,7 @@ export function AuthedImage({
   /** Rendered whenever the image can't be shown, for any reason. */
   fallback?: React.ReactNode;
 }) {
+  const uri = canonicalAssetUrl(given);
   const needsAuth = assetNeedsAuth(uri);
   // Keyed by the URL it was fetched for, so a stale blob is never shown against
   // a new `uri` while the next fetch is still in flight.
