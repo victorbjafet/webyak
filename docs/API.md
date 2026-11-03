@@ -521,10 +521,12 @@ it wrote. The emoji stays as the fallback, which is what it always was.
 > **The worker was deployed on 2026-11-02**, so the live site plays video
 > through its `/media` relay. **Checked live the same day** in the Playwright
 > browser's Chromium: a video played at full resolution, and every segment
-> came back from `/media` as `200 video/MP2T`. Chrome's own HLS player still
-> tries first: it fails on one direct R2 segment before hls.js takes over, so
-> playback starts a little later than it has to. Everything below still
-> describes a build without the worker.
+> came back from `/media` as `200 video/MP2T`. Chrome's own HLS player was
+> still tried first, failing on one direct R2 segment before hls.js took over
+> and delaying the start. **Fixed the same day:** only Apple's player is tried
+> natively now, and every other browser goes straight to hls.js
+> (`post-video.web.tsx`). Checked against stubs: no direct R2 request, and the
+> video plays. Everything below still describes a build without the worker.
 
 **Found 2026-09-27, after "videos don't load at all any more".** Three causes
 stacked, and only the last is outside our code:

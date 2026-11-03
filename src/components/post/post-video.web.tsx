@@ -26,11 +26,12 @@ import { workerEndpoint } from '@/lib/worker';
  *
  * ## Two players, tried in order
  *
- * 1. **The browser's own**, when it claims HLS. That was only ever Safari —
- *    Apple's player, used by every browser on iPhone — until Chrome 153 began
- *    answering `canPlayType` with "maybe" too. Chrome's then fails on these
- *    streams with `MEDIA_ERR_SRC_NOT_SUPPORTED`, so a native error before
- *    anything loads falls through to…
+ * 1. **Apple's own**, in Safari and every browser on iPhone (`hasApplePlayer`).
+ *    Chrome 153 answers `canPlayType` with "maybe" too, but its player fails
+ *    on these streams with `MEDIA_ERR_SRC_NOT_SUPPORTED`, so it isn't tried.
+ *    Until 2026-11-02 it was, and every press in Chrome paid for a failed
+ *    segment request before playback started. A native error before anything
+ *    loads falls through to…
  * 2. **hls.js**, imported lazily so Safari never downloads it. It fetches
  *    segments itself, which needs CORS the segment host does not send — so
  *    without the worker's relay it cannot get past the first segment either,
@@ -224,7 +225,8 @@ export function PostVideo({
       el.removeEventListener('error', onNativeError);
     };
 
-    if (el.canPlayType('application/vnd.apple.mpegurl')) {
+    // Only Apple's player: Chrome's claims HLS too, then fails (see the header).
+    if (hasApplePlayer() && el.canPlayType('application/vnd.apple.mpegurl')) {
       el.addEventListener('loadedmetadata', onLoaded);
       el.addEventListener('error', onNativeError);
       // The element is rendered `preload="none"` so nothing loads before this

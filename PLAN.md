@@ -520,7 +520,8 @@ Full checklist and pre-scan findings:
         set up* in every browser but Apple's and requests nothing. **The
         Worker's `/media` is built (2026-09-28) and deployed (2026-11-02)**,
         and a video played through it on the live site in Chromium the same
-        day
+        day. Chrome's own player is no longer tried first, which had delayed
+        every start (fixed 2026-11-02)
   - [ ] ⛔ Post-card avatars stay emoji: a post's `identity` carries no photo
         URL, so feed avatars would need a profile lookup per author
 - [x] Explore page: group grid, member counts, icons. Two columns above 720px,
