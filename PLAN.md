@@ -718,6 +718,10 @@ and comment it sees** — effectively a Yik Yak downloader
         window, so a full re-scrape can be paused and picked up rather than
         needing one uninterrupted sitting. A resume never moves the watermark,
         and is discarded if the window changes
+  - [x] A comment refresh run for **All communities** counts for each
+        community. Until 2026-11-15 a community's comment window ignored it,
+        fell back to a month before today, and so appeared to follow the post
+        window ([docs/ARCHIVE.md](docs/ARCHIVE.md#one-communitys-comment-window-after-an-all-communities-refresh))
   - [x] Two queues a date window cannot reach: the **all-time top 100**, swept
         first regardless of age, and **posts that newer posts quote**, which are
         evidence of renewed attention on something old

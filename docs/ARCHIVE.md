@@ -595,6 +595,37 @@ of four days wearing the label of a month. The day is clamped to the target
 month's length, and every field is read and written in UTC so the watermark
 cannot drift by a day depending on where it was computed.
 
+### One community's comment window, after an all-communities refresh
+
+Posts refresh one community at a time, but comments can also be refreshed for
+**All communities** at once, and that pass records its watermark under its own
+key (`update:comments:` with an empty group id). For one community, the comment
+window starts at the **later** of that community's own watermark and the
+all-communities one (`commentWindowState` in `types.ts`). An all-communities
+pass read every community's threads, so either is a true claim, and the later
+claims more. The all-communities window itself uses only its own watermark: a
+refresh of one community says nothing about the others.
+
+**Fixed 2026-11-15.** Until then the panel and the run looked only at the
+community's own key, so an all-communities refresh didn't count for any single
+community. The owner's archive had exactly that: one comment watermark, 30 Aug,
+recorded for all communities on 30 Sep. Viewed from the community, there was
+"none recorded", so the window fell back to a month before *now*. That fallback
+moves every day. On the day of a post refresh it lands on exactly the date the
+post refresh records (also a month before that day), so the comment window looked
+as if it had followed the posts. Threads from 30 Aug up to that date would never
+have been re-read unless the From box was set by hand.
+
+A state counts only once a pass has **finished** under it. A paused first run
+writes one too, to hold its resume, with that window's start in `window_start`
+and no `last_window_start`. It has covered nothing, so it does not outrank a real
+watermark. The saved position stays the scope's own, because the crawler resumes
+per scope.
+
+The summary line names where the default came from. A window inherited from an
+all-communities refresh reads "a month before your last all-communities refresh
+on …".
+
 ### The default is the recorded window, and it says so
 
 The From box is **pre-filled with the watermark**, not left to a placeholder.
@@ -629,7 +660,14 @@ is not an override.
 
 Watermarks are per kind, so refreshing posts leaves comments without one — and an
 archive built before refresh tracking has neither. The window then falls back to
-**a month back from now**, shown in the box and editable like any other.
+**a month back from now**, shown in the box and editable like any other. For
+comments, "none" means none for the community *and* none for all communities
+(see above).
+
+This fallback is not anchored to anything: it moves forward a day every day
+until a refresh of that kind finishes. It therefore keeps the same date as the
+other kind's watermark only on the day that kind was refreshed. Don't read that as
+the two being linked.
 
 An earlier version refused to pick a date here, on the reasoning that a guessed
 start would declare everything before it current. That reasoning was wrong, and

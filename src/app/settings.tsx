@@ -45,7 +45,13 @@ import {
 import { analyseArchive, type IntegrityReport } from '@/lib/archive/integrity';
 import { countPostsNeedingComments, forEachRecord } from '@/lib/archive/store';
 import { pickFile } from '@/lib/pick-file';
-import type { ArchiveStats, CrawlState, RepairOutcome, UpdateState } from '@/lib/archive/types';
+import {
+  commentWindowState,
+  type ArchiveStats,
+  type CrawlState,
+  type RepairOutcome,
+  type UpdateState,
+} from '@/lib/archive/types';
 import { saveFile } from '@/lib/save-file';
 import { formatCount } from '@/lib/time';
 import { showToast, toastError } from '@/lib/toast';
@@ -233,10 +239,7 @@ export default function SettingsScreen() {
     (group: Group | null) => {
       commentHandle.current?.stop();
       setCommentTarget(group);
-      const window = resolveWindow(
-        commentUpdate,
-        updates.find((u) => u.kind === 'comments' && u.group_id === (group?.id ?? '')),
-      );
+      const window = resolveWindow(commentUpdate, commentWindowState(updates, group?.id));
       setComments({
         startedAt: Date.now(),
         mode: 'working',
@@ -736,9 +739,7 @@ export default function SettingsScreen() {
               kind="comments"
               value={commentUpdate}
               onChange={setCommentUpdate}
-              state={updates.find(
-                (u) => u.kind === 'comments' && u.group_id === (commentScope?.id ?? ''),
-              )}
+              state={commentWindowState(updates, commentScope?.id)}
               earliest={stats?.oldest}
               scopeName={commentScope ? groupDisplayName(commentScope) : 'All communities'}
               disabled={commentsRunning}

@@ -652,7 +652,9 @@ export type UpdateKind = 'posts' | 'comments';
  *
  * Stored **per community and per kind**, because the two passes run
  * independently: refreshing posts says nothing about whether comments were
- * refreshed, and a single watermark would claim both.
+ * refreshed, and a single watermark would claim both. A comment refresh run for
+ * all communities is stored with `group_id: ''`. Read comment watermarks through
+ * `commentWindowState`, which applies that one to each community.
  *
  * `window_start` is the start of the *next* window, not the date of the last
  * run. After a successful pass it is set to a month before that run, so every
@@ -748,6 +750,50 @@ export function resumeMatches(
     return Boolean(window.openEnd) && Boolean(resume.open_end);
   }
   return resume.window_end === window.end;
+}
+
+/**
+ * The comment watermark that applies to a scope: one community, or all of them
+ * (`groupId` undefined).
+ *
+ * A comment refresh can run for one community or for every community, and each
+ * records its watermark under its own key — `''` for all communities. An
+ * all-communities pass read every community's threads, so for one community the
+ * window starts at the **later** of its own watermark and the all-communities
+ * one: either is a true claim about that community, and the later claims more.
+ *
+ * Fixed 2026-11-15. The panel and the run looked only at the community's own
+ * key, so an all-communities refresh was invisible to them. With nothing found,
+ * the window fell back to a month before *now*, which moves every day and, on
+ * the day of a post refresh, lands on exactly the date that refresh records.
+ * The comment window looked as if it had followed the posts, and threads between
+ * the real comment watermark and that date were never going to be re-read.
+ *
+ * A state counts only once a pass has **finished** under it. A pause on a first
+ * run writes a state too (to hold the resume), with that window's start in
+ * `window_start`. It claims nothing, so it must not outrank a real watermark.
+ *
+ * The saved position stays the scope's own, because the crawler resumes per
+ * scope.
+ */
+export function commentWindowState(
+  updates: UpdateState[],
+  groupId: string | undefined,
+): UpdateState | undefined {
+  const find = (id: string) => updates.find((u) => u.kind === 'comments' && u.group_id === id);
+  // `last_window_start` is written only on completion. Older completed states
+  // predate it, but those were never paused afterwards, so have no resume.
+  const finished = (state: UpdateState) =>
+    state.last_window_start !== undefined || !state.resume;
+
+  const own = find(groupId ?? '');
+  if (!groupId) return own;
+  const all = find('');
+  if (!all || !finished(all)) return own;
+  if (own && finished(own) && Date.parse(own.window_start) >= Date.parse(all.window_start)) {
+    return own;
+  }
+  return { ...all, resume: own?.resume };
 }
 
 /** The overlap every refresh re-covers. */

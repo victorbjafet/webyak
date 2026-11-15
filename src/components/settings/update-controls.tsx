@@ -29,7 +29,9 @@ import { normalizeDate } from '@/lib/time';
  * An archive built before refresh tracking has no watermark for that kind of
  * pass — and they are **per kind**, so refreshing posts leaves comments with
  * none. The window then falls back to the same month-back default, shown in the
- * box and editable like any other.
+ * box and editable like any other. A comment refresh run for all communities
+ * counts for each one: the caller resolves that with `commentWindowState`
+ * before `state` reaches this component.
  *
  * Defaulting it is safe, which is not obvious. The worry would be that a guessed
  * start declares everything before it current — but the watermark a finished run
@@ -214,9 +216,11 @@ export function UpdateControls({
             {everything
               ? ' · the whole archive'
               : state && !custom
-                ? ` · the default: a month before your last refresh on ${asDate(
-                    new Date(state.updated_at).toISOString(),
-                  )}`
+                ? ` · the default: a month before your last ${
+                    // Comment watermarks for all communities live under ''
+                    // (see `commentWindowState`). Post ones never do.
+                    state.group_id === '' ? 'all-communities ' : ''
+                  }refresh on ${asDate(new Date(state.updated_at).toISOString())}`
                 : !state && !custom
                   ? ' · the default: the last month, since nothing has been refreshed yet'
                   : ' · custom range'}
