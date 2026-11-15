@@ -49,7 +49,10 @@ export function PostActions({
       if (Platform.OS === 'web') {
         const nav = globalThis.navigator as Navigator & { share?: (d: ShareData) => Promise<void> };
         if (typeof nav?.share === 'function') {
-          await nav.share({ url, text: post.text?.slice(0, 120) });
+          // The URL alone. Given `text` too, many targets (Copy, Notes, most
+          // messengers) join the two with a space, so the post's opening words
+          // ended up glued onto the end of a pasted link.
+          await nav.share({ url });
           return;
         }
         await Clipboard.setStringAsync(url);
@@ -61,7 +64,7 @@ export function PostActions({
     } catch {
       /* the user dismissed the sheet, or the clipboard was blocked */
     }
-  }, [url, post.text]);
+  }, [url]);
 
   const repost = useCallback(() => {
     router.push({ pathname: '/compose', params: { repost: post.id, group: post.group_id } });

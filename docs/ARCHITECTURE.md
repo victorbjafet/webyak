@@ -370,6 +370,12 @@ Rules behind it:
   unlinked if it didn't, when `/p/<id>` would have opened it.
 - **A post is addressable by its share code alone.** `/p/0ESz5N3t` needs no group
   and no slug, so a shared link stays valid even when we don't know the group yet.
+- **Share sends the link and nothing else (2026-11-15).** The Share button used
+  to pass `navigator.share` the post's first 120 characters as `text` alongside
+  the `url`. Many share targets (Copy, Notes, most messengers) join the two with
+  a space, so a pasted link arrived as `…/p/<id> <the post's opening words>`, and the
+  address bar treated it as a search. It now passes `{ url }` only, and the
+  recipient sees the post when they open it.
 - **Sort is a query param, not a path segment**, because it is view state, not a
   resource.
 - **No region segment.** If `cy` ever turns out to mean something we need, it
