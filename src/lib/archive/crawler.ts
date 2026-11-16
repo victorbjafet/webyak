@@ -1348,7 +1348,15 @@ export function startCommentCrawl(
         selfConsuming: boolean,
         /** Where to pick up, for a queue that survives being stopped. */
         startAt = 0,
-        /** Called at each window boundary so a stop loses at most one window. */
+        /**
+         * Called at each window boundary with the **start** of the window about
+         * to be read, so a stop re-reads at most one window.
+         *
+         * It used to be given the window's end, before any of it was read. A
+         * stop part-way through then resumed past the rest of that window, up to
+         * 250 threads never re-read, and the pass still recorded the whole
+         * date range as covered once it finished. Fixed 2026-11-16.
+         */
         checkpoint?: (offset: number) => Promise<void>,
       ) => {
         progress.behind = 0;
@@ -1359,8 +1367,8 @@ export function startCommentCrawl(
           progress.windows += 1;
 
           if (window.length === 0) return true;
-          base += window.length;
           await checkpoint?.(base);
+          base += window.length;
 
           let j = 0;
           while (j < window.length && !stopped) {

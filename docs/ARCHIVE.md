@@ -782,7 +782,18 @@ multi-hundred-thousand-record archive is not a thing that happens.
 | | |
 |---|---|
 | Posts | the feed cursor, plus the oldest date reached, saved every page |
-| Comments | the queue position, saved every window of 250 |
+| Comments | the queue position at the **start** of the window of 250 being read, so a stop re-reads up to 250 threads |
+
+**Corrected 2026-11-16: a stopped comment refresh skipped the rest of its
+batch.** The position was saved as the *end* of the window of 250, before any
+of it had been read. Stop at thread 95 of a 185-thread window, and the resume
+started at 185: threads 96–185 were never re-read, and once the pass finished it
+recorded the whole date range as covered. Found by stopping a stand-in run
+while testing the time estimates. The position is now the window's start, so a
+stop costs up to one window of repeated reads instead of a silent gap. Gaps
+left by earlier pauses aren't recorded anywhere, so they can't be listed. A
+full re-scrape of comments closes them, and so does any later refresh whose
+window reaches back over them.
 
 **Corrected 2026-09-27: until then, this never worked for the default window.**
 A resume matched on the window's exact start *and end*, and the default window
