@@ -1067,6 +1067,19 @@ A placeholder the archive only ever saw as a placeholder has no words to keep;
 the archived thread and search show it as "Removed before it was archived", and
 a live thread as a muted "Comment deleted" with no vote or reply controls.
 
+**One the archive caught first is shown in the live thread (2026-11-16).** Until
+then a live thread showed every placeholder as "Comment deleted", even where
+search had the words, so a comment found in search opened as nothing.
+`useArchivedCopies` now reads the post's archived thread once whenever the live
+one contains a placeholder. Each placeholder with a worded copy is drawn as that
+copy (`ArchivedCommentCopy`), with the flag a removed post gets: a red border and
+*Removed from Yik Yak*, then the date archived and the date the placeholder was
+first seen (`deleted_at`), with its score marked "when last seen". It sits in
+its place in the thread, and its replies stay under it. It has no controls.
+`last_seen_at` isn't shown, because placeholder sightings move it too.
+Search results for a comment now open the post at that comment
+(`?comment=<id>`), scrolled to and tinted.
+
 **Two integrity counts guard it** ([integrity.ts](../src/lib/archive/integrity.ts)):
 records holding a placeholder but not flagged (should be 0 — non-zero means a
 write path bypassing both rules), and records with the `"Deleted"` alias whose

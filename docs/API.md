@@ -737,7 +737,9 @@ was flagged, and a re-read of a comment archived *before* its deletion wrote the
 placeholder over the real text — once, recovered from an earlier export. How the
 fix works, including the one-off repair of what was already stored:
 [ARCHIVE.md](ARCHIVE.md#deleted-comments-are-flagged-not-dropped). A live thread
-shows a placeholder as a muted "Comment deleted" with no vote or reply controls.
+shows a placeholder as the archive's copy of the comment, flagged *Removed from
+Yik Yak*, when the archive caught its words. Otherwise it shows a muted "Comment
+deleted". Either way it has no vote or reply controls.
 
 The alias is a second sign of a deletion, but it is **not** used to decide one: a
 comment left up after its author's account was deleted could plausibly carry it

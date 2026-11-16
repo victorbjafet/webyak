@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 
+import { ArchivedCommentCopy } from '../archive/archived-post';
 import { ThemedText } from '../themed-text';
 import { IdentityAvatar } from './identity-avatar';
 import { PostActions } from './post-actions';
@@ -13,7 +14,7 @@ import { useVote } from '@/api/mutations';
 import type { PostOrComment } from '@/api/types';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { isTombstoneText } from '@/lib/archive/types';
+import { isTombstoneText, type ArchivedContent } from '@/lib/archive/types';
 
 /**
  * Threading is two levels, not arbitrary nesting. offsides distinguishes them
@@ -33,6 +34,7 @@ export function CommentItem({
   onReply,
   nested = true,
   onOpen,
+  archived,
 }: {
   comment: PostOrComment;
   /** Omitted when the parent post has comments disabled. */
@@ -49,6 +51,11 @@ export function CommentItem({
    * comment: its votes and actions are buttons, and buttons can't nest.
    */
   onOpen?: () => void;
+  /**
+   * The archive's copy of this comment, when the live thread shows only the
+   * placeholder and the archive caught its words first (`useArchivedCopies`).
+   */
+  archived?: ArchivedContent;
 }) {
   const theme = useTheme();
   const router = useRouter();
@@ -65,17 +72,24 @@ export function CommentItem({
     It used to render as if someone had typed that. Nothing is left to vote on,
     reply to, share or report, so it gets none of the controls; its replies still
     render beneath it, which is the point of keeping it.
+
+    When the archive caught its words before it went, those are shown instead,
+    flagged as removed and as a copy (`ArchivedCommentCopy`).
   */
   if (isTombstoneText(comment.text)) {
     return (
       <View style={[styles.wrap, reply && [styles.reply, { borderLeftColor: theme.border }]]}>
-        <View style={styles.header}>
-          <ThemedText type="small" themeColor="textTertiary" style={styles.removed}>
-            Comment deleted
-          </ThemedText>
-          <View style={styles.spacer} />
-          <TimeStamp iso={comment.created_at} />
-        </View>
+        {archived ? (
+          <ArchivedCommentCopy record={archived} />
+        ) : (
+          <View style={styles.header}>
+            <ThemedText type="small" themeColor="textTertiary" style={styles.removed}>
+              Comment deleted
+            </ThemedText>
+            <View style={styles.spacer} />
+            <TimeStamp iso={comment.created_at} />
+          </View>
+        )}
       </View>
     );
   }

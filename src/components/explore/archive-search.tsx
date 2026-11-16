@@ -319,7 +319,15 @@ function Result({ record }: { record: ArchivedContent }) {
       accessibilityRole="link"
       accessibilityLabel="Open this post"
       disabled={!target}
-      onPress={() => target && router.push({ pathname: '/p/[code]', params: { code: target } })}
+      // A comment opens its post scrolled to it, tinted, rather than at the top
+      // of what may be a long thread.
+      onPress={() =>
+        target &&
+        router.push({
+          pathname: '/p/[code]',
+          params: record.type === 'comment' ? { code: target, comment: record.id } : { code: target },
+        })
+      }
       style={({ hovered, pressed }) => [
         styles.result,
         {

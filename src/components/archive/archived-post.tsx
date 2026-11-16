@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, View } from 'react-native';
 
+import { TimeStamp } from '../post/time-stamp';
 import { ThemedText } from '../themed-text';
 import { Button } from '../ui/button';
 
@@ -229,6 +230,69 @@ function ArchivedComment({ comment }: { comment: ArchivedContent }) {
   );
 }
 
+/**
+ * A comment Yik Yak now shows only as its placeholder, drawn from the archive's
+ * copy: its words, flagged the way a removed post is.
+ *
+ * Inside a live thread, so it keeps the thread's place and its replies stay
+ * beneath it, but none of a live comment's controls: there is nothing left to
+ * vote on, reply to or share. The red border and the "Removed from Yik Yak"
+ * head are the same flag `ArchivedPost` puts on a removed post.
+ *
+ * `deleted_at` is when the placeholder was first seen, the tightest bound the
+ * archive has. `last_seen_at` is not used: placeholder sightings move it too,
+ * so for a comment it doesn't mean "last seen with its words".
+ */
+export function ArchivedCommentCopy({ record }: { record: ArchivedContent }) {
+  const theme = useTheme();
+  return (
+    <View
+      style={[
+        styles.copy,
+        { backgroundColor: theme.backgroundElement, borderColor: theme.danger },
+      ]}>
+      <View style={styles.head}>
+        <Ionicons name="trash-outline" size={14} color={theme.danger} />
+        <ThemedText type="smallBold" style={{ color: theme.danger }}>
+          Removed from Yik Yak
+        </ThemedText>
+        <View style={styles.spacer} />
+        <TimeStamp iso={record.created_at} />
+      </View>
+      <ThemedText type="caption" themeColor="textSecondary">
+        {`Yik Yak now shows only a placeholder here — deleted by its author or removed by moderation; the API doesn't say which. This is the copy archived ${day(
+          record.first_seen_at,
+        )}${record.deleted_at ? `, seen removed ${day(record.deleted_at)}` : ''}.`}
+      </ThemedText>
+
+      <Byline record={record} />
+      <ThemedText type="small">{record.text || '(no text)'}</ThemedText>
+
+      {record.has_media ? (
+        <View style={styles.media}>
+          <Ionicons name="image-outline" size={14} color={theme.textTertiary} />
+          <ThemedText type="caption" themeColor="textTertiary">
+            {record.media.length === 1 ? 'Had an attachment' : `Had ${record.media.length} attachments`}
+            {record.media.some((m) => m.cached)
+              ? ''
+              : ' — not saved, and the links it had have expired'}
+          </ThemedText>
+        </View>
+      ) : null}
+
+      <View style={styles.foot}>
+        <ThemedText type="caption" style={{ color: theme.brand }}>
+          {record.vote_total > 0 ? '+' : ''}
+          {formatCount(record.vote_total)}
+        </ThemedText>
+        <ThemedText type="caption" themeColor="textTertiary">
+          when last seen
+        </ThemedText>
+      </View>
+    </View>
+  );
+}
+
 function day(ms: number | undefined) {
   return ms ? new Date(ms).toISOString().slice(0, 10) : 'at some point';
 }
@@ -293,5 +357,11 @@ const styles = StyleSheet.create({
   },
   removedText: {
     fontStyle: 'italic',
+  },
+  copy: {
+    gap: Spacing.one,
+    padding: Spacing.three,
+    borderRadius: Radius.md,
+    borderWidth: 1,
   },
 });

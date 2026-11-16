@@ -3,7 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View, type LayoutChangeEvent } from 'react-native';
 
 import { PostGone } from '@/api/client';
-import { isPostId, useArchivedPost, useComments, usePost, usePostIdByCode } from '@/api/queries';
+import {
+  isPostId,
+  useArchivedCopies,
+  useArchivedPost,
+  useComments,
+  usePost,
+  usePostIdByCode,
+} from '@/api/queries';
 import type { PostOrComment } from '@/api/types';
 import { ArchivedPost } from '@/components/archive/archived-post';
 import { GroupAvatar } from '@/components/group-avatar';
@@ -16,6 +23,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Layout, Radius, Spacing } from '@/constants/theme';
 import { useReducedMotion } from '@/hooks/use-reduced-motion';
 import { useTheme } from '@/hooks/use-theme';
+import { isTombstoneText } from '@/lib/archive/types';
 import { formatCount } from '@/lib/time';
 import { showToast } from '@/lib/toast';
 import { WORKER_URL } from '@/lib/worker';
@@ -70,6 +78,11 @@ export default function PostDetailScreen() {
   const archived = useArchivedPost(postId, post.isError);
   // A deleted post has no live thread to load; its thread comes from the archive.
   const comments = useComments(gone ? undefined : postId);
+  // Placeholders in the live thread whose words the archive may have kept.
+  const placeholderIds = (comments.data ?? [])
+    .filter((comment) => isTombstoneText(comment.text))
+    .map((comment) => comment.id);
+  const copies = useArchivedCopies(postId, placeholderIds);
   const [replyTo, setReplyTo] = useState<PostOrComment | null>(null);
 
   const startReply = useCallback((comment: PostOrComment) => setReplyTo(comment), []);
@@ -241,6 +254,7 @@ export default function PostDetailScreen() {
               <CommentItem
                 comment={comment}
                 onReply={current.comments_disabled ? undefined : startReply}
+                archived={copies.data?.[comment.id]}
               />
             </View>
           ) : (
@@ -248,6 +262,7 @@ export default function PostDetailScreen() {
               key={comment.id}
               comment={comment}
               onReply={current.comments_disabled ? undefined : startReply}
+              archived={copies.data?.[comment.id]}
             />
           ),
         )}

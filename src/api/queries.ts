@@ -34,6 +34,7 @@ import {
   listArchivedThread,
   markPostsDeleted,
 } from '@/lib/archive/store';
+import { isTombstoneText, type ArchivedContent } from '@/lib/archive/types';
 import { onSeenPostsReplaced, snapshotSeenPosts } from '@/lib/seen-posts';
 import { WORKER_URL } from '@/lib/worker';
 import type {
@@ -250,6 +251,36 @@ export function useArchivedPost(postId: string | undefined, enabled: boolean) {
       if (!record) return null;
       const thread = record.type === 'post' ? await listArchivedThread(record.id) : [];
       return { record, thread };
+    },
+  });
+}
+
+/**
+ * The archive's copies of comments a live thread now shows only as Yik Yak's
+ * placeholder ("Comment Deleted"), keyed by comment id.
+ *
+ * A comment archived before it was deleted keeps its words: a placeholder
+ * sighting flags the record but never overwrites its text (§4 of
+ * docs/ARCHIVE.md). The live thread had no way to show them, so a comment that
+ * search found with its words opened as "Comment deleted". Only copies with
+ * real text are returned. One that was only ever seen as the placeholder has
+ * nothing to add.
+ *
+ * One read of the post's archived thread, and only when the live thread has a
+ * placeholder in it.
+ */
+export function useArchivedCopies(postId: string | undefined, placeholderIds: string[]) {
+  return useQuery({
+    queryKey: ['archive', 'copies', postId ?? '', placeholderIds.join(',')],
+    enabled: Boolean(postId) && placeholderIds.length > 0 && archiveAvailable,
+    retry: false,
+    queryFn: async () => {
+      const wanted = new Set(placeholderIds);
+      const copies: Record<string, ArchivedContent> = {};
+      for (const record of await listArchivedThread(postId as string)) {
+        if (wanted.has(record.id) && !isTombstoneText(record.text)) copies[record.id] = record;
+      }
+      return copies;
     },
   });
 }
