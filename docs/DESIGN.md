@@ -526,6 +526,39 @@ to slow down and that it will wait; a 5xx says their servers had a problem; a
 browser `Failed to fetch` says Yik Yak couldn't be reached. Toasts and error
 states both use it, so no screen shows "GET /v1/posts failed with 502".
 
+## Charts
+
+One so far, the density chart in archive search (2026-11-16,
+[ARCHITECTURE.md](ARCHITECTURE.md#density-over-time-2026-11-16)). Its rules, for
+the next one:
+
+- **Plain views, no chart library.** Columns are `View`s in a row, sized from
+  the measured width. Nothing else in the app needed a chart, and a dependency
+  for one bar chart would outweigh it.
+- **One series, in `brand`.** Two series on one scale would need a second hue,
+  and the palette is a decided one. Checked with the dataviz validator:
+  `brand` against a neutral grey context series fails colour-blind separation
+  in light mode (ΔE 6.0 protan), and a darker grey only makes it worse. So the
+  second number lives in the readout and the table, not in a second set of
+  bars.
+- **Marks:** columns at most 24 px wide, a 2 px gap between them, 4 px rounded
+  tops and square at the baseline. A non-zero value is never drawn shorter than
+  1 px, because telling 0 from 1 is the point when looking for gaps.
+- **Recessive frame:** hairline gridlines in `border` at the three ticks, axis
+  text in `textTertiary`, ticks on clean numbers, in full under 10,000.
+- **The hover layer is the column**, its whole height. It shows a
+  `backgroundHover` wash and dims the other columns, and a fixed readout row
+  above the plot names the value first, then the bucket. A tap pins it on
+  touch. The readout carries *Zoom in*.
+- **A table view is always one tap away** ("Table" under the chart). It is how
+  every value is reachable without hovering, and it is the required fallback for
+  light mode, where `brand` on the card is about 1.8:1. That is the same open
+  contrast item as brand text above. A darker light-mode teal, `#0B9C82`,
+  passed the validator (ΔE 19.9 against grey, over 3:1 contrast) if the owner
+  decides to add one.
+- **Refetch keeps the frame.** While recounting, the last chart stays at half
+  opacity rather than blanking.
+
 ## Focus rings
 
 The browser's default focus ring is blue — the one color in the app that belongs

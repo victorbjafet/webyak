@@ -1,4 +1,13 @@
 import type { ArchiveStore } from './contract';
+import {
+  baselineLabel,
+  bucketStart,
+  bucketsBetween,
+  inBaseline,
+  matchesTerms,
+  type DensityResult,
+  type DensityUnit,
+} from './density';
 import { type ArchiveQuery } from './query';
 import {
   expandQuoted,
@@ -1175,6 +1184,20 @@ function matchesQuery(record: ArchivedContent, query: ArchiveQuery): boolean {
   if (query.minScore !== undefined && (record.vote_total ?? 0) < query.minScore) return false;
   if (query.maxScore !== undefined && (record.vote_total ?? 0) > query.maxScore) return false;
 
+  if (query.thread === 'missing' && !(record.type === 'post' && record.needs_comments === 1)) {
+    return false;
+  }
+  if (
+    query.thread === 'collected' &&
+    !(
+      record.type === 'post' &&
+      record.comments_fetched_at !== undefined &&
+      record.needs_comments !== 1
+    )
+  ) {
+    return false;
+  }
+
   if (query.hasMedia !== undefined) {
     const has = Boolean(record.has_media);
     if (has !== query.hasMedia) return false;
@@ -1194,6 +1217,94 @@ function matchesQuery(record: ArchivedContent, query: ArchiveQuery): boolean {
   }
 
   return true;
+}
+
+/* ------------------------------------------------------------------------ *
+ * Density
+ * ------------------------------------------------------------------------ */
+
+/** Records per read. Each batch is its own short transaction. */
+const DENSITY_BATCH = 2000;
+
+/**
+ * Counts, per time bucket, the records matching a search and the baseline they
+ * are a share of (`density.ts`), in one pass over the date range.
+ *
+ * Every record in the range is read, whatever the search: the baseline needs
+ * all of them, so there is no index to narrow by. That is why the chart only
+ * recounts when asked.
+ *
+ * Read in **short transactions of 2,000** on the `created_at` index rather than
+ * one cursor. A read-write transaction waits for every earlier one on its store,
+ * read-only included, so a single long scan would stall a running crawl for as
+ * long as it took. Batches continue from the last `created_at` read, and skip
+ * the ids already counted at exactly that instant, so a page boundary between
+ * two records posted in the same millisecond neither drops nor doubles one.
+ *
+ * Returns null when `shouldStop` says so, between batches.
+ */
+export async function countDensity(
+  query: ArchiveQuery,
+  range: { start: string; end: string },
+  unit: DensityUnit,
+  options: { onProgress?: (scanned: number) => void; shouldStop?: () => boolean } = {},
+): Promise<DensityResult | null> {
+  const startedAt = Date.now();
+  const keys = bucketsBetween(range.start, range.end, unit);
+  const position = new Map(keys.map((key, i) => [key, i]));
+  const matching = keys.map(() => 0);
+  const all = keys.map(() => 0);
+  let scanned = 0;
+
+  let lower = range.start;
+  let countedAtLower = new Set<string>();
+
+  while (lower <= range.end) {
+    if (options.shouldStop?.()) return null;
+    const db = await openDb();
+    const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
+    const batch = (await asPromise(
+      store.index('created_at').getAll(IDBKeyRange.bound(lower, range.end), DENSITY_BATCH),
+    )) as ArchivedContent[];
+
+    for (const record of batch) {
+      if (record.created_at === lower && countedAtLower.has(record.id)) continue;
+      scanned += 1;
+      // Matches are counted only inside the baseline, so a bucket can never
+      // read as more than 100%.
+      if (!inBaseline(record, query)) continue;
+      const i = position.get(bucketStart(record.created_at, unit));
+      if (i === undefined) continue;
+      all[i] += 1;
+      if (matchesQuery(record, query) && matchesTerms(record, query)) matching[i] += 1;
+    }
+    options.onProgress?.(scanned);
+    if (batch.length < DENSITY_BATCH) break;
+
+    const last = batch[batch.length - 1].created_at;
+    const atLast = batch.filter((record) => record.created_at === last).map((r) => r.id);
+    if (atLast.length === batch.length) {
+      // A whole batch in one millisecond would page forever. It doesn't
+      // happen, but if it ever did, stepping past the instant is the way out.
+      lower = `${last}\u0000`;
+      countedAtLower = new Set();
+    } else {
+      countedAtLower = new Set(last === lower ? [...countedAtLower, ...atLast] : atLast);
+      lower = last;
+    }
+  }
+
+  return {
+    unit,
+    start: range.start,
+    end: range.end,
+    buckets: keys.map((key, i) => ({ key, matching: matching[i], all: all[i] })),
+    matching: matching.reduce((sum, n) => sum + n, 0),
+    all: all.reduce((sum, n) => sum + n, 0),
+    baseline: baselineLabel(query),
+    scanned,
+    ms: Date.now() - startedAt,
+  };
 }
 
 /* ------------------------------------------------------------------------ *
@@ -1638,6 +1749,7 @@ const _implements: ArchiveStore = {
   getArchiveStats,
   clearArchive,
   forEachRecord,
+  countDensity,
   findArchivedByCode,
   findArchivedById,
   getOldestArchived,

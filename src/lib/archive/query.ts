@@ -37,6 +37,12 @@ export interface ArchiveQuery {
   deleted?: 'only' | 'include';
   hasMedia?: boolean;
   mediaType?: 'image' | 'video';
+  /**
+   * Posts by the state of their comment thread. `missing` is the backlog the
+   * comment pass works through (`needs_comments`): never fetched, or changed
+   * since. `collected` is fetched and current. Either implies posts only.
+   */
+  thread?: 'missing' | 'collected';
 
   sort: 'new' | 'old' | 'top';
   limit: number;
@@ -200,6 +206,13 @@ function applyOperator(
           return false;
       }
 
+    case 'thread':
+      if (lower === 'missing' || lower === 'collected') {
+        query.thread = lower;
+        return true;
+      }
+      return false;
+
     case 'include':
       if (lower === 'deleted') {
         query.deleted = 'include';
@@ -242,7 +255,8 @@ export function isEmptyQuery(query: ArchiveQuery): boolean {
     !query.type &&
     query.isReply === undefined &&
     !query.deleted &&
-    query.hasMedia === undefined
+    query.hasMedia === undefined &&
+    !query.thread
   );
 }
 
@@ -265,6 +279,8 @@ export function describeQuery(query: ArchiveQuery): string[] {
   if (query.deleted === 'only') parts.push('deleted only');
   if (query.deleted === 'include') parts.push('including deleted');
   if (query.hasMedia) parts.push(query.mediaType ? `with ${query.mediaType}` : 'with media');
+  if (query.thread)
+    parts.push(query.thread === 'missing' ? 'thread not collected yet' : 'thread collected');
   if (query.sort !== 'new') parts.push(query.sort === 'top' ? 'highest score first' : 'oldest first');
   return parts;
 }

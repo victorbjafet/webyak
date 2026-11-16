@@ -1,4 +1,5 @@
 import type { ArchiveStore } from './contract';
+import type { DensityResult, DensityUnit } from './density';
 import type { ArchiveQuery } from './query';
 import type {
   ArchiveStats,
@@ -96,6 +97,15 @@ export async function forEachRecord(
   _visit: (record: ArchivedContent) => void,
   _onProgress?: (seen: number) => void,
 ): Promise<void> {}
+
+export async function countDensity(
+  _query: ArchiveQuery,
+  _range: { start: string; end: string },
+  _unit: DensityUnit,
+  _options?: { onProgress?: (scanned: number) => void; shouldStop?: () => boolean },
+): Promise<DensityResult | null> {
+  return null;
+}
 
 export interface ImportProgress {
   lines: number;
@@ -231,6 +241,7 @@ const _implements: ArchiveStore = {
   getArchiveStats,
   clearArchive,
   forEachRecord,
+  countDensity,
   findArchivedByCode,
   findArchivedById,
   getOldestArchived,

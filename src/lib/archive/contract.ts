@@ -1,3 +1,4 @@
+import type { DensityResult, DensityUnit } from './density';
 import type { ArchiveQuery } from './query';
 import type {
   ArchiveStats,
@@ -42,6 +43,13 @@ export interface ArchiveStore {
     visit: (record: ArchivedContent) => void,
     onProgress?: (seen: number) => void,
   ): Promise<void>;
+
+  countDensity(
+    query: ArchiveQuery,
+    range: { start: string; end: string },
+    unit: DensityUnit,
+    options?: { onProgress?: (scanned: number) => void; shouldStop?: () => boolean },
+  ): Promise<DensityResult | null>;
 
   findArchivedByCode(code: string): Promise<ArchivedContent | undefined>;
   findArchivedById(id: string): Promise<ArchivedContent | undefined>;

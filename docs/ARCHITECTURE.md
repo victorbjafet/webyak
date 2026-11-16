@@ -894,6 +894,7 @@ Twitter-shaped, because that is the vocabulary people already have:
 | `min_score:` / `max_score:` (`min_faves:` accepted) | vote total |
 | `is:post` `is:comment` `is:reply` `is:deleted` | kind |
 | `has:media` `has:image` `has:video` | attachments |
+| `thread:missing` `thread:collected` | posts by comment thread: still in the comment backlog (`needs_comments`), or fetched and current. Added 2026-11-16 for finding gaps in comment collection |
 | `sort:new` `sort:old` `sort:top` | ordering |
 | `limit:` | result cap |
 
@@ -943,7 +944,7 @@ query can be understood rather than guessed at.
 
 Operators are only useful to someone who knows they exist, so the same filters
 are available as controls: a **Filters** button opens a panel with author,
-community, dates, score range, attachments, replies, removed and sort, and an
+community, dates, score range, attachments, replies, thread, removed and sort, and an
 always-visible **All / Posts / Comments** segment above it, since kind is the
 filter reached for most.
 
@@ -975,6 +976,41 @@ records. Those list every community ever backfilled, which is the same set worth
 filtering by, and reading them costs one small lookup instead of walking 157k
 rows to collect distinct names. It is hidden entirely when only one community has
 been archived, which is the common case.
+
+### Density over time (2026-11-16)
+
+*Show density over time*, under the search box and off by default, adds a column
+chart above the results: how many archived records match the search in each day,
+week, month, quarter or year. The unit is picked so the range fits the chart's
+width at about 6 px a column.
+
+- **Two numbers per column, one series drawn.** The scan counts the matches and
+  their **baseline**: everything of the same kind (type, community, removed
+  setting), ignoring words and narrower filters. *Count* draws the matches,
+  scaled to themselves. *% of all* draws their share of the baseline. The
+  baseline's numbers are in the readout and the table. Drawing both on one
+  scale would leave a rare word a sliver at the foot of every column.
+- **`thread:` compares against posts with replies.** A post with none has no
+  thread to be missing, so `thread:missing` on *% of all* shows the share of
+  collectable threads not yet collected, per bucket. That is the view for
+  finding the gaps.
+- **Recounted on request.** The baseline has no index to narrow by, so every
+  record in the range is read: about 1.4 s for 200k records in a stand-in, so
+  several seconds for a full archive. Edits to the search only mark the chart
+  out of date, and **Refresh** recounts. The chart's own range (All time, From
+  and To, *Zoom in* on a column) recounts at once, because each is a
+  deliberate act. The date input only reports complete dates.
+- **Short read transactions.** `countDensity` reads the `created_at` index in
+  batches of 2,000, each its own transaction, so a crawl running alongside
+  isn't held behind it. Each batch resumes from the last timestamp read and
+  skips the ids already counted at that instant, so ties across a batch edge are
+  counted once. The stand-in check matched an expected 33,333 exactly.
+- **All time runs to today**, not to the newest record, so a stretch where
+  nothing was archived shows as empty columns.
+
+The bucketing and the baseline rule are pure and live in
+[src/lib/archive/density.ts](../src/lib/archive/density.ts). Chart conventions
+are in [DESIGN.md](DESIGN.md#charts).
 
 ### Results are not post cards
 

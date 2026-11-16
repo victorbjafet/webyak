@@ -670,6 +670,11 @@ and comment it sees** — effectively a Yik Yak downloader
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#archive-search-the-query-language-and-what-serves-it))
 - [x] Added a `vote_total` index — `sort:top` and `min_score:` are termless, so
       without one they scanned the whole archive and could not stop early
+- [x] **Density over time** beside search results (2026-11-16): count or share
+      of the search per day/week/month, All time or picked dates, zoom into a
+      column, recounted on Refresh. With the new `thread:missing` filter it shows
+      where the comment backlog sits
+      ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#density-over-time-2026-11-16))
 - [x] **The six-day wall was transient, not a window.** Manual restarts pushed
       straight past it, so the crawler now waits out unproductive stretches
       instead of stopping — with the archive's oldest post as a target, since

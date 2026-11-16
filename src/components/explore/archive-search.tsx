@@ -7,6 +7,7 @@ import { ThemedText } from '../themed-text';
 
 import { Layout, Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { DensityChart } from './density-chart';
 import { SearchFilters } from './search-filters';
 
 import { describeQuery, isEmptyQuery, parseQuery, readFlag, writeFlag } from '@/lib/archive/query';
@@ -50,6 +51,7 @@ export function ArchiveSearch() {
   const [total, setTotal] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showDensity, setShowDensity] = useState(false);
   const [groups, setGroups] = useState<string[]>([]);
 
   useEffect(() => {
@@ -115,6 +117,7 @@ export function ArchiveSearch() {
     parsed.hasMedia,
     parsed.isReply,
     parsed.deleted,
+    parsed.thread,
     parsed.sort !== 'new' ? parsed.sort : undefined,
   ].filter((v) => v !== undefined).length;
 
@@ -222,6 +225,22 @@ export function ArchiveSearch() {
           </Pressable>
         </View>
 
+        {/* Off by default: drawing it reads the whole range of the archive. */}
+        <Pressable
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: showDensity }}
+          onPress={() => setShowDensity((v) => !v)}
+          style={({ hovered }) => [styles.check, hovered && { opacity: 0.85 }]}>
+          <Ionicons
+            name={showDensity ? 'checkbox' : 'square-outline'}
+            size={16}
+            color={showDensity ? theme.brand : theme.textTertiary}
+          />
+          <ThemedText type="caption" themeColor="textSecondary">
+            Show density over time
+          </ThemedText>
+        </Pressable>
+
         {showFilters ? (
           <SearchFilters value={input} onChange={setInput} groups={groups} />
         ) : null}
@@ -258,6 +277,9 @@ export function ArchiveSearch() {
         keyExtractor={(item: ArchivedContent) => item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        // Above the results and scrolling with them, so it doesn't eat the
+        // list's room for as long as it is on.
+        ListHeaderComponent={showDensity ? <DensityChart input={input} /> : null}
         initialNumToRender={15}
         windowSize={7}
         ListEmptyComponent={
@@ -416,6 +438,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.one,
     borderRadius: Radius.pill,
+  },
+  check: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.one,
+    alignSelf: 'flex-start',
   },
   filterButton: {
     flexDirection: 'row',

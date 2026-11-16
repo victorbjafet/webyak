@@ -42,6 +42,7 @@ export function SearchFilters({
 
   const media = readFlag(value, 'has', ['media', 'image', 'photo', 'video']);
   const reply = readFlag(value, 'is', ['reply']);
+  const thread = readOperator(value, ['thread']);
   const deleted = readFlag(value, 'is', ['deleted']) ?? readFlag(value, 'include', ['deleted']);
 
   const set = (keys: string[], next?: string) => onChange(writeOperator(value, keys, next));
@@ -139,6 +140,25 @@ export function SearchFilters({
             onPress={() =>
               onChange(writeFlag(value, 'is', ['reply'], reply ? undefined : 'reply'))
             }
+          />
+        </View>
+      </Row>
+
+      {/* Where the comment pass still has work: posts whose thread hasn't been
+          collected, or has changed since. With the density chart on, this is
+          how the gaps show up. */}
+      <Row label="Thread">
+        <View style={styles.chips}>
+          <Chip label="Any" active={!thread} onPress={() => set(['thread'], undefined)} />
+          <Chip
+            label="Not collected"
+            active={thread === 'missing'}
+            onPress={() => set(['thread'], thread === 'missing' ? undefined : 'missing')}
+          />
+          <Chip
+            label="Collected"
+            active={thread === 'collected'}
+            onPress={() => set(['thread'], thread === 'collected' ? undefined : 'collected')}
           />
         </View>
       </Row>
