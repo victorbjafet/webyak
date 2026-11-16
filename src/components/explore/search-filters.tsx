@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { ThemedText } from '../themed-text';
 import { DateField } from '../ui/date-field';
 
-import { readFlag, readOperator, writeFlag, writeOperator } from '@/lib/archive/query';
+import { parseQuery, readFlag, readOperator, writeFlag, writeOperator } from '@/lib/archive/query';
 import { Radius, Spacing, Typography } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -43,7 +43,14 @@ export function SearchFilters({
   const media = readFlag(value, 'has', ['media', 'image', 'photo', 'video']);
   const reply = readFlag(value, 'is', ['reply']);
   const thread = readOperator(value, ['thread']);
-  const deleted = readFlag(value, 'is', ['deleted']) ?? readFlag(value, 'include', ['deleted']);
+  // Read from the parse, not the tokens: `-is:deleted` and `exclude:deleted`
+  // both hide, and only the parser tells a negated token from a plain one.
+  const deleted = parseQuery(value).deleted;
+  // Every token that sets it, so choosing one state clears the others.
+  const clearDeleted = (input: string) =>
+    writeFlag(writeFlag(writeFlag(input, 'is', ['deleted']), 'include', ['deleted']), 'exclude', [
+      'deleted',
+    ]);
 
   const set = (keys: string[], next?: string) => onChange(writeOperator(value, keys, next));
 
@@ -166,34 +173,25 @@ export function SearchFilters({
       <Row label="Removed">
         <View style={styles.chips}>
           {/*
-            Three states, not a toggle: hidden, shown alongside, or shown alone.
-            "Only deleted" is the interesting one — it answers what got taken
-            down, which is a question only an archive can answer at all.
+            Three states, not a toggle: shown alongside (the default since
+            2026-11-16), hidden, or shown alone. "Only removed" is the
+            interesting one — it answers what got taken down, which is a
+            question only an archive can answer at all.
           */}
           <Chip
-            label="Hidden"
+            label="Included"
             active={!deleted}
-            onPress={() =>
-              onChange(writeFlag(writeFlag(value, 'is', ['deleted']), 'include', ['deleted']))
-            }
+            onPress={() => onChange(clearDeleted(value))}
           />
           <Chip
-            label="Included"
-            active={deleted === 'deleted' && /include:deleted/i.test(value)}
-            onPress={() =>
-              onChange(
-                writeFlag(writeFlag(value, 'is', ['deleted']), 'include', ['deleted'], 'deleted'),
-              )
-            }
+            label="Hidden"
+            active={deleted === 'exclude'}
+            onPress={() => onChange(writeFlag(clearDeleted(value), 'exclude', ['deleted'], 'deleted'))}
           />
           <Chip
             label="Only removed"
-            active={/(^|\s)is:deleted/i.test(value)}
-            onPress={() =>
-              onChange(
-                writeFlag(writeFlag(value, 'include', ['deleted']), 'is', ['deleted'], 'deleted'),
-              )
-            }
+            active={deleted === 'only'}
+            onPress={() => onChange(writeFlag(clearDeleted(value), 'is', ['deleted'], 'deleted'))}
           />
         </View>
       </Row>

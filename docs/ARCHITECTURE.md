@@ -892,7 +892,8 @@ Twitter-shaped, because that is the vocabulary people already have:
 | `in:` / `group:` / `community:` | community name, substring |
 | `since:` / `until:` (or `after:` / `before:`) | dates, inclusive |
 | `min_score:` / `max_score:` (`min_faves:` accepted) | vote total |
-| `is:post` `is:comment` `is:reply` `is:deleted` | kind |
+| `is:post` `is:comment` `is:reply` `is:deleted` | kind (`is:deleted`: removed only) |
+| `exclude:deleted` (or `-is:deleted`) | hide removed posts and comments, which are included by default. `include:deleted` is still accepted, as the default |
 | `has:media` `has:image` `has:video` | attachments |
 | `thread:missing` `thread:collected` | posts by comment thread: still in the comment backlog (`needs_comments`), or fetched and current. Added 2026-11-16 for finding gaps in comment collection |
 | `sort:new` `sort:old` `sort:top` | ordering |
@@ -979,9 +980,19 @@ Two things fall out of that:
   exists separately because `is:reply` and `is:deleted` share a key but are
   independent: setting one must not clear the other.
 
-"Removed" is three states rather than a toggle — hidden, shown alongside, or
+"Removed" is three states rather than a toggle — shown alongside, hidden, or
 shown alone. *Only removed* is the interesting one: it asks what got taken down,
 which is a question only an archive can answer at all.
+
+**Removed posts are included by default (2026-11-16, the owner's call).** They
+used to be hidden unless asked for, with *Included* writing `include:deleted`.
+But keeping what Yik Yak no longer serves is the archive's whole point, and a
+search that left them out silently undercounted every word. That mattered more
+once the density chart drew those counts over time. *Hidden* now writes
+`exclude:deleted`, and `-is:deleted` means the same. The chart's baseline
+follows the same rule, except that `thread:` charts leave removed posts out:
+their threads can no longer be read, so they are neither missing nor
+collectable.
 
 The community picker is populated from the crawl states, not a scan of the
 records. Those list every community ever backfilled, which is the same set worth

@@ -141,14 +141,16 @@ export function niceCeiling(value: number): number {
  *
  * - The type, and the community, are kept: comments against all posts is not a
  *   share of anything.
- * - Deleted records count once the search includes them, so `is:deleted` reads
- *   as the share of everything that was removed.
+ * - Removed records count unless the search excludes them, so `is:deleted`
+ *   reads as the share of everything that was removed.
  * - A `thread:` search compares against **posts with replies**. A post with
  *   none has no thread to be missing, so "a third of threads missing" is the
- *   honest figure, not a third of all posts.
+ *   honest figure, not a third of all posts. Removed posts are left out of it
+ *   too: their threads can no longer be read, so they are neither missing nor
+ *   collectable.
  */
 export function inBaseline(record: ArchivedContent, query: ArchiveQuery): boolean {
-  if (!query.deleted && record.deleted) return false;
+  if (record.deleted && (query.deleted === 'exclude' || query.thread)) return false;
   const type = query.thread ? 'post' : query.type;
   if (type && record.type !== type) return false;
   if (query.thread && !((record.comment_count ?? 0) > 0)) return false;

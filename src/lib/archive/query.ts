@@ -33,8 +33,15 @@ export interface ArchiveQuery {
 
   type?: 'post' | 'comment';
   isReply?: boolean;
-  /** Deleted posts are excluded unless asked for, or asked for exclusively. */
-  deleted?: 'only' | 'include';
+  /**
+   * Removed posts and comments are **included unless excluded** (`exclude:deleted`
+   * or `-is:deleted`), or asked for exclusively (`is:deleted`).
+   *
+   * Included by default since 2026-11-16. They used to be hidden unless asked
+   * for, but holding what Yik Yak no longer serves is the archive's whole
+   * point, and a search that silently left them out undercounted every term.
+   */
+  deleted?: 'only' | 'exclude';
   hasMedia?: boolean;
   mediaType?: 'image' | 'video';
   /**
@@ -182,7 +189,7 @@ function applyOperator(
           query.isReply = !negated;
           return true;
         case 'deleted':
-          query.deleted = negated ? undefined : 'only';
+          query.deleted = negated ? 'exclude' : 'only';
           return true;
         default:
           return false;
@@ -213,9 +220,18 @@ function applyOperator(
       }
       return false;
 
+    // `include:deleted` is now the default, and still accepted so a query
+    // written before 2026-11-16 means the same thing.
     case 'include':
       if (lower === 'deleted') {
-        query.deleted = 'include';
+        query.deleted = undefined;
+        return true;
+      }
+      return false;
+
+    case 'exclude':
+      if (lower === 'deleted') {
+        query.deleted = 'exclude';
         return true;
       }
       return false;
@@ -277,7 +293,7 @@ export function describeQuery(query: ArchiveQuery): string[] {
   if (query.type) parts.push(query.type === 'post' ? 'posts only' : 'comments only');
   if (query.isReply !== undefined) parts.push(query.isReply ? 'replies only' : 'not replies');
   if (query.deleted === 'only') parts.push('deleted only');
-  if (query.deleted === 'include') parts.push('including deleted');
+  if (query.deleted === 'exclude') parts.push('without deleted');
   if (query.hasMedia) parts.push(query.mediaType ? `with ${query.mediaType}` : 'with media');
   if (query.thread)
     parts.push(query.thread === 'missing' ? 'thread not collected yet' : 'thread collected');
