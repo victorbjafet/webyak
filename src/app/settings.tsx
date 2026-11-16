@@ -36,6 +36,7 @@ import {
   clearArchive,
   exportArchive,
   getArchiveStats,
+  getOldestArchived,
   importArchive,
   listCrawlStates,
   listUpdateStates,
@@ -116,6 +117,7 @@ export default function SettingsScreen() {
   const [commentTarget, setCommentTarget] = useState<Group | null>(null);
   const [outstanding, setOutstanding] = useState<Record<string, number>>({});
   const [pace, setPace] = useState(DEFAULT_MS_PER_THREAD);
+  const [oldestIn, setOldestIn] = useState<Record<string, string | undefined>>({});
   const [updates, setUpdates] = useState<UpdateState[]>([]);
   const [postUpdate, setPostUpdate] = useState<UpdateChoice>({ enabled: true });
   const [commentUpdate, setCommentUpdate] = useState<UpdateChoice>({ enabled: true });
@@ -247,6 +249,32 @@ export default function SettingsScreen() {
       cancelled = true;
     };
   }, [groups, stats?.needsComments, commentUpdate, updates, commentsRunning]);
+
+  /*
+    The oldest post held per community, for "Re-scrape everything — back to …".
+    That used to be the oldest record in the whole archive, so every community
+    offered the date of whichever one had the deepest history. Harmless, since a
+    walk stops where its own feed ends, but the date was wrong for the others.
+    All communities still uses the archive-wide date. One index step each.
+  */
+  useEffect(() => {
+    if (!archiveAvailable || groups.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const next: Record<string, string | undefined> = {};
+      for (const group of groups.filter((g) => !isForYouFeed(g))) {
+        try {
+          next[group.id] = await getOldestArchived(group.id);
+        } catch {
+          /* falls back to the archive-wide date */
+        }
+      }
+      if (!cancelled) setOldestIn(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [groups, stats?.oldest]);
 
   // The last run's measured pace, for the estimates on the buttons.
   useEffect(() => {
@@ -629,7 +657,7 @@ export default function SettingsScreen() {
               state={updates.find(
                 (u) => u.kind === 'posts' && u.group_id === (postScope?.id ?? ''),
               )}
-              earliest={stats?.oldest}
+              earliest={postScope ? oldestIn[postScope.id] : stats?.oldest}
               scopeName={postScope ? groupDisplayName(postScope) : undefined}
               onCheckDeletions={postScope ? () => checkDeletions(postScope) : undefined}
               disabled={running}
@@ -782,7 +810,7 @@ export default function SettingsScreen() {
               value={commentUpdate}
               onChange={setCommentUpdate}
               state={commentWindowState(updates, commentScope?.id)}
-              earliest={stats?.oldest}
+              earliest={commentScope ? oldestIn[commentScope.id] : stats?.oldest}
               scopeName={commentScope ? groupDisplayName(commentScope) : 'All communities'}
               disabled={commentsRunning}
             />

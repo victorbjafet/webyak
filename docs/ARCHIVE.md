@@ -988,8 +988,16 @@ comment backlog**: re-reading a post updates `comment_count`, which re-arms
 the system working, but on a corpus this size it can add tens of thousands of
 threads to the queue, which is days of comment collection.
 
-Run it from the Full re-scrape preset, which sets the window to the archive's
+Run it from the Full re-scrape preset, which sets the window to the community's
 oldest post, and expect to pause and resume it several times.
+
+**That date is read from the archive, never hard-coded** (checked 2026-11-16).
+It is the oldest post held for the community shown in the panel, one step on the
+`[group_id, created_at]` index. All communities uses the oldest record in the
+whole archive. Until 2026-11-16 every community used that archive-wide date, so
+a second community would have offered the first one's history (2023-03-30 for
+the owner's). That was harmless, since a walk stops where its own feed ends, but
+the label was wrong.
 
 ### Counting comments is not enough
 
