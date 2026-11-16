@@ -1,5 +1,5 @@
 import type { ArchiveQuery } from './query';
-import type { ArchivedContent } from './types';
+import { isTombstoneText, type ArchivedContent } from './types';
 
 /**
  * Post density over time, for the chart beside archive search.
@@ -142,7 +142,8 @@ export function niceCeiling(value: number): number {
  * - The type, and the community, are kept: comments against all posts is not a
  *   share of anything.
  * - Removed records count unless the search excludes them, so `is:deleted`
- *   reads as the share of everything that was removed.
+ *   reads as the share of everything that was removed. Placeholders, records
+ *   removed before they were archived, likewise count unless excluded.
  * - A `thread:` search compares against **posts with replies**. A post with
  *   none has no thread to be missing, so "a third of threads missing" is the
  *   honest figure, not a third of all posts. Removed posts are left out of it
@@ -151,6 +152,7 @@ export function niceCeiling(value: number): number {
  */
 export function inBaseline(record: ArchivedContent, query: ArchiveQuery): boolean {
   if (record.deleted && (query.deleted === 'exclude' || query.thread)) return false;
+  if (query.placeholders === 'exclude' && isTombstoneText(record.text)) return false;
   const type = query.thread ? 'post' : query.type;
   if (type && record.type !== type) return false;
   if (query.thread && !((record.comment_count ?? 0) > 0)) return false;

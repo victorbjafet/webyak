@@ -1197,6 +1197,10 @@ export async function searchArchive(query: ArchiveQuery): Promise<SearchResult> 
 function matchesQuery(record: ArchivedContent, query: ArchiveQuery): boolean {
   if (query.deleted === 'only' && !record.deleted) return false;
   if (query.deleted === 'exclude' && record.deleted) return false;
+  if (query.placeholders) {
+    const placeholder = isTombstoneText(record.text);
+    if (query.placeholders === 'exclude' ? placeholder : !placeholder) return false;
+  }
 
   if (query.type && record.type !== query.type) return false;
   if (query.isReply !== undefined && Boolean(record.is_reply) !== query.isReply) return false;

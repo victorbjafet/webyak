@@ -118,6 +118,7 @@ export function ArchiveSearch() {
     parsed.isReply,
     parsed.deleted,
     parsed.thread,
+    parsed.placeholders,
     parsed.sort !== 'new' ? parsed.sort : undefined,
   ].filter((v) => v !== undefined).length;
 

@@ -45,7 +45,11 @@ export function SearchFilters({
   const thread = readOperator(value, ['thread']);
   // Read from the parse, not the tokens: `-is:deleted` and `exclude:deleted`
   // both hide, and only the parser tells a negated token from a plain one.
-  const deleted = parseQuery(value).deleted;
+  const parsed = parseQuery(value);
+  const deleted = parsed.deleted;
+  const placeholders = parsed.placeholders;
+  const clearPlaceholders = (input: string) =>
+    writeFlag(writeFlag(input, 'is', ['placeholder']), 'exclude', ['placeholders', 'placeholder']);
   // Every token that sets it, so choosing one state clears the others.
   const clearDeleted = (input: string) =>
     writeFlag(writeFlag(writeFlag(input, 'is', ['deleted']), 'include', ['deleted']), 'exclude', [
@@ -192,6 +196,33 @@ export function SearchFilters({
             label="Only removed"
             active={deleted === 'only'}
             onPress={() => onChange(writeFlag(clearDeleted(value), 'is', ['deleted'], 'deleted'))}
+          />
+        </View>
+      </Row>
+
+      {/* Records archived only as the placeholder, shown in results as "Removed
+          before it was archived". Separate from Removed above, so removed posts
+          that kept their words can be searched without the empty ones. */}
+      <Row label="Never archived">
+        <View style={styles.chips}>
+          <Chip
+            label="Shown"
+            active={!placeholders}
+            onPress={() => onChange(clearPlaceholders(value))}
+          />
+          <Chip
+            label="Hidden"
+            active={placeholders === 'exclude'}
+            onPress={() =>
+              onChange(writeFlag(clearPlaceholders(value), 'exclude', ['placeholders'], 'placeholders'))
+            }
+          />
+          <Chip
+            label="Only these"
+            active={placeholders === 'only'}
+            onPress={() =>
+              onChange(writeFlag(clearPlaceholders(value), 'is', ['placeholder'], 'placeholder'))
+            }
           />
         </View>
       </Row>

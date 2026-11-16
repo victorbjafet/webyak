@@ -42,6 +42,15 @@ export interface ArchiveQuery {
    * point, and a search that silently left them out undercounted every term.
    */
   deleted?: 'only' | 'exclude';
+  /**
+   * Records archived only as Yik Yak's placeholder ("Comment Deleted"), shown as
+   * "Removed before it was archived": deleted before their words were ever
+   * captured, so they carry nothing but a date and a place in a thread.
+   * `exclude:placeholders` (or `-is:placeholder`) hides them; `is:placeholder`
+   * shows only them. Independent of `deleted`, so removed posts that kept their
+   * text can be searched without the empty ones.
+   */
+  placeholders?: 'exclude' | 'only';
   hasMedia?: boolean;
   mediaType?: 'image' | 'video';
   /**
@@ -191,6 +200,9 @@ function applyOperator(
         case 'deleted':
           query.deleted = negated ? 'exclude' : 'only';
           return true;
+        case 'placeholder':
+          query.placeholders = negated ? 'exclude' : 'only';
+          return true;
         default:
           return false;
       }
@@ -234,6 +246,10 @@ function applyOperator(
         query.deleted = 'exclude';
         return true;
       }
+      if (lower === 'placeholders' || lower === 'placeholder') {
+        query.placeholders = 'exclude';
+        return true;
+      }
       return false;
 
     case 'sort':
@@ -272,7 +288,8 @@ export function isEmptyQuery(query: ArchiveQuery): boolean {
     query.isReply === undefined &&
     !query.deleted &&
     query.hasMedia === undefined &&
-    !query.thread
+    !query.thread &&
+    !query.placeholders
   );
 }
 
@@ -294,6 +311,8 @@ export function describeQuery(query: ArchiveQuery): string[] {
   if (query.isReply !== undefined) parts.push(query.isReply ? 'replies only' : 'not replies');
   if (query.deleted === 'only') parts.push('deleted only');
   if (query.deleted === 'exclude') parts.push('without deleted');
+  if (query.placeholders === 'exclude') parts.push('without ones removed before archiving');
+  if (query.placeholders === 'only') parts.push('only ones removed before archiving');
   if (query.hasMedia) parts.push(query.mediaType ? `with ${query.mediaType}` : 'with media');
   if (query.thread)
     parts.push(query.thread === 'missing' ? 'thread not collected yet' : 'thread collected');

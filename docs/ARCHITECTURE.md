@@ -894,6 +894,7 @@ Twitter-shaped, because that is the vocabulary people already have:
 | `min_score:` / `max_score:` (`min_faves:` accepted) | vote total |
 | `is:post` `is:comment` `is:reply` `is:deleted` | kind (`is:deleted`: removed only) |
 | `exclude:deleted` (or `-is:deleted`) | hide removed posts and comments, which are included by default. `include:deleted` is still accepted, as the default |
+| `exclude:placeholders` (or `-is:placeholder`), `is:placeholder` | hide, or show only, records archived only as Yik Yak's placeholder, shown in results as "Removed before it was archived" |
 | `has:media` `has:image` `has:video` | attachments |
 | `thread:missing` `thread:collected` | posts by comment thread: still in the comment backlog (`needs_comments`), or fetched and current. Added 2026-11-16 for finding gaps in comment collection |
 | `sort:new` `sort:old` `sort:top` | ordering |
@@ -993,6 +994,16 @@ once the density chart drew those counts over time. *Hidden* now writes
 follows the same rule, except that `thread:` charts leave removed posts out:
 their threads can no longer be read, so they are neither missing nor
 collectable.
+
+**"Never archived" is its own filter (2026-11-16).** A removed comment the
+archive caught first keeps its words. One that was deleted before the archive
+ever saw it is only the placeholder (`isTombstoneText`), with no words, no
+author and no score. Those turn up in every search for "deleted" and in every
+date range, so they can be hidden on their own (`exclude:placeholders`, or
+*Never archived → Hidden* in the panel) without hiding the removed comments
+that kept their words. `is:placeholder` shows only them, which is a count of
+what was lost. The density chart's baseline leaves them out too, once they are
+excluded.
 
 The community picker is populated from the crawl states, not a scan of the
 records. Those list every community ever backfilled, which is the same set worth
