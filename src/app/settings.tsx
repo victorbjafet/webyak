@@ -43,10 +43,18 @@ import {
   type ImportProgress,
 } from '@/lib/archive/store';
 import { analyseArchive, type IntegrityReport } from '@/lib/archive/integrity';
-import { countPostsNeedingComments, forEachRecord } from '@/lib/archive/store';
+import { countPostsInRange, countPostsNeedingComments, forEachRecord } from '@/lib/archive/store';
+import {
+  DEFAULT_MS_PER_THREAD,
+  MIN_THREADS_FOR_PACE,
+  estimateDuration,
+  readThreadPace,
+  writeThreadPace,
+} from '@/lib/archive/pace';
 import { pickFile } from '@/lib/pick-file';
 import {
   commentWindowState,
+  resumeMatches,
   type ArchiveStats,
   type CrawlState,
   type RepairOutcome,
@@ -75,14 +83,6 @@ function structuralIssues(report: IntegrityReport): string[] {
     ],
   ];
   return issues.filter(([count]) => count > 0).map(([count, label]) => `${formatCount(count)} ${label}`);
-}
-
-/** ~1.2s per thread plus jitter; rounded coarsely because it is an estimate. */
-function estimateHours(threads: number) {
-  const hours = (threads * 1.45) / 3600;
-  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} minutes`;
-  if (hours < 48) return `${hours.toFixed(hours < 10 ? 1 : 0)} hours`;
-  return `${Math.round(hours / 24)} days`;
 }
 
 function formatBytes(bytes?: number) {
@@ -115,6 +115,7 @@ export default function SettingsScreen() {
   const [comments, setComments] = useState<CommentCrawlProgress | null>(null);
   const [commentTarget, setCommentTarget] = useState<Group | null>(null);
   const [outstanding, setOutstanding] = useState<Record<string, number>>({});
+  const [pace, setPace] = useState(DEFAULT_MS_PER_THREAD);
   const [updates, setUpdates] = useState<UpdateState[]>([]);
   const [postUpdate, setPostUpdate] = useState<UpdateChoice>({ enabled: true });
   const [commentUpdate, setCommentUpdate] = useState<UpdateChoice>({ enabled: true });
@@ -203,17 +204,39 @@ export default function SettingsScreen() {
     };
   }, [refresh]);
 
-  // Outstanding threads per community, so the picker shows how much work each
-  // one actually represents rather than one lump figure.
+  /*
+    Threads each comment button would read, so it shows the work a press
+    actually starts: the refresh window when re-reading is on, then the backlog
+    outside it. It used to count the backlog alone while the run read the window
+    first, so the estimate fell short by the whole window, and a community with
+    an empty backlog couldn't be refreshed because its button was off.
+
+    Not recounted while comments are being collected: the range walk is a read
+    transaction, and the run's writes would queue behind it.
+  */
   useEffect(() => {
-    if (!archiveAvailable || groups.length === 0) return;
+    if (!archiveAvailable || groups.length === 0 || commentsRunning) return;
     let cancelled = false;
     void (async () => {
       const counts: Record<string, number> = {};
-      for (const group of groups) {
+      for (const group of [null, ...groups.filter((g) => !isForYouFeed(g))]) {
         if (cancelled) return;
         try {
-          counts[group.id] = await countPostsNeedingComments(group.id);
+          const backlog = await countPostsNeedingComments(group?.id);
+          const state = commentWindowState(updates, group?.id);
+          const window = resolveWindow(commentUpdate, state);
+          // `IDBKeyRange.bound` throws on a From after the To.
+          const inWindow =
+            window && window.start <= window.end
+              ? await countPostsInRange(window.start, window.end, group?.id)
+              : undefined;
+          // A paused refresh of this window picks up where it stopped.
+          const resumeAt =
+            window && resumeMatches(state?.resume, window) ? (state?.resume?.offset ?? 0) : 0;
+          counts[group?.id ?? 'all'] = inWindow
+            ? Math.max(0, inWindow.posts - resumeAt) +
+              Math.max(0, backlog - inWindow.needingComments)
+            : backlog;
         } catch {
           /* a failed count shouldn't blank the screen */
         }
@@ -223,7 +246,18 @@ export default function SettingsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [groups, stats?.needsComments]);
+  }, [groups, stats?.needsComments, commentUpdate, updates, commentsRunning]);
+
+  // The last run's measured pace, for the estimates on the buttons.
+  useEffect(() => {
+    let cancelled = false;
+    void readThreadPace().then((measured) => {
+      if (!cancelled) setPace(measured);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // A crawl outlives this screen's render cycle, so it has to be stopped when
   // the screen goes away — otherwise it keeps issuing requests against a private
@@ -258,6 +292,7 @@ export default function SettingsScreen() {
         windows: 0,
         outstandingAtStart: 0,
         remaining: 0,
+        queuedAfter: 0,
         phase: window ? 'refreshing' : 'backlog',
         window,
         refreshed: 0,
@@ -268,6 +303,13 @@ export default function SettingsScreen() {
       commentHandle.current = startCommentCrawl(
         (next) => {
           setComments(next);
+          // Recorded as it goes, not only at the end, so a tab closed mid-run
+          // still leaves this device a measured pace.
+          if (next.finished || next.threads % MIN_THREADS_FOR_PACE === 0) {
+            void writeThreadPace(next).then(() =>
+              next.finished ? readThreadPace().then(setPace) : undefined,
+            );
+          }
           if (next.finished) void refresh();
         },
         group?.id,
@@ -700,7 +742,7 @@ export default function SettingsScreen() {
               {[null, ...crawlable].map((group) => {
                 const id = group?.id ?? 'all';
                 const selected = (commentTarget?.id ?? 'all') === id;
-                const pending = group ? outstanding[group.id] : (stats?.needsComments ?? 0);
+                const pending = outstanding[group?.id ?? 'all'];
                 return (
                   <Pressable
                     key={id}
@@ -728,7 +770,7 @@ export default function SettingsScreen() {
                         ? 'counting…'
                         : pending === 0
                           ? 'nothing outstanding'
-                          : `${formatCount(pending)} threads · ~${estimateHours(pending)}`}
+                          : `${formatCount(pending)} threads · ~${estimateDuration(pending * pace)}`}
                     </ThemedText>
                   </Pressable>
                 );
@@ -749,6 +791,7 @@ export default function SettingsScreen() {
               <CommentMonitor
                 progress={comments}
                 scopeName={commentTarget ? groupDisplayName(commentTarget) : undefined}
+                pace={pace}
               />
             ) : null}
 

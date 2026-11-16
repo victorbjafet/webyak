@@ -6,6 +6,7 @@ import { ThemedText } from '../themed-text';
 import type { CommentCrawlProgress } from '@/lib/archive/crawler';
 import { Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { MIN_THREADS_FOR_PACE } from '@/lib/archive/pace';
 import { useNow } from '@/lib/clock';
 import { formatCount } from '@/lib/time';
 
@@ -34,9 +35,12 @@ function duration(ms: number) {
 export function CommentMonitor({
   progress,
   scopeName,
+  pace,
 }: {
   progress: CommentCrawlProgress;
   scopeName?: string;
+  /** Milliseconds per thread measured on the last run, until this one has its own. */
+  pace: number;
 }) {
   const theme = useTheme();
   const now = useNow(TICK);
@@ -61,12 +65,24 @@ export function CommentMonitor({
       ? Math.min(1, Math.max(0, done / progress.outstandingAtStart))
       : 0;
 
-  // Projected from the rate actually achieved, not the configured delay — the
-  // two diverge as soon as anything is retried. Posts left behind are excluded:
-  // they are not going to be read by this run, so counting them would put an
-  // ETA on work that is already deferred.
+  /*
+    Threads left in the whole run, times the average time between threads
+    actually stored: elapsed over `threads`, so retries, backoff and recovery
+    are all in it. Until this run has stored enough to measure, the last run's
+    pace stands in (`pace`).
+
+    "The whole run" is the point. A refresh falls through into the quoted
+    posts and then the backlog. An ETA for the window alone ran out hours
+    before the run did.
+
+    Posts left behind are excluded: this run will not read them, so counting
+    them would put an ETA on work that is already deferred.
+  */
   const reachable = Math.max(0, progress.remaining - progress.behind);
-  const etaMs = threadsPerMin > 0 ? (reachable / threadsPerMin) * 60_000 : undefined;
+  const threadsLeft = reachable + progress.queuedAfter;
+  const msPerThread =
+    progress.threads >= MIN_THREADS_FOR_PACE ? elapsed / progress.threads : pace;
+  const etaMs = threadsLeft * msPerThread;
 
   const sinceLast = progress.lastAt ? now - progress.lastAt : undefined;
   const live = !progress.finished;
@@ -114,7 +130,10 @@ export function CommentMonitor({
       <ThemedText type="caption" themeColor="textTertiary">
         {formatCount(done)} of {formatCount(progress.outstandingAtStart)} threads ·{' '}
         {Math.round(fraction * 100)}%
-        {etaMs !== undefined && live ? ` · ~${duration(etaMs)} left` : ''}
+        {live ? ` · ~${duration(etaMs)} left` : ''}
+        {live && progress.queuedAfter > 0
+          ? `, counting the ${formatCount(progress.queuedAfter)} backlog threads after this`
+          : ''}
       </ThemedText>
 
       {progress.window ? (

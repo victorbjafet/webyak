@@ -640,6 +640,13 @@ export interface QueuedPost {
   fetched_at?: number;
 }
 
+/** Archived posts in a date window, from `countPostsInRange`. */
+export interface RangeCount {
+  posts: number;
+  /** Of those, the ones still flagged `needs_comments`. */
+  needingComments: number;
+}
+
 /* ------------------------------------------------------------------------ *
  * Update windows
  * ------------------------------------------------------------------------ */

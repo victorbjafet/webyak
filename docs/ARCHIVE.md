@@ -530,6 +530,31 @@ The ETA is built from `reachable`, not `remaining`. Putting a countdown on posts
 the run has already given up on would be a promise it cannot keep, and the
 countdown would stall at a floor equal to `behind` and never reach zero.
 
+#### Time estimates: elapsed time over work done, for the whole run
+
+*Rewritten 2026-11-16, after runs kept taking far longer than they said.* Every
+estimate is now **work left × the average time each finished unit has actually
+taken**. That average is elapsed time over successful threads (or posts), so
+every retry, backoff, recovery probe and archive write is already inside it.
+Four things were wrong before:
+
+| Estimate | Was | Now |
+|---|---|---|
+| Comment buttons, before a run | Backlog × **1.45 s**, the configured delay alone. Measured from 20,125 thread fetches in the owner's archive: median **2.0 s**, whole runs **2.1–2.7 s**. So runs took 1.5–1.9× the quote | × the last run's measured pace (`pace.ts`, stored per device, written every 50 threads and at the end). 2.4 s until a run has measured one |
+| Comment buttons, with re-reading on | Counted the **backlog only**, while a press re-reads the whole window first. A community with an empty backlog couldn't be refreshed at all, because its button was off | Window posts (less a saved resume position) + the backlog *outside* the window (`countPostsInRange` reports how many window posts are flagged) |
+| Comment run, "~X left" | The current phase only. A refresh then falls through into quoted posts and the backlog, so the estimate ran out hours early. A resume also counted the threads before the pause as still to do | Window left + `queuedAfter` (the backlog outside the window), shown as "counting the N backlog threads after this". The quoted phase gets its own count. A resume starts at its offset |
+| Posts window, "~X left" | Days of window per minute. After a resume, the earlier sessions' days counted as done in this session's minutes, so it read a fraction of the truth. And a busy week is several times the work of a quiet one | Archived posts still ahead (counted when the walk starts) × time per post seen, timed from the walk's first page |
+
+Before a comment run has stored 50 threads, its estimate uses the last run's
+pace. A cold start would be one slow request. The posts window estimate waits
+for three pages after the first, and shows none for a window the archive holds
+nothing in.
+
+Checked in a stand-in with a 360-post paged feed. The posts window estimate
+matched within a page's time (about 2 s) all the way down. The comment estimate
+covered the 59 backlog threads after the window and matched the threads left at
+the measured rate.
+
 A run that finishes with `behind > 0` reports it plainly rather than claiming
 completion. **A count that is stable across runs is the expected outcome**, not a
 fault: a deleted or moderated thread is never going to become readable, and the

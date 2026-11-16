@@ -4,6 +4,7 @@ import type {
   ArchivedContent,
   CrawlState,
   QueuedPost,
+  RangeCount,
   RepairOutcome,
   UpdateKind,
   UpdateState,
@@ -77,7 +78,7 @@ export interface ArchiveStore {
     groupId?: string,
     offset?: number,
   ): Promise<QueuedPost[]>;
-  countPostsInRange(start: string, end: string, groupId?: string): Promise<number>;
+  countPostsInRange(start: string, end: string, groupId?: string): Promise<RangeCount>;
   listQuotedTargets(
     start: string,
     end: string,

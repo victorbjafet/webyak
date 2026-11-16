@@ -14,6 +14,9 @@ const TICK = 1000;
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
+/** Three pages after the first, so one slow request does not set the pace. */
+const MIN_POSTS_FOR_PACE = 72;
+
 function duration(ms: number) {
   const total = Math.max(0, Math.round(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -102,12 +105,41 @@ export function CrawlMonitor({
   const windowFraction =
     windowSpan > 0 ? Math.min(1, Math.max(0, windowDone / windowSpan)) : 0;
 
-  // Days of window covered per minute, projected onto what is left. Built from
-  // the rate achieved rather than the configured delay, which diverge the
-  // moment anything is retried.
-  const daysPerMin = minutes > 0.05 ? windowDone / DAY_MS / minutes : 0;
+  /*
+    Posts still ahead, times how long each post seen has actually taken this
+    session, so deletion lookups, retries and waits are all in it.
+
+    It used to project days of window per minute, which went wrong twice. After
+    a resume, `oldestReached` already sat deep in the window, so every earlier
+    session's progress counted as done within this session's elapsed time and
+    the ETA came out a fraction of the truth. And days are not work: a busy
+    week costs several times a quiet one.
+
+    Progress is counted in posts already held, because that is what
+    `postsAhead` counted. New posts at the top of the feed take time, so they
+    count towards the pace, but they were never ahead.
+  */
+  const walk = progress.walk;
+  const paced = walk?.pacedFrom;
+  const walkedMs = paced ? Math.max(0, now - paced.at) : 0;
+  const walkSeen = paced ? run.archived + run.duplicates - paced.seen : 0;
+  const walkHeld = walk ? run.duplicates - walk.heldAtStart : 0;
+  // None when nothing held was ahead: a window the archive never covered is all
+  // new posts, and "0s left" over one would be a made-up number.
+  const windowEtaMs =
+    walk && walk.postsAhead > 0 && walkSeen >= MIN_POSTS_FOR_PACE
+      ? Math.max(0, walk.postsAhead - walkHeld) * (walkedMs / walkSeen)
+      : undefined;
+
+  // Shown as metrics. Days per minute is this session's own ground over this
+  // session's time, for the same reason as the ETA.
   const daysLeft = windowSpan > 0 ? (windowSpan - windowDone) / DAY_MS : 0;
-  const windowEtaMs = daysPerMin > 0.0001 ? (daysLeft / daysPerMin) * 60_000 : undefined;
+  const walkFrom = progress.resumedFrom ?? progress.window?.end;
+  const sessionDays =
+    walkFrom && run.oldestReached
+      ? (Date.parse(walkFrom) - Date.parse(run.oldestReached)) / DAY_MS
+      : 0;
+  const daysPerMin = walkedMs > 3_000 && sessionDays > 0 ? sessionDays / (walkedMs / 60_000) : 0;
 
   /*
     The deletion check has the one exact denominator in this whole panel: it
@@ -119,8 +151,10 @@ export function CrawlMonitor({
   const verifyStartedAt = run.startedAt;
   const verifyMinutes = Math.max(0, now - verifyStartedAt) / 60_000;
   const verifyRate = verify && verifyMinutes > 0.05 ? verify.checked / verifyMinutes : 0;
+  // Standalone only. Inline, the lookups are part of the walk, whose ETA
+  // already counts their time, and there is no total up front to project onto.
   const verifyEtaMs =
-    verify && verifyRate > 0
+    verify && !verify.inline && verifyRate > 0
       ? ((verify.candidates - verify.checked) / verifyRate) * 60_000
       : undefined;
 

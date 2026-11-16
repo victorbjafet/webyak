@@ -5,6 +5,7 @@ import type {
   ArchivedContent,
   CrawlState,
   QueuedPost,
+  RangeCount,
   RepairOutcome,
   UpdateKind,
   UpdateState,
@@ -161,8 +162,8 @@ export async function countPostsInRange(
   _start: string,
   _end: string,
   _groupId?: string,
-): Promise<number> {
-  return 0;
+): Promise<RangeCount> {
+  return { posts: 0, needingComments: 0 };
 }
 
 export async function listQuotedTargets(

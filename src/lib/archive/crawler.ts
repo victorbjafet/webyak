@@ -342,6 +342,22 @@ export interface CrawlProgress {
   verify?: VerifyProgress;
   /** Where a resumed refresh picked up, when it did. */
   resumedFrom?: string;
+  /** This session's walk of the window, for its ETA. */
+  walk?: {
+    /** Archived posts between where the walk began and the window's start. */
+    postsAhead: number;
+    /**
+     * `duplicates` when it began: held posts re-seen since then are progress.
+     * Taken after the top sweep, which comes first and is not window progress.
+     */
+    heldAtStart: number;
+    /**
+     * The clock and post count at the walk's **first page**, not before it.
+     * The first request goes out without a wait, so timing from before it
+     * counts N pages over N−1 gaps: 40% fast three pages in.
+     */
+    pacedFrom?: { at: number; seen: number };
+  };
   /** Consecutive pages that neither archived anything nor reached further back. */
   idlePages: number;
   /** The wait before the next request, so the pacing is visible rather than felt. */
@@ -795,6 +811,14 @@ export function startCrawl(
 
         const saved = await resumeFor('posts', groupId, update);
         progress.resumedFrom = saved?.through;
+        // `IDBKeyRange.bound` throws on an inverted range, and a resume can sit
+        // at or past the window's start.
+        const walkFrom = saved?.through ?? update.end;
+        const postsAhead =
+          walkFrom > update.start
+            ? (await countPostsInRange(update.start, walkFrom, groupId)).posts
+            : 0;
+        progress.walk = { postsAhead, heldAtStart: progress.run.duplicates };
         // The cutoff for "seen by this pass". The first session's start when
         // resuming, or everything read before the pause would look unseen.
         const startedAt = saved?.started_at ?? progress.run.startedAt;
@@ -843,6 +867,12 @@ export function startCrawl(
           saved?.cursor,
           undefined,
           async (cursor, pageFrontier) => {
+            if (progress.walk && !progress.walk.pacedFrom) {
+              progress.walk.pacedFrom = {
+                at: Date.now(),
+                seen: progress.run.archived + progress.run.duplicates,
+              };
+            }
             await save();
 
             if (checking && frontier && checkOutcome === 'done') {
@@ -1124,6 +1154,14 @@ export interface CommentCrawlProgress {
   outstandingAtStart: number;
   /** Still outstanding — recomputed at each batch boundary. */
   remaining: number;
+  /**
+   * Threads a later phase of this run will read: the backlog outside the
+   * refresh window, which the run falls through to once the window is done.
+   * Zero once the backlog phase starts, because its own count takes over. An
+   * ETA without it described only the window, and the run went on for hours
+   * after the estimate ran out.
+   */
+  queuedAfter: number;
   /** Comments seen in the most recent thread, for a sense of live movement. */
   lastThreadSize?: number;
   lastAt?: number;
@@ -1171,6 +1209,7 @@ export function startCommentCrawl(
       windows: 0,
       outstandingAtStart: 0,
       remaining: 0,
+      queuedAfter: 0,
     };
     let backoff = BACKOFF_START_MS;
     const emit = () => onProgress({ ...progress });
@@ -1356,10 +1395,18 @@ export function startCommentCrawl(
       if (update) {
         const scope = groupId ?? '';
         progress.phase = 'refreshing';
-        progress.outstandingAtStart = await countPostsInRange(update.start, update.end, groupId);
-        progress.remaining = progress.outstandingAtStart;
-
         const saved = await resumeFor('comments', scope, update);
+        const inWindow = await countPostsInRange(update.start, update.end, groupId);
+        progress.outstandingAtStart = inWindow.posts;
+        // A resumed pass starts part-way in. What it read before the pause is
+        // not still to do, and counting it made the ETA too long.
+        progress.remaining = Math.max(0, inWindow.posts - (saved?.offset ?? 0));
+        // The backlog this run reads after the window. Flagged posts inside the
+        // window are read by the window itself, so they're not counted twice.
+        progress.queuedAfter = Math.max(
+          0,
+          (await countPostsNeedingComments(groupId)) - inWindow.needingComments,
+        );
         progress.resumedFrom = saved?.offset ? String(saved.offset) : undefined;
         const startedAt = saved?.started_at ?? progress.startedAt;
         emit();
@@ -1390,6 +1437,10 @@ export function startCommentCrawl(
 
         const quoted = await listQuotedTargets(update.start, update.end, groupId);
         progress.quotedFound = quoted.length;
+        // Its own denominator, as the backlog phase has, so the bar and the ETA
+        // describe the work in front of it rather than a finished window.
+        progress.outstandingAtStart = quoted.length;
+        progress.remaining = quoted.length;
         emit();
 
         if (quoted.length > 0) {
@@ -1420,6 +1471,7 @@ export function startCommentCrawl(
       progress.phase = 'backlog';
       progress.outstandingAtStart = await countPostsNeedingComments(groupId);
       progress.remaining = progress.outstandingAtStart;
+      progress.queuedAfter = 0;
       emit();
 
       const finished = await drain(

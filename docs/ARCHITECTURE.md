@@ -1071,12 +1071,17 @@ one was not.
 | Work is | open-ended — nobody knows where history ends | a **known, finite queue** |
 | Leads with | movement: pages/min, idle pages, time since last page | completion: percentage done, threads left, ETA |
 | Progress bar | span walked toward a target, and stops pretending past it | a real percentage |
-| ETA | none | projected from the **achieved** rate, not the configured delay |
+| ETA | only for a refresh window, which has a count of posts ahead | for the whole run, refresh window and backlog after it |
 
 The feed crawler deliberately refuses to show a percentage or an ETA once past
 its target, because the denominator is unknown and inventing one would put a
 made-up number on a screen of real ones. The comment pass has a genuine
 denominator — the count of flagged posts — so it shows both.
+
+Every ETA is work left × the measured time per finished unit (elapsed over
+successes), never the configured delay. How each one is built, and the four
+ways they used to come out short, are in
+[ARCHIVE.md](ARCHIVE.md#time-estimates-elapsed-time-over-work-done-for-the-whole-run).
 
 Both are scoped per community, because a job measured in days should be aimable
 at one community rather than being all-or-nothing.

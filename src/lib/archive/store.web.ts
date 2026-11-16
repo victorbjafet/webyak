@@ -11,6 +11,7 @@ import {
   type ArchivedContent,
   type CrawlState,
   type QueuedPost,
+  type RangeCount,
   type RepairOutcome,
   type UpdateKind,
   type UpdateState,
@@ -428,12 +429,17 @@ export async function listPostsInRange(
   return out;
 }
 
-/** How many archived posts fall in a window — the refresh pass's denominator. */
+/**
+ * How many archived posts fall in a window — the refresh pass's denominator —
+ * and how many of those are also in the comment backlog. A comment run reads
+ * the window first and then the backlog, so the backlog it has left after the
+ * window is the backlog minus the second number.
+ */
 export async function countPostsInRange(
   start: string,
   end: string,
   groupId?: string,
-): Promise<number> {
+): Promise<RangeCount> {
   const db = await openDb();
   const store = tx(db, [CONTENT], 'readonly').objectStore(CONTENT);
   const index = groupId ? store.index('group_created') : store.index('created_at');
@@ -441,7 +447,7 @@ export async function countPostsInRange(
     ? IDBKeyRange.bound([groupId, start], [groupId, end])
     : IDBKeyRange.bound(start, end);
 
-  let total = 0;
+  const count: RangeCount = { posts: 0, needingComments: 0 };
   await new Promise<void>((resolve, reject) => {
     const request = index.openCursor(range);
     request.onsuccess = () => {
@@ -451,12 +457,15 @@ export async function countPostsInRange(
         return;
       }
       const record = cursor.value as ArchivedContent;
-      if (record.type === 'post' && !record.deleted) total += 1;
+      if (record.type === 'post' && !record.deleted) {
+        count.posts += 1;
+        if (record.needs_comments === 1) count.needingComments += 1;
+      }
       cursor.continue();
     };
     request.onerror = () => reject(request.error);
   });
-  return total;
+  return count;
 }
 
 /**
