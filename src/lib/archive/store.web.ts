@@ -1004,18 +1004,22 @@ export interface SearchResult {
  * **Without terms** — `from:someone since:2026-01-01`, say — there is nothing to
  * look up, so the query rides the most selective index it can:
  *
- * | Query contains | Index used |
- * |---|---|
- * | community + dates | `[group_id, created_at]`, bounded both ends |
- * | an author | `author` |
- * | `is:deleted` | `deleted` |
- * | `has:media` | `has_media` |
- * | dates only | `created_at`, bounded |
- * | nothing selective | `created_at` descending, stopping at the limit |
+ * | Query contains | Index used | Stops at the limit? |
+ * |---|---|---|
+ * | `sort:top`, or `min_score:` | `vote_total`, descending | only for `sort:top` |
+ * | an author | `author` | no |
+ * | `is:deleted` | `deleted` | no |
+ * | `has:media` | `has_media` | no |
+ * | dates | `created_at`, bounded | yes |
+ * | nothing selective | `created_at` descending | yes |
  *
- * The last row is the only one that can touch a lot of rows, and it walks
- * newest-first and stops at the limit, so it is bounded by the result count
- * rather than by the archive size.
+ * A walk may stop at the limit only when the index already yields rows in the
+ * order asked for. `author`, `deleted` and `has_media` don't: an index lists
+ * rows by key and then by **id**, and ids are random with respect to time. They
+ * used to stop anyway, so a search with more than 300 matches returned the
+ * first 300 by id, an arbitrary slice, sorted to look like the newest
+ * (fixed 2026-11-16). They now read every row for their key, which is bounded
+ * by how many match rather than by the archive.
  *
  * Terms are matched as **prefixes** (`hokie` finds `hokies`); phrases are
  * verified against the record text, since a token index knows which words are
@@ -1074,14 +1078,32 @@ export async function searchArchive(query: ArchiveQuery): Promise<SearchResult> 
     strategy = `tokens (${required.length} term${required.length === 1 ? '' : 's'})`;
   }
 
+  const rank = (a: ArchivedContent, b: ArchivedContent) => {
+    if (query.sort === 'top') return (b.vote_total ?? 0) - (a.vote_total ?? 0);
+    if (query.sort === 'old') return a.created_at < b.created_at ? -1 : 1;
+    return a.created_at > b.created_at ? -1 : 1;
+  };
+
   const records: ArchivedContent[] = [];
   let truncated = false;
+
+  // Rows from an unordered source are ranked as they come and cut back to the
+  // limit whenever twice that many are held, so `has:media` over tens of
+  // thousands of records never holds them all at once just to keep 300.
+  const keep = (record: ArchivedContent) => {
+    records.push(record);
+    if (records.length >= query.limit * 2) {
+      records.sort(rank);
+      records.length = query.limit;
+      truncated = true;
+    }
+  };
 
   if (candidates) {
     for (const id of candidates) {
       const record = (await asPromise(store.get(id))) as ArchivedContent | undefined;
       scanned += 1;
-      if (record && matchesQuery(record, query)) records.push(record);
+      if (record && matchesQuery(record, query)) keep(record);
     }
   } else {
     // No terms — pick the most selective index available.
@@ -1102,14 +1124,19 @@ export async function searchArchive(query: ArchiveQuery): Promise<SearchResult> 
         );
       preSorted = query.sort === 'top';
     } else if (query.group === undefined && query.author) {
+      // These three yield their key's rows in id order, not date order, so
+      // the walk reads them all and ranks them (see the table above).
       strategy = 'author index';
       source = store.index('author').openCursor(IDBKeyRange.only(query.author));
+      preSorted = false;
     } else if (query.deleted === 'only') {
       strategy = 'deleted index';
       source = store.index('deleted').openCursor(IDBKeyRange.only(1));
+      preSorted = false;
     } else if (query.hasMedia) {
       strategy = 'has_media index';
       source = store.index('has_media').openCursor(IDBKeyRange.only(1));
+      preSorted = false;
     } else if (query.since || query.until) {
       strategy = 'created_at range';
       source = store
@@ -1132,7 +1159,10 @@ export async function searchArchive(query: ArchiveQuery): Promise<SearchResult> 
         }
         scanned += 1;
         const record = cursor.value as ArchivedContent;
-        if (matchesQuery(record, query)) records.push(record);
+        if (matchesQuery(record, query)) {
+          if (preSorted) records.push(record);
+          else keep(record);
+        }
         // Only safe to stop early when the cursor is already in the requested
         // order — otherwise the best results might still be ahead.
         if (preSorted && records.length >= query.limit) {
@@ -1146,11 +1176,7 @@ export async function searchArchive(query: ArchiveQuery): Promise<SearchResult> 
     });
   }
 
-  records.sort((a, b) => {
-    if (query.sort === 'top') return (b.vote_total ?? 0) - (a.vote_total ?? 0);
-    if (query.sort === 'old') return a.created_at < b.created_at ? -1 : 1;
-    return a.created_at > b.created_at ? -1 : 1;
-  });
+  records.sort(rank);
 
   if (records.length > query.limit) {
     truncated = true;

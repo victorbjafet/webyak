@@ -925,11 +925,23 @@ selective index available:
 | Query contains | Index |
 |---|---|
 | `sort:top` or `min_score:` | `vote_total`, descending — pre-ranked, so it stops at the limit |
-| an author | `author` |
-| `is:deleted` | `deleted` |
-| `has:media` | `has_media` |
+| an author | `author`, read in full |
+| `is:deleted` | `deleted`, read in full |
+| `has:media` | `has_media`, read in full |
 | dates | `created_at`, bounded |
 | nothing selective | `created_at` descending, stopping at the limit |
+
+**Fixed 2026-11-16: `from:`, `is:deleted` and `has:media` returned an arbitrary
+300.** An index lists rows by its key and then by id, and ids are random with
+respect to time. Those three walks still stopped at the limit as if they were in
+date order, so with more than 300 matches the results were the first 300 by id,
+sorted to look like the newest. Checked in a stand-in with 1,000 matches whose
+ids ran oldest-first: all three showed the 300th-oldest as their newest. They
+now read every row for their key (bounded by the matches, not the archive) and
+rank as they go, cutting back to the limit whenever twice that many are held, so
+`has:media` never holds tens of thousands of records just to keep 300. After
+the fix, the same check returned exactly the 300 newest, and with `sort:old`
+exactly the 300 oldest.
 
 `vote_total` was added specifically because "top posts of all time" and "anything
 above N" are the first questions anyone asks a corpus like this, and both are
