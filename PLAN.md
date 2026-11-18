@@ -675,6 +675,11 @@ and comment it sees** — effectively a Yik Yak downloader
       column, recounted on Refresh. With the new `thread:missing` filter it shows
       where the comment backlog sits
       ([docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#density-over-time-2026-11-16))
+- [x] **A thread that answers 404 gets its post looked up** (2026-11-18). The
+      comment backlog's last few hundred threads were deleted posts, each
+      re-failing every run. Now a lookup by id flags a gone post deleted and
+      dequeues it, and a live one stays flagged
+      ([docs/ARCHIVE.md](docs/ARCHIVE.md#a-thread-that-answers-404-the-post-is-looked-up))
 - [x] **The six-day wall was transient, not a window.** Manual restarts pushed
       straight past it, so the crawler now waits out unproductive stretches
       instead of stopping — with the archive's oldest post as a target, since

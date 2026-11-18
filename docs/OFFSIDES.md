@@ -510,7 +510,10 @@ stale fact:
   chats (`leaveChat` is still `// Waiting for sidechat.js implementation`),
   share links (no `https` intent filter), the `unread` filter (absent), and
   deleted posts (`getPost(id, false)`, never handled —
-  [API.md](API.md#deleted-posts-are-omitted-not-tombstoned)).
+  [API.md](API.md#deleted-posts-are-omitted-not-tombstoned)). Nor a deleted
+  post's comments: `CommentModal.jsx` calls `getPostComments` with no `catch`,
+  so it never meets the 404 such a thread answers (checked 2026-11-18,
+  [API.md](API.md#a-deleted-posts-thread-answers-404)).
 - **sidechat.js** — pinned `^2.6.6`, resolving to 2.6.6, the latest release.
 
 ### SidechatProxy

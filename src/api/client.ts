@@ -496,8 +496,9 @@ function isNotFound(error: ApiError) {
 export async function getPostComments(postId: string) {
   const params = new URLSearchParams({ post_id: postId, cacheBust: String(Date.now()) });
   const json = await request<{ posts?: PostOrComment[] }>(`/v1/posts/comments/?${params}`);
-  // A thread that returns no `posts` is empty, not broken. Deleted and
-  // moderated posts both answer this way.
+  // A thread that returns no `posts` is empty, not broken. A deleted post's
+  // thread doesn't answer this way any more: it is a 404, which `request`
+  // throws (docs/API.md#a-deleted-posts-thread-answers-404).
   return threadOrder(json.posts ?? []);
 }
 

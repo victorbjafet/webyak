@@ -603,7 +603,14 @@ export async function markPostsDeleted(
   await Promise.all(
     ids.map(async (id) => {
       const record = (await asPromise(store.get(id))) as ArchivedContent | undefined;
-      if (!record || record.deleted) return;
+      if (!record) return;
+      if (record.deleted) {
+        // Already known, but still queued for its thread (an import from
+        // before the flag was cleared with it, say): the comment pass would
+        // otherwise come back to it every run.
+        if (record.needs_comments) store.put({ ...record, needs_comments: 0 });
+        return;
+      }
       store.put({
         ...record,
         deleted: 1,

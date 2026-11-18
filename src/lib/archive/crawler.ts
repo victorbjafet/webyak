@@ -1087,6 +1087,34 @@ const COMMENT_BATCH = 250;
  * and cleared like any other.
  */
 const ERRORS_BEFORE_PROBE = 3;
+
+/**
+ * ## A thread that answers 404: is the post gone?
+ *
+ * Added 2026-11-18. Almost every unreadable thread is a post Yik Yak has since
+ * deleted: the comments endpoint answers **404** for one
+ * (docs/API.md#a-deleted-posts-thread-answers-404). Left alone, those posts
+ * stay flagged forever, re-failing at the head of every run, and the probing
+ * above only stops them costing a request each.
+ *
+ * So a 404 is followed by **one lookup of the post by id**, the same request the
+ * feed refresh's deletion check makes (`lookupPost`). That lookup is the
+ * evidence, not the 404. The feed check finds its candidates from a gap in the
+ * feed, but what it acts on is this answer, so the comment pass can ask it
+ * directly with no feed cursor at all:
+ *
+ * - **`PostGone`**: Yik Yak doesn't serve the post. It is flagged deleted
+ *   (`deleted_via: 'missing'`), which clears `needs_comments`, and the thread
+ *   counts as handled, so it neither extends an error streak nor stays queued.
+ * - **The post comes back**: it is live and only its thread failed. The fresh
+ *   copy is archived, and the thread fails as before and stays flagged.
+ * - **The lookup fails too** (network, 5xx): nothing is known, so it stays
+ *   flagged. 401 and 429 stop the run as they do anywhere.
+ *
+ * Only a 404 or 410 triggers it. A 5xx or a dropped connection says nothing
+ * about the post, and a lookup after each would double the requests during an
+ * outage for nothing.
+ */
 const PROBE_STRIDE_START = 8;
 const PROBE_STRIDE_MAX = 512;
 /** A ceiling on bracketing, so a wholly unreadable window cannot loop. */
@@ -1133,6 +1161,13 @@ export interface CommentCrawlProgress {
   duplicates: number;
   /** Threads that came back empty despite the post claiming replies. */
   empty: number;
+  /**
+   * Posts whose thread answered 404 and which a lookup by id confirmed are no
+   * longer on Yik Yak: flagged deleted and taken out of the queue.
+   */
+  gone: number;
+  /** Threads that answered 404 for a post the lookup found still live. They stay flagged. */
+  stillServed: number;
   errors: number;
   /** Every HTTP request, including failures and probes. */
   requests: number;
@@ -1198,6 +1233,8 @@ export function startCommentCrawl(
       archived: 0,
       duplicates: 0,
       empty: 0,
+      gone: 0,
+      stillServed: 0,
       errors: 0,
       requests: 0,
       errorStreak: 0,
@@ -1217,8 +1254,46 @@ export function startCommentCrawl(
     /** Thrown to unwind out of nested probing when the run must end now. */
     const HALT = Symbol('halt');
 
+    const pace = () => sleep(COMMENT_DELAY_MS + Math.random() * COMMENT_JITTER_MS);
+
+    /** Ends the run on a 401 or 429, which are about the session, not the post. */
+    const haltOnSession = (error: unknown) => {
+      const status = (error as { status?: number })?.status;
+      if (status !== 401 && status !== 429) return;
+      progress.error =
+        status === 401
+          ? 'Session expired — sign in again before resuming.'
+          : 'Rate limited. Stopping rather than pushing harder.';
+      progress.finished = 'error';
+      throw HALT;
+    };
+
     /**
-     * Fetches one thread. `true` if it was stored and the post cleared.
+     * Whether a post whose thread answered 404 is gone, by looking it up by id.
+     * See "A thread that answers 404" above. `true` once it is flagged deleted.
+     */
+    const confirmGone = async (post: QueuedPost) => {
+      await pace();
+      progress.requests += 1;
+      try {
+        const live = await lookupPost(post.id);
+        await archiveContent([live]);
+        progress.stillServed += 1;
+        return false;
+      } catch (error) {
+        if (!(error instanceof PostGone)) {
+          haltOnSession(error);
+          return false;
+        }
+        await markPostsDeleted([post.id], 'missing');
+        progress.gone += 1;
+        return true;
+      }
+    };
+
+    /**
+     * Fetches one thread. `true` if the post was handled and cleared: its
+     * thread stored, or the post found deleted.
      *
      * Per-post failures are recorded and reported as `false` — a single
      * unreadable thread must not end a run over a hundred thousand posts. Only
@@ -1301,14 +1376,15 @@ export function startCommentCrawl(
         backoff = BACKOFF_START_MS;
         return true;
       } catch (error) {
+        haltOnSession(error);
         const status = (error as { status?: number })?.status;
-        if (status === 401 || status === 429) {
-          progress.error =
-            status === 401
-              ? 'Session expired — sign in again before resuming.'
-              : 'Rate limited. Stopping rather than pushing harder.';
-          progress.finished = 'error';
-          throw HALT;
+        if ((status === 404 || status === 410) && (await confirmGone(post))) {
+          progress.remaining = Math.max(0, progress.remaining - 1);
+          progress.lastAt = Date.now();
+          progress.error = undefined;
+          progress.errorStreak = 0;
+          backoff = BACKOFF_START_MS;
+          return true;
         }
         progress.errors += 1;
         progress.errorStreak += 1;
@@ -1317,8 +1393,6 @@ export function startCommentCrawl(
         return false;
       }
     };
-
-    const pace = () => sleep(COMMENT_DELAY_MS + Math.random() * COMMENT_JITTER_MS);
 
     try {
       /**

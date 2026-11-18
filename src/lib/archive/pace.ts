@@ -11,7 +11,8 @@ import { cacheStorage } from '../storage';
  * so runs took 1.5–1.9× what they were quoted.
  *
  * Now each run records its own average: elapsed time over threads actually
- * stored, so retries, backoff and recovery all count. The next estimate uses
+ * handled (stored, or their post found deleted), so retries, backoff,
+ * recovery and the deletion lookups all count. The next estimate uses
  * it. Stored per device, not per account, because the pace depends on the
  * connection and the machine.
  */
@@ -40,10 +41,12 @@ export async function readThreadPace(): Promise<number> {
 export async function writeThreadPace(progress: {
   startedAt: number;
   threads: number;
+  gone: number;
   lastAt?: number;
 }): Promise<void> {
-  if (progress.threads < MIN_THREADS_FOR_PACE || !progress.lastAt) return;
-  const msPerThread = (progress.lastAt - progress.startedAt) / progress.threads;
+  const handled = progress.threads + progress.gone;
+  if (handled < MIN_THREADS_FOR_PACE || !progress.lastAt) return;
+  const msPerThread = (progress.lastAt - progress.startedAt) / handled;
   if (!(msPerThread > 0)) return;
   try {
     await cacheStorage.setItem(STORAGE_KEY, String(Math.round(msPerThread)));

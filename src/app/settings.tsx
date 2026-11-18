@@ -308,6 +308,8 @@ export default function SettingsScreen() {
         archived: 0,
         duplicates: 0,
         empty: 0,
+        gone: 0,
+        stillServed: 0,
         errors: 0,
         requests: 0,
         errorStreak: 0,

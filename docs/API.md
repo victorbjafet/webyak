@@ -697,6 +697,27 @@ What actually happens:
   throw on one), never mentions `"Deleted Post"` anywhere, and filters feed
   entries that lack an `id`.
 
+### A deleted post's thread answers 404
+
+**Found 2026-11-18**, from a Virginia Tech comment backlog pass after its
+readable threads had all been collected. Every failure was a **404 from
+`/v1/posts/comments`**, 51 of 51. Three sampled posts, looked up by id
+(`/v1/posts/get`), answered 404 too: gone. The failing posts were written
+between August 2023 and August 2026, and each was last served by the feed
+between 2026-09-11 and 2026-10-04 and never since. So this is not a cutoff on
+old posts; they were deleted after the archive saw them.
+
+`getPostComments` in [src/api/client.ts](../src/api/client.ts) still reads a
+200 with no `posts` array as an empty thread. The note there (and in the
+sidechat.js defect below) that a deleted post answers that way came from the
+first 180,000-thread crawl, and isn't what the endpoint does now. Either it
+changed, or those were moderated threads rather than deleted posts.
+
+The 404 alone isn't treated as a verdict: the comment pass looks the post up by
+id before flagging it ([ARCHIVE.md](ARCHIVE.md#a-thread-that-answers-404-the-post-is-looked-up)).
+offsides has nothing to say here, since its comment screen has no error handling
+at all ([OFFSIDES.md](OFFSIDES.md)).
+
 ### Deleted comments stay in the thread as `"Comment Deleted"`
 
 **Found 2026-09-27, from the archive rather than a probe.** Comments *are*

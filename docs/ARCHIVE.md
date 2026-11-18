@@ -393,6 +393,7 @@ loop:
       archiveContent(comments)          ← comments written first
       markCommentsFetched(post.id, n)   ← flag cleared only after
       sleep 1200ms + up to 500ms jitter
+      on 404: look the post up by id; gone → flag it deleted, which dequeues it
       on failure: behind++, and after 3 in a row, probe ahead (below)
 ```
 
@@ -425,7 +426,56 @@ thread. A dead session would have been retried for the length of the run
 goes through `request()`, which checks the status, and reads a missing `posts`
 array as an empty thread rather than an exception.
 
+### A thread that answers 404: the post is looked up
+
+**Added 2026-11-18.** Almost every unreadable thread is a post Yik Yak has
+since deleted. The comments endpoint answers **404** for one
+([API.md](API.md#a-deleted-posts-thread-answers-404)). Until this change such a
+post stayed flagged forever. It sat at the head of every run's queue, and the
+probing below only kept it from costing a request each time. A Virginia Tech
+backlog pass that day stored 10 threads, failed 51 (every one a 404), jumped
+749 and left 800 flagged.
+
+Now a 404 (or 410) is followed by **one lookup of the post by id**, the request
+[Finding deletions](#finding-deletions) makes, with the same verdicts:
+
+| Lookup by id | Result |
+|---|---|
+| Answered without it (`PostGone`) | Flagged `deleted_via: 'missing'`, which clears `needs_comments`. Counted as handled (`gone`), so it doesn't extend an error streak |
+| Served | Live; only its thread failed. The fresh copy is archived, the thread counts as an error (`stillServed`), and the post stays flagged |
+| Failed (network, 5xx) | Nothing learned. It stays flagged |
+| 401 / 429 | Hard stop |
+
+**Why no feed cursor is needed.** A posts rescrape finds deletions by walking
+the feed and looking for the gap, but the gap only *nominates* candidates. The
+verdict is always the lookup by id, because a post can be missing from the feed
+for reasons that aren't deletion. The comment pass already holds the post's id,
+so it can go straight to the verdict. The 404 on the thread is only what
+prompts the question.
+
+Only a 404 or 410 prompts it. A 5xx or a dropped connection says nothing about
+the post, and a lookup after each would double the requests during an outage
+for nothing.
+
+A deleted post costs two requests (the thread, then the lookup, paced like any
+other pair) and then leaves the queue for good. So a queue whose head is all
+deleted posts drains rather than being jumped over. `markPostsDeleted` now also
+clears `needs_comments` on a post that was **already** flagged deleted but
+still queued, which an import from an older version could leave behind;
+otherwise the pass would come back to it every run.
+
+Checked under Node against fake-indexeddb with the real crawler and store
+([§10](#10-testing-a-change-to-the-archive)), 16 checks, 13 of which fail
+on the previous commit. A queue of mixed failures resolves exactly the deleted
+posts. A 500 is never looked up. A live post with a 404 thread stays flagged.
+A 429 on the lookup stops the run with the post untouched. Forty deleted posts
+at the head drain with no recovery and nothing jumped.
+
 ### Getting past a run of unreadable posts
+
+*Deleted posts no longer feed this (2026-11-18): they are looked up and leave
+the queue ([above](#a-thread-that-answers-404-the-post-is-looked-up)). What it
+still handles is a run of failures that say nothing about the post.*
 
 Leaving a failed post flagged is what makes the pass resumable, and it has a
 consequence that only shows up after a few runs: **unreadable posts accumulate at
@@ -1373,11 +1423,13 @@ checked by running the **real** `store.web.ts`, `types.ts` and `crawler.ts` unde
 Node against [fake-indexeddb](https://github.com/dumbmatter/fakeIndexedDB), in a
 scratch directory outside the repo:
 
-1. `npm install fake-indexeddb` there, and transpile the four modules with
+1. `npm install fake-indexeddb` there, and transpile `store.web.ts`,
+   `types.ts`, `query.ts`, `density.ts` (which the store imports since
+   2026-11-16) and `crawler.ts` with
    `ts.transpileModule` (TypeScript resolved from the repo:
    `require.resolve('typescript', { paths: [process.cwd()] })`, run from the repo
-   root). Rewrite `require("./store")` → `./store.js` and the same for `types`
-   and `query`; `require("./contract")` and `require("@/api/types")` → `({})`;
+   root). Rewrite `require("./store")` → `./store.js` and the same for `types`,
+   `query` and `density`; `require("./contract")` and `require("@/api/types")` → `({})`;
    `require("@/api/client")` → a fake API.
 2. The fake API exports what the crawler imports — `getGroupPosts`,
    `getPostComments`, `lookupPost`, `PostGone` — backed by an in-memory world

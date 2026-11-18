@@ -56,8 +56,10 @@ export function CommentMonitor({
   // Of everything attempted, how much came back. The interesting number when a
   // stretch of the queue is unreadable — throughput can look fine while the
   // success rate quietly collapses.
-  const attempted = progress.threads + progress.errors;
-  const successRate = attempted > 0 ? progress.threads / attempted : 1;
+  // A post found deleted is handled, not failed: it leaves the queue for good.
+  const handled = progress.threads + progress.gone;
+  const attempted = handled + progress.errors;
+  const successRate = attempted > 0 ? handled / attempted : 1;
 
   const done = progress.outstandingAtStart - progress.remaining;
   const fraction =
@@ -67,8 +69,8 @@ export function CommentMonitor({
 
   /*
     Threads left in the whole run, times the average time between threads
-    actually stored: elapsed over `threads`, so retries, backoff and recovery
-    are all in it. Until this run has stored enough to measure, the last run's
+    actually handled: elapsed over threads stored plus posts found deleted, so
+    retries, backoff, recovery and the deletion lookups are all in it. Until this run has stored enough to measure, the last run's
     pace stands in (`pace`).
 
     "The whole run" is the point. A refresh falls through into the quoted
@@ -80,8 +82,7 @@ export function CommentMonitor({
   */
   const reachable = Math.max(0, progress.remaining - progress.behind);
   const threadsLeft = reachable + progress.queuedAfter;
-  const msPerThread =
-    progress.threads >= MIN_THREADS_FOR_PACE ? elapsed / progress.threads : pace;
+  const msPerThread = handled >= MIN_THREADS_FOR_PACE ? elapsed / handled : pace;
   const etaMs = threadsLeft * msPerThread;
 
   const sinceLast = progress.lastAt ? now - progress.lastAt : undefined;
@@ -260,9 +261,20 @@ export function CommentMonitor({
       <Section label="Recovery" />
       <View style={styles.grid}>
         <Metric
+          label="Deleted"
+          value={formatCount(progress.gone)}
+          hint="post gone, cleared"
+        />
+        <Metric
           label="Errors"
           value={formatCount(progress.errors)}
-          hint={progress.errors > 0 ? 'stay flagged' : 'none'}
+          hint={
+            progress.stillServed > 0
+              ? `${formatCount(progress.stillServed)} on live posts`
+              : progress.errors > 0
+                ? 'stay flagged'
+                : 'none'
+          }
           warn={progress.errors > 0}
         />
         <Metric
@@ -315,9 +327,9 @@ export function CommentMonitor({
       ) : progress.finished === 'done' ? (
         <ThemedText type="caption" themeColor="textTertiary">
           Reached the end of the queue. {formatCount(progress.behind)} post
-          {progress.behind === 1 ? '' : 's'} could not be read and stay flagged — deleted or
-          moderated threads usually never will be, so a stable count here across runs is the
-          expected outcome rather than a problem.
+          {progress.behind === 1 ? '' : 's'} could not be read and stay flagged for a later run.
+          A post Yik Yak has deleted is looked up and cleared when its thread is tried, so these
+          are threads that failed for another reason, or were jumped over past a run of errors.
         </ThemedText>
       ) : progress.finished === 'stopped' ? (
         <ThemedText type="caption" themeColor="textTertiary">
