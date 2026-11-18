@@ -17,7 +17,7 @@ The rule for keeping them current is in [CLAUDE.md](CLAUDE.md).
 ## 1. Current state
 
 *The at-a-glance answer to "where are we?" Kept current with every change that
-moves an item between these groups; §6 holds the detail. Updated 2026-11-02.
+moves an item between these groups; §6 holds the detail. Updated 2026-11-17.
 This section used to be a snapshot of the day-one scaffold, still describing a
 one-commit repo and `web.output: "static"` a month later.*
 
@@ -66,7 +66,7 @@ hasn't been tried, since it's a write ([WORKER.md](docs/WORKER.md)).
 | **Endpoints nobody has found** | Save/unsave, follow a post, report, awards, accepting message requests, leaving a group chat, creating a chat or community, the leaderboard, acknowledging a removal. Needs a capture of the official app's traffic (Phase 8) |
 | **A write, with the owner's OK** | Hiding someone's posts, once, to see what the server does with it. One post with a *Library* image, to confirm the API takes a library id. One post with an uploaded image, the first through the deployed Worker's `/upload`. The length probes (Q11). An agent can run each through Playwright |
 | **An owner decision** | What the desktop multi-column layout should show, and whether a multi-feed timeline adds anything over For You (Phase 7). A darker brand text color for light mode, which is ~2:1 on white (Phase 9). How much archive media to back-fill, now that the Worker is up. Whether deep archive history should refresh on a schedule |
-| **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested) |
+| **The owner** | Move the localhost login to the live site (*Settings → Accounts → Export login file*). Open an unread **DM** here and check the official app shows it read (only a group chat was tested). After the next push, paste a `/p/<id>` link into Discord to see whether a 404 page unfurls ([Phase 9](#phase-9--polish--ship)) |
 | **Nothing: buildable now** | Tablet-width QA, the rest of the accessibility pass (labels audit), iOS/Android smoke test (Phase 9) |
 
 **Next:** answer the decisions above. **Playwright MCP
@@ -904,6 +904,16 @@ and comment it sees** — effectively a Yik Yak downloader
       (right-aligned on 2026-09-28). The rule is in
       [AGENTS.md](AGENTS.md), the reasoning in
       [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#versioning)
+- [x] **A sign-in screen that introduces webyak, and link previews**
+      (2026-11-17). The sign-in screen leads with the mark, a tagline, four
+      features and links to the source and the README's warnings
+      ([DESIGN.md](docs/DESIGN.md#the-sign-in-screen-introduces-webyak)). A
+      link to the site unfurls on Discord and elsewhere as a card drawn by the
+      icon script ([ARCHITECTURE.md](docs/ARCHITECTURE.md#link-previews))
+  - [ ] ⛔ **Unchecked: does a shared post link unfurl?** GitHub Pages answers
+        `/p/<id>` with a 404 status (the page is still the app), and whether
+        Discord previews a 404 isn't documented. Paste one into Discord after
+        the push. The site root answers 200 and is fine
 
 ---
 

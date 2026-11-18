@@ -46,6 +46,11 @@ interface ScreenProps {
    * `contentContainerStyle`, so that the scroller itself stays full-width.
    */
   maxWidth?: number;
+  /**
+   * Centre the content vertically while it is shorter than the viewport. For
+   * the sign-in screen, which has no header and nothing above it.
+   */
+  centered?: boolean;
   children: React.ReactNode;
 }
 
@@ -60,6 +65,7 @@ export function Screen({
   back = false,
   scroll = true,
   maxWidth = Layout.feedMaxWidth,
+  centered = false,
   children,
 }: ScreenProps) {
   const theme = useTheme();
@@ -135,7 +141,7 @@ export function Screen({
     <View style={[styles.root, { paddingTop: insets.top }]}>
       {header}
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, centered && styles.centered]}
         showsVerticalScrollIndicator={false}>
         {body}
       </ScrollView>
@@ -194,6 +200,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing.three,
     paddingVertical: Spacing.three,
+  },
+  centered: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   fill: {
     flex: 1,

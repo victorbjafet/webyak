@@ -5,6 +5,37 @@
     <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
     <title>webyak</title>
+    <meta
+      name="description"
+      content="An unofficial, open-source web client for Yik Yak. Your feeds, chats and alerts on any computer, and a searchable archive of everything you've seen."
+    />
+    <!--
+      The link preview on Discord, iMessage, Slack, X and the like.
+      docs/ARCHITECTURE.md#link-previews
+
+      Unfurlers run no JavaScript, so these have to be in the file, and every
+      deep link gets the same card: GitHub Pages serves this page (as 404.html)
+      for /p/<id> too. No og:url for that reason, since it would claim every
+      shared post is the home page. og:image must be absolute, so it names the
+      live site rather than BASE_URL in src/lib/share.ts, which HTML can't read.
+      The image is drawn by assets/brand/render-icons.py.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="webyak" />
+    <meta property="og:title" content="webyak" />
+    <meta
+      property="og:description"
+      content="An unofficial, open-source web client for Yik Yak. Your feeds, chats and alerts on any computer, and a searchable archive of everything you've seen."
+    />
+    <meta property="og:image" content="https://webyak.vbjfr.xyz/og-image.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="The webyak logo, a laptop outline on a green tile, beside the words: webyak. Yik Yak, on the web. Unofficial, open source."
+    />
+    <meta name="twitter:card" content="summary_large_image" />
     <!--
       Installable: the manifest, and what iOS reads instead of it.
       docs/ARCHITECTURE.md#installable-and-an-offline-shell

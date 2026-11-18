@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Render every webyak icon from laptop.svg in this folder.
+"""Render every webyak icon, and the link-preview card, from laptop.svg in this
+folder.
 
     python3 assets/brand/render-icons.py
 
 Needs Python 3 with Pillow, and Google Chrome to rasterise the SVG, which
-Pillow can't read. Set CHROME to the binary if it isn't at the macOS default.
+Pillow can't read, and to set the card's text. Set CHROME to the binary if it
+isn't at the macOS default.
 Paths resolve from this file, so it runs from anywhere.
 
 What each output is for, and why its margins are what they are:
@@ -40,17 +42,14 @@ MARK_RADIUS = 0.22  # the mark's corner radius, as a fraction of its side
 ANDROID_SAFE_RADIUS = 33 / 108
 
 
-def rasterise(svg, size=2048):
-    """The SVG's coverage at size x size, as an alpha mask cropped to its ink."""
+def screenshot(html, width, height, what):
+    """`html` as headless Chrome draws it in a width x height window, as RGBA.
+    Whatever the page leaves unpainted stays transparent."""
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         page = os.path.join(tmp, 'page.html')
         shot = os.path.join(tmp, 'shot.png')
         with open(page, 'w') as f:
-            f.write(
-                '<!doctype html><style>html,body{margin:0;background:transparent}'
-                f'img{{display:block;width:{size}px;height:{size}px}}</style>'
-                f'<img src="file://{svg}">'
-            )
+            f.write(html)
         chrome = subprocess.Popen(
             [
                 CHROME,
@@ -60,7 +59,7 @@ def rasterise(svg, size=2048):
                 '--force-device-scale-factor=1',
                 '--default-background-color=00000000',
                 f'--user-data-dir={os.path.join(tmp, "profile")}',
-                f'--window-size={size},{size}',
+                f'--window-size={width},{height}',
                 f'--screenshot={shot}',
                 f'file://{page}',
             ],
@@ -73,18 +72,29 @@ def rasterise(svg, size=2048):
             deadline = time.monotonic() + 60
             while True:
                 try:
-                    art = Image.open(shot).convert('RGBA')
-                    break
+                    return Image.open(shot).convert('RGBA')
                 except OSError:
                     pass  # not there yet, or still being written
                 if chrome.poll() is not None and not os.path.exists(shot):
-                    sys.exit(f'Chrome exited without rendering {svg}')
+                    sys.exit(f'Chrome exited without rendering {what}')
                 if time.monotonic() > deadline:
-                    sys.exit(f'Timed out rendering {svg}')
+                    sys.exit(f'Timed out rendering {what}')
                 time.sleep(0.2)
         finally:
             chrome.kill()
             chrome.wait()
+
+
+def rasterise(svg, size=2048):
+    """The SVG's coverage at size x size, as an alpha mask cropped to its ink."""
+    art = screenshot(
+        '<!doctype html><style>html,body{margin:0;background:transparent}'
+        f'img{{display:block;width:{size}px;height:{size}px}}</style>'
+        f'<img src="file://{svg}">',
+        size,
+        size,
+        svg,
+    )
     alpha = art.getchannel('A')
     return alpha.crop(alpha.point(lambda a: 255 if a > 8 else 0).getbbox())
 
@@ -133,6 +143,38 @@ def reach(art):
     return far / 256
 
 
+def share_card(mark):
+    """The picture a link to webyak unfurls with: the mark, the name and what it
+    is, on the app's black. 1200x630 is the size Open Graph consumers expect
+    for a large image. The text is drawn by Chrome in the app's own font stack
+    (src/global.css), at sizes still legible at the ~400px Discord shows it."""
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+        tile = os.path.join(tmp, 'mark.png')
+        mark.resize((240, 240), LANCZOS).save(tile)
+        card = screenshot(
+            f"""<!doctype html><meta charset="utf-8"><style>
+            html, body {{ margin: 0; width: 1200px; height: 630px; overflow: hidden }}
+            body {{
+              display: flex; align-items: center; gap: 72px; padding: 0 120px;
+              box-sizing: border-box; color: #FFFFFF;
+              font-family: Spline Sans, Inter, ui-sans-serif, system-ui, sans-serif;
+              background: radial-gradient(circle at 240px 315px, rgba(16, 206, 172, 0.2),
+                rgba(16, 206, 172, 0) 440px) #000000;
+            }}
+            img {{ width: 240px; height: 240px; flex: none }}
+            h1 {{ margin: 0; font-size: 136px; line-height: 1; font-weight: 700; letter-spacing: -4px }}
+            p {{ margin: 24px 0 0; font-size: 48px; line-height: 1.15; font-weight: 500; color: #A2A6AD }}
+            .note {{ margin-top: 40px; font-size: 32px; font-weight: 600; color: #10CEAC }}
+            </style>
+            <img src="file://{tile}">
+            <div><h1>webyak</h1><p>Yik Yak, on the web.</p><p class="note">Unofficial · open source</p></div>""",
+            1200,
+            630,
+            'the share card',
+        )
+    return card.convert('RGB')
+
+
 def save(image, path):
     image.save(os.path.join(ROOT, path), optimize=True)
     print(f'{path}  {image.width}x{image.height}')
@@ -158,6 +200,11 @@ def main():
     )
     save(mark.resize((48, 48), LANCZOS), 'assets/images/favicon.png')
     save(mark.resize((128, 128), LANCZOS), 'assets/images/logo.png')
+
+    # The link preview on Discord, iMessage, Slack and the like, named by the
+    # og:image tag in public/index.html. Opaque: some unfurlers draw a
+    # transparent image on white.
+    save(share_card(mark), 'public/og-image.png')
 
     # Android: the laptop alone, inside the safe circle. app.json supplies the
     # green behind it. The themed icon is white because the system only reads

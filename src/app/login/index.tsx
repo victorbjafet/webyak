@@ -1,6 +1,6 @@
 import { Redirect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
 
 import {
   MIN_AGE,
@@ -19,19 +19,29 @@ import {
 import { setAuthToken } from '@/api/client';
 import { useSession } from '@/api/session';
 import { LoginFileImport, SavedAccounts } from '@/components/accounts/sign-in-options';
+import {
+  FeatureList,
+  ProjectLinks,
+  Welcome,
+  WelcomeFooter,
+} from '@/components/accounts/welcome';
 import { Screen } from '@/components/screen';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/button';
 import { TextField } from '@/components/ui/text-field';
-import { Radius, Spacing } from '@/constants/theme';
+import { Breakpoints, Layout, Radius, Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { WORKER_URL } from '@/lib/worker';
 
 const EMAIL_POLL_MS = 3000;
 
+/** The two columns side by side: the introduction, then the form. */
+const WIDE_MAX_WIDTH = 1040;
+
 const STEP_COPY: Record<LoginStep, { title: string; body: string }> = {
   phone: {
-    title: 'Sign in to webyak',
-    body: 'Yik Yak accounts are tied to a US phone number. We send the code straight to Sidechat — webyak has no server of its own.',
+    title: 'Sign in',
+    body: 'Use your Yik Yak account. Accounts are tied to a US phone number, and Yik Yak texts it a code.',
   },
   code: { title: 'Enter your code', body: 'Check your messages for a 6-character code.' },
   age: { title: 'How old are you?', body: `You need to be at least ${MIN_AGE}.` },
@@ -49,6 +59,8 @@ export default function LoginScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { status, signIn, deviceId } = useSession();
+  const { width } = useWindowDimensions();
+  const wide = width >= Breakpoints.sidebar;
 
   const [step, setStep] = useState<LoginStep>('phone');
   const [phone, setPhone] = useState('');
@@ -169,142 +181,190 @@ export default function LoginScreen() {
 
   const copy = STEP_COPY[step];
 
+  /*
+    Wide: the introduction on the left, the form on the right, both in view.
+    Narrow: the introduction's first lines, then the form, so it is on the
+    first screen of a phone, then the rest of the introduction under it.
+  */
+  const intro = (
+    <>
+      <FeatureList />
+      <ProjectLinks />
+    </>
+  );
+
   return (
-    <Screen title={copy.title}>
-      {step === 'phone' ? <SavedAccounts /> : null}
-      <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
-        <ThemedText type="small" themeColor="textSecondary">
-          {copy.body}
-        </ThemedText>
+    <Screen maxWidth={wide ? WIDE_MAX_WIDTH : Layout.feedMaxWidth} centered>
+      <View style={wide ? styles.columns : styles.stack}>
+        <View style={wide ? styles.introColumn : styles.stack}>
+          <Welcome />
+          {wide ? intro : null}
+        </View>
 
-        {step === 'phone' ? (
-          <>
-            <TextField
-              label="Phone number"
-              value={formatPhone(phone)}
-              onChangeText={(t) => setPhone(normalizePhone(t))}
-              placeholder="(555) 555-5555"
-              keyboardType="phone-pad"
-              autoComplete="tel"
-              textContentType="telephoneNumber"
-              hint="US numbers only."
-              error={error}
-            />
-            <Button
-              label="Send code"
-              onPress={submitPhone}
-              loading={busy}
-              disabled={!isValidPhone(phone)}
-              fullWidth
-            />
-            <LoginFileImport />
-          </>
-        ) : null}
-
-        {step === 'code' ? (
-          <>
-            <TextField
-              label="Verification code"
-              value={code}
-              onChangeText={setCode}
-              placeholder="ABC123"
-              autoCapitalize="characters"
-              autoComplete="one-time-code"
-              textContentType="oneTimeCode"
-              maxLength={8}
-              error={error}
-            />
-            <Button
-              label="Verify"
-              onPress={submitCode}
-              loading={busy}
-              disabled={code.trim().length < 4}
-              fullWidth
-            />
-            <Button
-              label="Use a different number"
-              variant="ghost"
-              onPress={() => {
-                setStep('phone');
-                setCode('');
-                setError(null);
-              }}
-              fullWidth
-            />
-          </>
-        ) : null}
-
-        {step === 'age' ? (
-          <>
-            <TextField
-              label="Age"
-              value={age}
-              onChangeText={(t) => setAge(t.replace(/\D/g, '').slice(0, 3))}
-              placeholder="18"
-              keyboardType="number-pad"
-              maxLength={3}
-              error={error}
-            />
-            <Button
-              label="Continue"
-              onPress={submitAge}
-              loading={busy}
-              disabled={Number(age) < MIN_AGE}
-              fullWidth
-            />
-          </>
-        ) : null}
-
-        {step === 'email' ? (
-          <>
-            <TextField
-              label="School email"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="you@school.edu"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoComplete="email"
-              textContentType="emailAddress"
-              error={error}
-            />
-            <Button
-              label="Send verification"
-              onPress={submitEmail}
-              loading={busy}
-              disabled={!email.includes('@')}
-              fullWidth
-            />
-            <Button label="Skip for now" variant="ghost" onPress={skipEmail} fullWidth />
-          </>
-        ) : null}
-
-        {step === 'emailPending' ? (
-          <>
-            {error ? (
-              <ThemedText type="small" style={{ color: theme.danger }}>
-                {error}
+        <View style={wide ? styles.formColumn : styles.stack}>
+          {step === 'phone' ? <SavedAccounts /> : null}
+          <View
+            style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
+            <View style={styles.cardHead}>
+              <ThemedText type="heading">{copy.title}</ThemedText>
+              <ThemedText type="small" themeColor="textSecondary">
+                {copy.body}
               </ThemedText>
+            </View>
+            {step === 'phone' ? (
+              <>
+                <TextField
+                  label="Phone number"
+                  value={formatPhone(phone)}
+                  onChangeText={(t) => setPhone(normalizePhone(t))}
+                  placeholder="(555) 555-5555"
+                  keyboardType="phone-pad"
+                  autoComplete="tel"
+                  textContentType="telephoneNumber"
+                  hint="US numbers only."
+                  error={error}
+                />
+                <Button
+                  label="Send code"
+                  onPress={submitPhone}
+                  loading={busy}
+                  disabled={!isValidPhone(phone)}
+                  fullWidth
+                />
+                <LoginFileImport />
+              </>
             ) : null}
-            <Button label="I've verified it" onPress={checkNow} loading={busy} fullWidth />
-            <Button label="Skip for now" variant="ghost" onPress={skipEmail} fullWidth />
-          </>
-        ) : null}
+
+            {step === 'code' ? (
+              <>
+                <TextField
+                  label="Verification code"
+                  value={code}
+                  onChangeText={setCode}
+                  placeholder="ABC123"
+                  autoCapitalize="characters"
+                  autoComplete="one-time-code"
+                  textContentType="oneTimeCode"
+                  maxLength={8}
+                  error={error}
+                />
+                <Button
+                  label="Verify"
+                  onPress={submitCode}
+                  loading={busy}
+                  disabled={code.trim().length < 4}
+                  fullWidth
+                />
+                <Button
+                  label="Use a different number"
+                  variant="ghost"
+                  onPress={() => {
+                    setStep('phone');
+                    setCode('');
+                    setError(null);
+                  }}
+                  fullWidth
+                />
+              </>
+            ) : null}
+
+            {step === 'age' ? (
+              <>
+                <TextField
+                  label="Age"
+                  value={age}
+                  onChangeText={(t) => setAge(t.replace(/\D/g, '').slice(0, 3))}
+                  placeholder="18"
+                  keyboardType="number-pad"
+                  maxLength={3}
+                  error={error}
+                />
+                <Button
+                  label="Continue"
+                  onPress={submitAge}
+                  loading={busy}
+                  disabled={Number(age) < MIN_AGE}
+                  fullWidth
+                />
+              </>
+            ) : null}
+
+            {step === 'email' ? (
+              <>
+                <TextField
+                  label="School email"
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="you@school.edu"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  error={error}
+                />
+                <Button
+                  label="Send verification"
+                  onPress={submitEmail}
+                  loading={busy}
+                  disabled={!email.includes('@')}
+                  fullWidth
+                />
+                <Button label="Skip for now" variant="ghost" onPress={skipEmail} fullWidth />
+              </>
+            ) : null}
+
+            {step === 'emailPending' ? (
+              <>
+                {error ? (
+                  <ThemedText type="small" style={{ color: theme.danger }}>
+                    {error}
+                  </ThemedText>
+                ) : null}
+                <Button label="I've verified it" onPress={checkNow} loading={busy} fullWidth />
+                <Button label="Skip for now" variant="ghost" onPress={skipEmail} fullWidth />
+              </>
+            ) : null}
+          </View>
+          <ThemedText type="caption" themeColor="textTertiary">
+            {WORKER_URL
+              ? "Sign-in goes straight from this browser to Yik Yak. Your login stays in this browser. Besides Yik Yak, only webyak's media relay sees it, to upload images and load video thumbnails, and it keeps nothing."
+              : 'Sign-in goes straight from this browser to Yik Yak. Your login stays in this browser and is sent to Yik Yak alone.'}
+          </ThemedText>
+        </View>
+
+        {wide ? null : intro}
       </View>
 
-      <ThemedText type="caption" themeColor="textTertiary">
-        webyak is an unofficial client. Your token is stored in this browser only and is sent
-        directly to Sidechat.
-      </ThemedText>
+      <WelcomeFooter />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  columns: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.six,
+    paddingVertical: Spacing.four,
+  },
+  introColumn: {
+    flex: 1,
+    gap: Spacing.five,
+  },
+  formColumn: {
+    width: 400,
+    gap: Spacing.three,
+  },
+  stack: {
+    gap: Spacing.four,
+  },
   card: {
     borderRadius: Radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     padding: Spacing.three,
     gap: Spacing.three,
+  },
+  cardHead: {
+    gap: Spacing.one,
   },
 });

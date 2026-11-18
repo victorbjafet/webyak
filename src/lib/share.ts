@@ -8,6 +8,9 @@ import type { PostOrComment } from '@/api/types';
  */
 export const BASE_URL = process.env.EXPO_PUBLIC_BASE_URL ?? 'https://webyak.vbjfr.xyz';
 
+/** webyak's source, linked from Settings and the sign-in screen. */
+export const SOURCE_URL = 'https://github.com/victorbjafet/webyak';
+
 /**
  * The URL we hand to other people.
  *

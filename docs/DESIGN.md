@@ -89,7 +89,8 @@ each output:
 | `assets/images/icon.png` 1024 | `expo.icon`: the app icon on iOS and Android | opaque green square, laptop 66% of its width. The OS rounds the corners, and the App Store rejects transparency |
 | `public/apple-touch-icon.png` 180 | the icon when a page is added to an iPhone home screen | the same picture. Safari fetches it from the site root without a `<link>` |
 | `assets/images/favicon.png` 48 | `web.favicon`; Expo builds `favicon.ico` (16/32/48) from it | green tile with 22% rounded corners, laptop 80% of its width |
-| `assets/images/logo.png` 128 | the mark beside "webyak" in the sidebar, shown at 28px | the favicon's picture, larger |
+| `assets/images/logo.png` 128 | the mark beside "webyak" in the sidebar at 28px, and on the sign-in screen at 56px | the favicon's picture, larger |
+| `public/og-image.png` 1200×630 | the link-preview image on Discord, iMessage, Slack and the like ([ARCHITECTURE.md](ARCHITECTURE.md#link-previews)) | the mark at 240px beside "webyak", *Yik Yak, on the web.* and *Unofficial · open source*, on black with a faint green glow behind the mark. Chrome sets the text in the app's font stack, large enough to read at the ~400px Discord shows it |
 | `assets/images/android-icon-foreground.png` 512 | adaptive icon foreground | the outline alone, sized so its farthest pixel stays inside the 66dp safe circle. `adaptiveIcon.backgroundColor` supplies the green |
 | `assets/images/android-icon-monochrome.png` 432 | Android 13+ themed icon | the same outline in white, since the system only reads its alpha and tints it |
 | `assets/images/splash-icon.png` | native splash, 100dp wide on green | the outline alone |
@@ -401,13 +402,42 @@ Built 2026-09-27; what the API gives it is in
   emoji, its name (`@username`, or *Phone ending 1234*), and its community
   underneath, which is often what tells two numbers apart.
 - **The sign-in screen offers what's saved first**: *Saved in this browser*,
-  above the phone number, one *Continue* each. *Use a login file instead* sits
+  above the sign-in card, one *Continue* each. *Use a login file instead* sits
   under *Send code*.
 - **A passphrase is asked for in a dialog, never kept.** Exporting asks twice and
   wants 8 characters; importing asks once. The fields live in the dialog, which
   is only mounted while open.
 - **Switching reloads the page.** A moment's blank is the price of nothing from
   one account showing under another ([ARCHITECTURE.md](ARCHITECTURE.md#accounts-and-login-files)).
+
+## The sign-in screen introduces webyak
+
+**2026-11-17.** The sign-in screen is the whole of webyak for anyone who has
+only been sent the link, so it says what webyak is before it asks for a phone
+number. It used to be a bare form under *Sign in to webyak*.
+
+- **No header.** The mark (56px), the name in `title` and the tagline *Yik Yak,
+  on the web.* in `subtitle` stand where a header would. Then one paragraph on
+  what webyak is.
+- **Four features**, each with an icon on a `brandMuted` tile: the app in a
+  browser, synced both ways; the archive; the bigger-screen layout; no tracking.
+  The copy lives in `FEATURES` in
+  [welcome.tsx](../src/components/accounts/welcome.tsx). Each line has to stay
+  true of the app, so a change to one of those features changes the copy too.
+- **Two outlined links**, styled like Settings' *View source*: the GitHub repo,
+  and the README's *Read this before you trust it*. Signing in hands over a
+  phone number and then a token, so the warnings get a link of their own.
+- **The privacy note under the form names the relay only when there is one.**
+  With a Worker it says the relay sees the token for uploads and video
+  thumbnails and keeps nothing. Without one, the token goes to Yik Yak alone.
+- **Small print at the bottom**: the version, and *Not affiliated with Yik Yak
+  or Sidechat, which runs it.*
+- **Wide (≥ 900px): two columns**, the introduction on the left and the form
+  (400px) on the right, in a 1040px row centred in the window (`Screen`'s
+  `centered`). **Narrow: the form comes before the features**, so on a phone
+  it sits on the first screen, right under the name and the paragraph.
+- **The step title moved into the card**, as a `heading`: *Sign in*, then
+  *Enter your code* and so on.
 
 ## Media sizing
 

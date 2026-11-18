@@ -16,7 +16,9 @@ That is the canonical base for every user-facing link — shared post links, dee
 links, anything printed or copied. It lives in one place, `BASE_URL` in
 [src/lib/share.ts](../src/lib/share.ts), overridable with
 `EXPO_PUBLIC_BASE_URL` for a preview or local deploy. Never hardcode it anywhere
-else.
+else, with two exceptions that can't read it: the `CNAME` file `npm run build:web`
+writes, and the link-preview image's address in `public/index.html`, which has to
+be absolute ([Link previews](#link-previews)).
 
 Because it is a custom domain on GitHub Pages:
 - The domain is a **repository setting** (Settings → Pages → Custom domain), not
@@ -154,6 +156,7 @@ Currently: nowhere. Tracked so we notice the moment it changes.
 | Cold-load group links (`/g/<slug>`) | ✅ **verified** | Resolved natively via `/v1/groups/explore/search` — [Blocker 2 closed](API.md#blocker-2--group-slug--group_id---closed) |
 | **Cold-load share links** (`/p/<id>`) | ✅ | Solved without a server: webyak links carry the post **id**, which `getPost` resolves cold. The API still can't resolve a share *code*, but nothing of ours depends on it any more; a pasted yikyak.com code goes through the Worker's `/post/:code` ([API.md](API.md#blocker-1-resolved--by-changing-the-url-not-the-api)). |
 | Logged-out browsing | ❌ | Out of scope — webyak is auth-only |
+| A link preview showing the post | ❌ | Every path gets the same card. Unfurlers run no script and the post needs a signed-in request ([Link previews](#link-previews)) |
 | Push notifications | ❌ | Needs a server to hold subscriptions. Out of scope; polling only |
 | Hiding a secret | ❌ | We have none. If that ever changes, it needs a worker |
 
@@ -206,8 +209,9 @@ or the browser's install button) and opens without a network. Three files in
   `assets/images/icon.png`). `display: standalone`, black theme and background
   to match the dark default.
 - **`index.html`**, Expo's template for `web.output: "single"`, plus the
-  manifest link, the iOS meta tags, and the worker's registration. Expo still
-  injects its CSS and script into it.
+  manifest link, the iOS meta tags, the worker's registration and the
+  [link-preview tags](#link-previews). Expo still injects its CSS and script
+  into it.
 - **`sw.js`**, hand-written and deliberately narrow:
   - **It never touches another origin.** No API response, image, video or
     token is ever cached by it. The archive (IndexedDB) is what keeps posts
@@ -231,6 +235,43 @@ loaded.
 **To take it out of service**, deploy an `sw.js` that calls
 `self.registration.unregister()`. Browsers check for a new worker on each
 visit, so that removes it everywhere it was installed.
+
+## Link previews
+
+**Added 2026-11-17.** A link to webyak pasted into Discord, iMessage, Slack or X
+unfurls as a card: the name, a line on what webyak is, and a 1200×630 image of
+the mark with the tagline. The tags are Open Graph and `twitter:card` in
+[public/index.html](../public/index.html). The image is `public/og-image.png`,
+drawn by [assets/brand/render-icons.py](../assets/brand/render-icons.py) with
+the icons ([DESIGN.md](DESIGN.md#logo)). Checked in a scratch export that the
+built `index.html` keeps every tag.
+
+What decided its shape:
+
+- **The tags are static, in the HTML file.** Unfurlers fetch the page and run
+  no JavaScript, so a tag the app set at runtime would never be seen.
+- **Every path gets the same card.** Pages serves this one file for `/`, and as
+  `404.html` for every deep link. A shared post shows webyak's card, not the
+  post. Showing the post would need something that renders HTML per path and
+  reads the post with a signed-in token. The Worker is the only server we have,
+  and by design it holds no credential of its own ([WORKER.md](WORKER.md)).
+  So it stays out of scope.
+- **No `og:url`.** It would tell every unfurler that each shared post *is*
+  the home page, and some (Facebook) would then merge their previews.
+- **`og:image` names the live site.** The spec wants an absolute URL, and HTML
+  can't read `BASE_URL`. A preview deploy's card therefore loads its image from
+  the live site, which still works.
+- **`theme-color` stays black.** Discord paints the card's side stripe in it,
+  so green would look better there. But browsers tint their own chrome with it
+  (Safari's tab bar, Chrome's address bar on Android), and webyak is pitch
+  black.
+
+⛔ **Unverified: does a shared post link unfurl at all?** The site root answers
+`200`. `/p/<id>` answers `404` with the same page ([gotchas](#github-pages-gotchas)),
+and no unfurler documents what it does with a 404. Discord may show the card,
+or nothing. Checking means pasting one into Discord after a push. If it shows
+nothing, the fix is a server answering `200` for `/p/*`, which GitHub Pages
+can't be. Tracked in PLAN.md, Phase 9.
 
 ## Versioning
 

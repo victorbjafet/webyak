@@ -62,10 +62,9 @@ import {
   type UpdateState,
 } from '@/lib/archive/types';
 import { saveFile } from '@/lib/save-file';
+import { SOURCE_URL } from '@/lib/share';
 import { formatCount } from '@/lib/time';
 import { showToast, toastError } from '@/lib/toast';
-
-const SOURCE_URL = 'https://github.com/victorbjafet/webyak';
 
 /** The integrity report's structural problems, as short phrases — empty when there are none. */
 function structuralIssues(report: IntegrityReport): string[] {
